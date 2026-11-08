@@ -1,0 +1,36 @@
+{
+  "webhook": {
+    "enabled": true,
+    "url": "http://RELAY_HOST:8000/webhook/YOUR_WEBHOOK_SECRET",
+    "format": "json",
+    "retries": 3,
+    "retry_delay": 0.5,
+    "timeout": 10,
+    "entry": {
+      "type": "entry", "pair": "{pair}", "direction": "{direction}", "amount": "{amount}",
+      "order_rate": "{order_rate}", "open_rate": "{open_rate}", "stake_amount": "{stake_amount}",
+      "leverage": "{leverage}", "trade_id": "{trade_id}", "enter_tag": "{enter_tag}",
+      "sub_trade": "{sub_trade}", "open_date": "{open_date}", "exchange": "{exchange}"
+    },
+    "entry_fill": {
+      "type": "entry_fill", "pair": "{pair}", "direction": "{direction}", "amount": "{amount}",
+      "order_rate": "{order_rate}", "open_rate": "{open_rate}", "stake_amount": "{stake_amount}",
+      "leverage": "{leverage}", "trade_id": "{trade_id}", "enter_tag": "{enter_tag}",
+      "sub_trade": "{sub_trade}", "open_date": "{open_date}", "exchange": "{exchange}"
+    },
+    "exit": {
+      "type": "exit", "pair": "{pair}", "direction": "{direction}", "amount": "{amount}",
+      "order_rate": "{order_rate}", "open_rate": "{open_rate}", "stake_amount": "{stake_amount}",
+      "leverage": "{leverage}", "trade_id": "{trade_id}", "exit_reason": "{exit_reason}",
+      "sub_trade": "{sub_trade}", "is_final_exit": "{is_final_exit}", "profit_ratio": "{profit_ratio}",
+      "close_date": "{close_date}", "exchange": "{exchange}"
+    },
+    "exit_fill": {
+      "type": "exit_fill", "pair": "{pair}", "direction": "{direction}", "amount": "{amount}",
+      "order_rate": "{order_rate}", "open_rate": "{open_rate}", "stake_amount": "{stake_amount}",
+      "leverage": "{leverage}", "trade_id": "{trade_id}", "exit_reason": "{exit_reason}",
+      "sub_trade": "{sub_trade}", "is_final_exit": "{is_final_exit}", "profit_ratio": "{profit_ratio}",
+      "close_date": "{close_date}", "exchange": "{exchange}"
+    }
+  }
+}
