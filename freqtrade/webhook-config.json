@@ -1,7 +1,7 @@
 {
   "webhook": {
     "enabled": true,
-    "url": "http://RELAY_HOST:8000/webhook/YOUR_WEBHOOK_SECRET",
+    "url": "https://panel.example.com/webhook/YOUR_WEBHOOK_SECRET",
     "format": "json",
     "retries": 3,
     "retry_delay": 0.5,

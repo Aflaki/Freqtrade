@@ -1,0 +1,20 @@
+{% extends "base.html" %}{% block content %}{% set tab='users' %}
+<h1>مدیریت</h1>{% include "admin/_nav.html" %}
+{% if not gs.entries_enabled %}<div class="flash warn">ورود جدید برای همه متوقف است.</div>{% endif %}
+<div class="card table-wrap"><table>
+<tr><th>کاربر</th><th>موبایل</th><th>وضعیت</th><th>تلگرام</th><th>صرافی</th><th>سرمایه</th><th>باز</th><th>سود/زیان</th><th>عضویت</th><th></th></tr>
+{% for u in users %}{% set st = stats[u.id] %}<tr>
+<td>{{ u.name }}<br><span class="small muted mono">{{ u.email }}</span>{% if u.is_admin %} <span class="badge">ادمین</span>{% endif %}</td>
+<td class="mono">{{ u.phone }}</td>
+<td><span class="badge {{ 'ok' if u.status=='active' else 'warn' if u.status=='pending' else 'err' }}">{{ STATUS_FA[u.status] }}</span>{% if not u.trading_enabled %} <span class="badge">pause</span>{% endif %}</td>
+<td>{{ '✓' if u.telegram_chat_id else '—' }}</td><td>{{ st.accounts }}</td><td>{{ st.capital|money }}</td><td>{{ st.open }}</td>
+<td class="{{ 'pos' if st.pnl >= 0 else 'neg' }}">{{ '%+.2f'|format(st.pnl) }}</td><td class="small muted">{{ u.created_at.strftime('%Y-%m-%d') }}</td>
+<td><form class="inline" method="post" action="/admin/users/{{ u.id }}"><input type="hidden" name="csrf" value="{{ csrf }}">
+{% if u.status != 'active' %}<button class="sm" name="action" value="approve">تأیید</button>{% endif %}
+{% if u.status != 'suspended' %}<button class="sm danger" name="action" value="suspend" onclick="return confirm('مسدود شود؟ ورود جدید برایش انجام نمی‌شود.')">مسدود</button>{% endif %}
+{% if not u.is_admin %}<button class="sm ghost" name="action" value="promote">ادمین کن</button>{% else %}<button class="sm ghost" name="action" value="demote">حذف ادمین</button>{% endif %}
+</form></td></tr>{% endfor %}
+</table></div>
+<form method="post" action="/admin/broadcast" class="card"><input type="hidden" name="csrf" value="{{ csrf }}">
+<h2>پیام همگانی تلگرام</h2><textarea name="text" rows="3" required></textarea><p><button>ارسال به همه کاربران فعال</button></p></form>
+{% endblock %}

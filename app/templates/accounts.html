@@ -1,0 +1,32 @@
+{% extends "base.html" %}{% block content %}
+<h1>صرافی‌ها و سرمایه</h1>
+<p><a class="btn" href="/accounts/new">+ افزودن صرافی</a></p>
+{% for r in rows %}{% set a = r.acc %}
+<div class="card">
+  <h2>{{ a.label or EXCHANGES.get(a.exchange, a.exchange) }}
+    <span class="badge">{{ EXCHANGES.get(a.exchange, a.exchange) }} · {{ 'اسپات' if a.is_spot else 'فیوچرز ' ~ a.leverage ~ 'x ' ~ a.margin_mode }}</span>
+    {% if a.dry_run %}<span class="badge warn">آزمایشی</span>{% endif %}
+    {% if not a.enabled %}<span class="badge err">غیرفعال</span>{% endif %}
+    {% if a.last_check_ok %}<span class="badge ok">اتصال تأیید شد</span>{% elif a.last_check_ok == false %}<span class="badge err">اتصال ناموفق</span>{% endif %}
+  </h2>
+  <p class="small muted">کلید: <span class="mono">{{ r.key }}</span>{% if a.last_check_msg %} — {{ a.last_check_msg }}{% endif %}</p>
+  <div class="grid">
+    <div class="stat"><div class="k">سرمایه</div><div class="v">{{ a.capital|money }}</div></div>
+    <div class="stat"><div class="k">قابل معامله ({{ (gs.tradable_balance_ratio*100)|round|int }}٪)</div><div class="v">{{ r.tradable|money }}</div></div>
+    <div class="stat"><div class="k">حداکثر معامله هم‌زمان</div><div class="v">{{ r.mot }}</div></div>
+    <div class="stat"><div class="k">پوزیشن باز</div><div class="v">{{ r.open }}</div></div>
+  </div>
+  <div class="table-wrap"><table class="small">
+    <tr><th>جفت‌ارز</th>{% if gs.sizing_formula == 'pair_weights' %}<th>وزن</th>{% endif %}<th>مارجین هر معامله</th><th>ارزش پوزیشن</th></tr>
+    {% for p in r.alloc %}<tr><td class="mono">{{ p.pair }}</td>{% if gs.sizing_formula == 'pair_weights' %}<td>{{ p.weight }}</td>{% endif %}
+    <td>{{ p.stake|money }} {{ gs.stake_currency }}</td><td>{{ p.notional|money }} {{ gs.stake_currency }}</td></tr>{% endfor %}
+  </table></div>
+  <p>
+    <form class="inline" method="post" action="/accounts/{{ a.id }}/test"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="sm">تست اتصال</button></form>
+    <a class="btn ghost sm" href="/accounts/{{ a.id }}/edit">ویرایش</a>
+    <form class="inline" method="post" action="/accounts/{{ a.id }}/toggle"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost sm">{{ 'غیرفعال کردن' if a.enabled else 'فعال کردن' }}</button></form>
+    <form class="inline" method="post" action="/accounts/{{ a.id }}/delete" onsubmit="return confirm('حذف شود؟ کلیدها پاک می‌شوند.')"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger sm">حذف</button></form>
+  </p>
+</div>
+{% else %}<div class="card muted">هنوز صرافی‌ای اضافه نکرده‌اید.</div>{% endfor %}
+{% endblock %}

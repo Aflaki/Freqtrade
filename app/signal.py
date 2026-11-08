@@ -41,6 +41,9 @@ class Signal:
     close_fraction: float = 1.0  # for close actions: 1.0 = full close, 0.25 = close 25%
     stake: float | None = None  # margin (quote currency) the source used for this order
     pair: str | None = None  # original ccxt-style pair, e.g. "BTC/USDT:USDT"
+    ft_trade_id: int | None = None
+    enter_tag: str = ""
+    exit_reason: str = ""
     raw: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -129,6 +132,21 @@ def _f(v: Any) -> float | None:
         return None
 
 
+def _s(v: Any) -> str:
+    v = "" if v is None else str(v)
+    return "" if v == "None" else v[:80]
+
+
+def canonical_pair(sig: Signal, allowed_pairs: list[str]) -> str | None:
+    """Map a signal to a canonical spot-style pair like 'BTC/USDT'."""
+    if sig.pair and "/" in sig.pair:
+        return sig.pair.split(":", 1)[0].upper()
+    for p in allowed_pairs:
+        if p.replace("/", "").upper() == sig.symbol:
+            return p.upper()
+    return None
+
+
 def parse_freqtrade(payload: dict, relay_on: str = "fill") -> Signal | None:
     """Turn a Freqtrade webhook message into a Signal. Returns None for message types we don't relay."""
     msg_type = str(payload.get("type", "")).strip().lower()
@@ -178,5 +196,8 @@ def parse_freqtrade(payload: dict, relay_on: str = "fill") -> Signal | None:
         close_fraction=round(close_fraction, 6),
         stake=order_stake,
         pair=str(pair),
+        ft_trade_id=int(_f(payload.get("trade_id"))) if _f(payload.get("trade_id")) is not None else None,
+        enter_tag=_s(payload.get("enter_tag")),
+        exit_reason=_s(payload.get("exit_reason")),
         raw=raw,
     )

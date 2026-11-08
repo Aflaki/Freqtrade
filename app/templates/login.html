@@ -1,0 +1,9 @@
+{% extends "base.html" %}{% block title %}ورود{% endblock %}
+{% block content %}<div class="auth card">
+<h1>ورود</h1>
+<form method="post" action="/login"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>ایمیل</label><input class="ltr" type="email" name="email" required autofocus>
+<label>رمز عبور</label><input class="ltr" type="password" name="password" required>
+<p><button>ورود</button></p></form>
+<p class="muted">حساب ندارید؟ <a href="/register">ثبت‌نام</a></p>
+</div>{% endblock %}

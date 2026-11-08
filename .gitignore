@@ -1,4 +1,5 @@
 .env
-config.yaml
+data/
+*.db
 __pycache__/
 *.pyc

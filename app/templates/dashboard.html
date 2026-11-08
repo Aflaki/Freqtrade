@@ -1,0 +1,30 @@
+{% extends "base.html" %}{% block content %}
+<h1>سلام {{ user.name or user.email }}</h1>
+{% if user.status == 'pending' %}<div class="flash warn">حساب شما در انتظار تأیید ادمین است. تا تأیید نشود معامله‌ای انجام نمی‌شود؛ در این فاصله صرافی و تلگرام را تنظیم کنید.</div>{% endif %}
+{% if not gs.entries_enabled %}<div class="flash warn">ورود جدید به‌طور موقت توسط ادمین متوقف شده است. خروج پوزیشن‌های باز ادامه دارد.</div>{% endif %}
+{% if not user.trading_enabled %}<div class="flash warn">معاملات شما متوقف است (pause). از <a href="/settings">تنظیمات</a> یا /resume در تلگرام فعال کنید.</div>{% endif %}
+{% if not user.telegram_chat_id %}<div class="flash warn">تلگرام وصل نیست. از <a href="/settings">تنظیمات</a> وصل کنید تا گزارش هر معامله را بگیرید.</div>{% endif %}
+{% if not accounts %}<div class="card"><h2>شروع</h2><p>۱. یک صرافی و کلید API اضافه کنید ۲. سرمایه و ارزها را انتخاب کنید ۳. تلگرام را وصل کنید.</p><a class="btn" href="/accounts/new">افزودن صرافی</a></div>{% endif %}
+
+<div class="grid">
+  <div class="card stat"><div class="k">سرمایه تعیین‌شده</div><div class="v">{{ total_capital|money }} <span class="small muted">{{ gs.stake_currency }}</span></div></div>
+  <div class="card stat"><div class="k">سود/زیان محقق‌شده</div><div class="v {{ 'pos' if pnl >= 0 else 'neg' }}">{{ '%+.2f'|format(pnl) }}</div></div>
+  <div class="card stat"><div class="k">پوزیشن باز</div><div class="v">{{ open_trades|length }}</div></div>
+  <div class="card stat"><div class="k">معاملات بسته / درصد برد</div><div class="v">{{ n_closed }} <span class="small muted">/ {{ (wins / n_closed * 100)|round|int if n_closed else 0 }}%</span></div></div>
+</div>
+
+<div class="card"><h2>پوزیشن‌های باز</h2>
+{% if open_trades %}<div class="table-wrap"><table>
+<tr><th>جفت‌ارز</th><th>جهت</th><th>صرافی</th><th>قیمت ورود</th><th>مقدار</th><th>مارجین</th><th>لوریج</th><th>زمان</th></tr>
+{% for t in open_trades %}<tr><td class="mono">{{ t.pair }}</td><td class="{{ 'pos' if t.side=='long' else 'neg' }}">{{ t.side|upper }}</td>
+<td>{{ acc_names.get(t.account_id) }}{% if t.dry_run %} <span class="badge">آزمایشی</span>{% endif %}</td><td>{{ t.entry_price|price }}</td><td>{{ (t.amount * t.contract_size)|price }}</td>
+<td>{{ t.stake|money }}</td><td>{{ t.leverage|int }}x</td><td class="small muted">{{ t.opened_at.strftime('%Y-%m-%d %H:%M') }}</td></tr>{% endfor %}
+</table></div>{% else %}<p class="muted">پوزیشن بازی ندارید.</p>{% endif %}</div>
+
+<div class="card"><h2>آخرین معاملات بسته‌شده</h2>
+{% if closed %}<div class="table-wrap"><table>
+<tr><th>جفت‌ارز</th><th>جهت</th><th>ورود</th><th>خروج</th><th>سود/زیان</th><th>٪</th><th>دلیل</th></tr>
+{% for t in closed %}<tr><td class="mono">{{ t.pair }}</td><td>{{ t.side|upper }}</td><td>{{ t.entry_price|price }}</td><td>{{ t.exit_price|price }}</td>
+<td class="{{ 'pos' if t.realized_pnl >= 0 else 'neg' }}">{{ '%+.2f'|format(t.realized_pnl) }}</td><td>{{ '%+.2f'|format(t.pnl_ratio*100) }}%</td><td class="small">{{ t.exit_reason }}</td></tr>{% endfor %}
+</table></div><p><a href="/trades">همه معاملات ←</a></p>{% else %}<p class="muted">هنوز معامله‌ای بسته نشده.</p>{% endif %}</div>
+{% endblock %}

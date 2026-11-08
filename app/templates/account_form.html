@@ -1,0 +1,76 @@
+{% extends "base.html" %}{% block content %}
+<h1>{{ 'ویرایش صرافی' if acc else 'افزودن صرافی' }}</h1>
+<form method="post" class="card" id="f"><input type="hidden" name="csrf" value="{{ csrf }}">
+<h2>صرافی و کلید API</h2>
+<div class="flash warn small">فقط کلید با دسترسی <b>Trade</b> بسازید. دسترسی <b>Withdraw (برداشت)</b> را هرگز فعال نکنید. اگر صرافی اجازه می‌دهد، IP سرور را در کلید ثبت کنید.</div>
+<div class="row">
+  <div><label>نام دلخواه</label><input type="text" name="label" value="{{ acc.label if acc else '' }}" placeholder="مثلاً بایننس اصلی"></div>
+  <div><label>صرافی</label><select name="exchange" id="exchange">
+    {% for e in gs.allowed_exchanges %}<option value="{{ e }}" {{ 'selected' if acc and acc.exchange == e }}>{{ EXCHANGES.get(e, e) }}</option>{% endfor %}</select></div>
+</div>
+<div class="row">
+  <div><label>API Key</label><input class="ltr" type="text" name="api_key" autocomplete="off" placeholder="{{ key_mask + ' (خالی = بدون تغییر)' if acc else '' }}"></div>
+  <div><label>Secret Key</label><input class="ltr" type="password" name="secret" autocomplete="new-password" placeholder="{{ '•••• (خالی = بدون تغییر)' if acc else '' }}"></div>
+  <div id="pwbox"><label>Passphrase <span class="small muted">(OKX، Bitget، KuCoin)</span></label><input class="ltr" type="password" name="password" autocomplete="new-password"></div>
+</div>
+<label class="check"><input type="checkbox" name="no_withdraw" required> تأیید می‌کنم این کلید دسترسی برداشت ندارد.</label>
+
+<h2 style="margin-top:22px">نوع بازار</h2>
+<div class="row">
+  <div><label>بازار (trading_mode)</label><select name="trading_mode" id="mode">
+    <option value="futures" {{ 'selected' if not acc or acc.trading_mode=='futures' }}>فیوچرز (لانگ و شورت)</option>
+    <option value="spot" {{ 'selected' if acc and acc.trading_mode=='spot' }}>اسپات (فقط خرید)</option></select></div>
+  <div class="fut"><label>لوریج (حداکثر {{ gs.max_leverage }})</label><input type="number" name="leverage" id="lev" min="1" max="{{ gs.max_leverage }}" value="{{ acc.leverage if acc else 1 }}"></div>
+  <div class="fut"><label>نوع مارجین (margin_mode)</label><select name="margin_mode">
+    <option value="isolated" {{ 'selected' if not acc or acc.margin_mode=='isolated' }}>Isolated</option>
+    <option value="cross" {{ 'selected' if acc and acc.margin_mode=='cross' }}>Cross</option></select></div>
+</div>
+
+<h2 style="margin-top:22px">سرمایه و تقسیم بین ارزها</h2>
+<div class="row">
+  <div><label>سرمایه این صرافی ({{ gs.stake_currency }}) — حداقل {{ gs.min_capital|money(0) }}</label>
+    <input type="number" step="any" name="capital" id="capital" min="{{ gs.min_capital }}" value="{{ acc.capital if acc else '' }}" required></div>
+  {% if gs.sizing_formula == 'equal_split' %}
+  <div><label>حداکثر معامله هم‌زمان (max_open_trades)</label>
+    <input type="number" name="max_open_trades" id="mot" min="1" max="50" value="{{ acc.max_open_trades if acc and acc.max_open_trades else '' }}" placeholder="پیش‌فرض: {{ gs.default_max_open_trades }}"></div>
+  {% endif %}
+</div>
+<p class="small muted">طبق فرمول: {{ (gs.tradable_balance_ratio*100)|round|int }}٪ سرمایه وارد معامله می‌شود؛
+{% if gs.sizing_formula == 'equal_split' %}این مبلغ بر تعداد معاملات هم‌زمان تقسیم و به هر معامله یک سهم مساوی داده می‌شود.{% else %}این مبلغ به نسبت وزنی که به هر ارز می‌دهید بین ارزها تقسیم می‌شود.{% endif %}
+{% if gs.max_stake_per_trade %} سقف مارجین هر معامله: {{ gs.max_stake_per_trade|money }}.{% endif %}</p>
+
+<div class="table-wrap"><table class="pairs">
+<tr><th>انتخاب</th><th>جفت‌ارز</th>{% if gs.sizing_formula == 'pair_weights' %}<th>وزن</th>{% endif %}<th>مارجین هر معامله</th><th>ارزش پوزیشن</th></tr>
+{% for p in gs.allowed_pairs %}{% set sel = acc and p in acc.pairs %}
+<tr><td><input type="checkbox" class="pc" name="pair__{{ p }}" data-p="{{ p }}" {{ 'checked' if sel or not acc }}></td><td class="mono">{{ p }}</td>
+{% if gs.sizing_formula == 'pair_weights' %}<td><input type="number" class="pw" step="any" min="0.1" name="weight__{{ p }}" data-p="{{ p }}" value="{{ acc.pairs[p] if sel else 1 }}" style="width:90px"></td>{% endif %}
+<td class="st" data-p="{{ p }}">-</td><td class="nt" data-p="{{ p }}">-</td></tr>{% endfor %}
+</table></div>
+
+<h2 style="margin-top:22px">حالت اجرا</h2>
+<label class="check"><input type="checkbox" name="dry_run" {{ 'checked' if not acc or acc.dry_run }}> <span><b>آزمایشی (Dry-run)</b>: سفارش واقعی ثبت نمی‌شود؛ با قیمت لحظه‌ای شبیه‌سازی و در تلگرام گزارش می‌شود. پیشنهاد: چند روز آزمایشی، بعد واقعی.</span></label>
+<label class="check"><input type="checkbox" name="sandbox" {{ 'checked' if acc and acc.sandbox }}> <span>Testnet صرافی (فقط اگر کلید را از testnet گرفته‌اید)</span></label>
+<p><button>ذخیره</button> <a class="btn ghost" href="/accounts">انصراف</a></p>
+</form>
+<script>
+(function(){
+  const ratio={{ gs.tradable_balance_ratio }}, formula="{{ gs.sizing_formula }}", defMot={{ gs.default_max_open_trades }},
+        maxStake={{ gs.max_stake_per_trade or 0 }}, needPw={{ NEEDS_PASSWORD|list|tojson }};
+  const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+  function upd(){
+    const spot=$('#mode').value==='spot'; $$('.fut').forEach(e=>e.style.display=spot?'none':'');
+    $('#pwbox').style.display=needPw.includes($('#exchange').value)?'':'none';
+    const cap=parseFloat($('#capital').value)||0, lev=spot?1:(parseInt($('#lev').value)||1), budget=cap*ratio;
+    const sel=$$('.pc').filter(c=>c.checked).map(c=>c.dataset.p);
+    let w={}; sel.forEach(p=>{const i=$(`.pw[data-p="${p}"]`); w[p]=i?Math.max(0,parseFloat(i.value)||0):1});
+    const tw=Object.values(w).reduce((a,b)=>a+b,0), mot=parseInt(($('#mot')||{}).value)||defMot;
+    $$('.st').forEach(td=>{const p=td.dataset.p; let s=0;
+      if(sel.includes(p)) s=formula==='pair_weights'?(tw?budget*w[p]/tw:0):budget/mot;
+      if(maxStake) s=Math.min(s,maxStake);
+      td.textContent=sel.includes(p)?s.toLocaleString('en',{maximumFractionDigits:2}):'-';
+      $(`.nt[data-p="${p}"]`).textContent=sel.includes(p)?(s*lev).toLocaleString('en',{maximumFractionDigits:2}):'-';});
+  }
+  $('#f').addEventListener('input',upd); upd();
+})();
+</script>
+{% endblock %}
