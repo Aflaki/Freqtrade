@@ -15,6 +15,42 @@ from ..security import decrypt, encrypt, flash, form_with_csrf, require_admin
 from .common import render, tr
 
 router = APIRouter(prefix="/admin")
+TEMPLATE_FILE = __import__("pathlib").Path(__file__).resolve().parents[2] / "freqtrade" / "webhook-config.json"
+
+
+def _webhook_template() -> dict:
+    import json
+    return json.loads(TEMPLATE_FILE.read_text(encoding="utf-8"))["webhook"]
+
+
+def _all_bots() -> tuple[list[Bot], str]:
+    with SessionLocal() as s:
+        return list(s.scalars(select(Bot).order_by(Bot.sort, Bot.id))), get_global(s).base_url
+
+
+@router.get("/bots/export/freqtrade_webhooks.py")
+async def export_script(request: Request):
+    from fastapi.responses import Response
+
+    from .export_script import build_script
+    require_admin(request)
+    bots, base = _all_bots()
+    with SessionLocal() as s:
+        site = get_global(s).site_name
+    body = build_script(site, base, bots, _webhook_template())
+    return Response(body, media_type="text/x-python",
+                    headers={"Content-Disposition": 'attachment; filename="freqtrade_webhooks.py"'})
+
+
+@router.get("/bots/export/webhooks.json")
+async def export_json(request: Request):
+    from fastapi.responses import JSONResponse
+    require_admin(request)
+    bots, base = _all_bots()
+    tpl = _webhook_template()
+    out = [{"id": b.id, "name": b.name, "api_url": b.api_url, "webhook_url": webhook_url(base, b),
+            "webhook": {**tpl, "enabled": True, "url": webhook_url(base, b)}} for b in bots]
+    return JSONResponse(out, headers={"Content-Disposition": 'attachment; filename="webhooks.json"'})
 
 
 def webhook_url(base: str, bot: Bot) -> str:
@@ -119,6 +155,19 @@ async def bots_action(request: Request):
                 b.group_id = gid
             s.commit()
         flash(request, tr(request, "msg_moved", n=len(ids)))
+    elif action == "reload_all":
+        with SessionLocal() as s:
+            ids = [b.id for b in s.scalars(select(Bot).where(Bot.enabled.is_(True), Bot.api_url != ""))]
+        ok, errs = 0, []
+        for i in ids:
+            try:
+                await monitor.control(i, "reload_config")
+                ok += 1
+            except Exception as e:
+                errs.append(f"#{i}: {type(e).__name__}: {str(e)[:120]}")
+        flash(request, tr(request, "msg_reloaded", n=ok, total=len(ids)), "ok" if not errs else "error")
+        for e in errs[:10]:
+            flash(request, e, "error")
     elif action == "refresh_all":
         await monitor.poll_all(alert=False)
         flash(request, tr(request, "msg_done"))

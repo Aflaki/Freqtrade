@@ -1,4 +1,4 @@
-{% extends "base.html" %}{% block content %}
+{% extends "base.html" %}{% block content %}{% from "_icons.html" import ic %}
 <h1>{{ _('nav_admin') }}</h1>{% include "admin/_nav.html" %}
 <form method="post" id="botsform"><input type="hidden" name="csrf" value="{{ csrf }}">
 <div class="card"><h2>{{ _('bots_title') }} <span class="badge">{{ bots|length }}</span></h2>
@@ -48,6 +48,20 @@
 <div><label>{{ _('col_description') }}</label><input type="text" name="group_desc"></div>
 <div><button>+ {{ _('group_new') }}</button></div></form>
 </div>
+
+<div class="card" id="export"><h2>{{ ic('download') }}{{ _('export_title') }}</h2>
+<p class="small muted">{{ _('export_intro') }}</p>
+<p style="display:flex;gap:8px;flex-wrap:wrap">
+<a class="btn" href="/admin/bots/export/freqtrade_webhooks.py">{{ ic('download') }}freqtrade_webhooks.py</a>
+<a class="btn ghost" href="/admin/bots/export/webhooks.json">{{ ic('download') }}webhooks.json</a></p>
+<ol class="small" style="line-height:2">
+<li>{{ _('export_step1') }}<pre>scp freqtrade_webhooks.py root@{{ base.split('//')[-1].split('/')[0].split(':')[0] }}:/root/</pre></li>
+<li>{{ _('export_step2') }}<pre>python3 /root/freqtrade_webhooks.py</pre></li>
+<li>{{ _('export_step3') }}<pre>python3 /root/freqtrade_webhooks.py --apply</pre></li>
+<li>{{ _('export_step4') }}
+<form method="post" style="display:inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button name="action" value="reload_all" class="sm" onclick="return confirm('{{ _('confirm_reload_all') }}')">{{ ic('refresh') }}{{ _('btn_reload_all') }}</button></form></li>
+</ol>
+<p class="small muted">{{ _('export_note') }}</p></div>
 
 <form method="post" class="card"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="add">
 <h2>{{ _('bot_add') }}</h2>

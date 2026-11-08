@@ -97,7 +97,8 @@ def render(request: Request, name: str, status_code: int = 200, **ctx):
     theme = (user.theme if user and user.theme in THEMES else None) or request.query_params.get("theme")
     if theme not in THEMES:
         theme = site.theme if site.theme in THEMES else "aurora"
-    ctx.update(lang=lang, dir=LANGS[lang]["dir"], theme=theme, csrf=csrf_token(request), flashes=pop_flashes(request),
+    from .icons import icon_version
+    ctx.update(lang=lang, dir=LANGS[lang]["dir"], theme=theme, icon_v=icon_version(), csrf=csrf_token(request), flashes=pop_flashes(request),
                _=lambda key, **kw: t(lang, key, **kw))
     return templates.TemplateResponse(request, name, ctx, status_code=status_code)
 

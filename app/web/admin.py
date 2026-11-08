@@ -14,6 +14,7 @@ from ..i18n import LANGS
 from ..security import encrypt, flash, form_with_csrf, require_admin
 from ..telegram import bot, esc
 from .common import render, tr
+from .icons import custom_icon, remove_icon, save_icon
 
 router = APIRouter(prefix="/admin")
 PAGE = 50
@@ -97,7 +98,7 @@ async def admin_settings(request: Request):
     with SessionLocal() as s:
         gs = get_global(s)
     return render(request, "admin/settings.html", gs=gs, all_exchanges=EXCHANGES, sizing_all=SIZING_MODES,
-                  tab="settings", bot_username=bot.username, bot_error=bot.last_error,
+                  tab="settings", bot_username=bot.username, bot_error=bot.last_error, has_custom_icon=bool(custom_icon()),
                   has_token=bool(gs.telegram_token_enc))
 
 
@@ -121,6 +122,14 @@ async def admin_settings_save(request: Request):
             from .common import THEMES
             if f.get("theme") in THEMES:
                 gs.theme = str(f["theme"])
+            upload = f.get("site_icon")
+            if f.get("remove_icon"):
+                remove_icon()
+            elif upload is not None and getattr(upload, "filename", ""):
+                try:
+                    save_icon(await upload.read())
+                except ValueError as e:
+                    flash(request, str(e), "error")
             gs.default_lang = f.get("default_lang") if f.get("default_lang") in LANGS else "fa"
             gs.base_url = str(f.get("base_url", "")).strip().rstrip("/")[:200] or gs.base_url
             gs.public_performance = bool(f.get("public_performance"))

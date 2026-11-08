@@ -1,7 +1,7 @@
 {% extends "base.html" %}{% from "_themes.html" import theme_picker with context %}{% block content %}
 <h1>{{ _('nav_admin') }}</h1>{% include "admin/_nav.html" %}
 
-<form method="post" class="card" id="general"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="section" value="general">
+<form method="post" class="card" id="general" enctype="multipart/form-data"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="section" value="general">
 <h2>{{ _('sec_general') }}</h2>
 <div class="row">
 <div><label>{{ _('f_site_name') }}</label><input type="text" name="site_name" value="{{ gs.site_name }}"></div>
@@ -10,6 +10,11 @@
 <div><label>{{ _('f_trial_days') }}</label><input type="number" min="0" name="trial_days" value="{{ gs.trial_days }}"></div>
 <div><label>{{ _('f_report_hour') }}</label><input type="number" min="0" max="23" name="daily_report_hour_utc" value="{{ gs.daily_report_hour_utc }}"></div>
 </div>
+<label>{{ _('f_site_icon') }}</label>
+<div class="sum"><img src="/site-icon?v={{ icon_v }}" alt="" width="48" height="48" style="border-radius:10px">
+<input type="file" name="site_icon" accept=".png,.svg,.ico,.webp,image/png,image/svg+xml,image/x-icon,image/webp" style="width:auto">
+{% if has_custom_icon %}<label class="check" style="margin:0"><input type="checkbox" name="remove_icon"> {{ _('f_site_icon_reset') }}</label>{% endif %}</div>
+<p class="small muted">{{ _('f_site_icon_help') }}</p>
 <label>{{ _('f_theme_site') }}</label>
 {{ theme_picker('theme', gs.theme) }}
 <p class="small muted">{{ _('f_theme_help') }}</p>

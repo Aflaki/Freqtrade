@@ -1,4 +1,4 @@
-<div class="pills">
-{% for k, url in [('bot','/admin/bot'),('users','/admin'),('settings','/admin/settings'),('performance','/admin/performance'),('logs','/admin/logs'),('trades','/admin/trades')] %}
-<a href="{{ url }}" class="{{ 'on' if tab == k }}">{{ _('adm_' ~ k) }}</a>{% endfor %}
+{% from "_icons.html" import ic %}<div class="pills">
+{% for k, url, icon in [('bot','/admin/bot','bot'),('users','/admin','users'),('settings','/admin/settings','settings'),('performance','/admin/performance','database'),('logs','/admin/logs','file'),('trades','/admin/trades','list')] %}
+<a href="{{ url }}" class="{{ 'on' if tab == k }}">{{ ic(icon) }}{{ _('adm_' ~ k) }}</a>{% endfor %}
 </div>
