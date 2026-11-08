@@ -79,6 +79,8 @@
 {% if traded %}<p class="small muted">{{ _('pf_traded') }}:
 {% for p in traded %}<a href="#" class="badge" onclick="var t=document.getElementById('pflist');if(!t.value.split('\n').includes('{{ p }}'))t.value=(t.value.trim()?t.value.trim()+'\n':'')+'{{ p }}';return false;">+ {{ p }}</a> {% endfor %}</p>{% endif %}
 <label>{{ _('col_description') }}</label><input type="text" name="description" value="{{ b.description }}">
+<label>{{ _('f_stats_capital') }}</label><input type="number" step="any" min="0" name="stats_capital" value="{{ b.stats_capital or '' }}" placeholder="{{ '%.2f'|format(st.starting_capital|float) if st.starting_capital else '' }}" style="max-width:220px">
+<div class="small muted">{{ _('f_stats_capital_help') }}{% if st.starting_capital %} — Freqtrade: <span class="num">{{ st.starting_capital|money(2) }}</span>{% endif %}</div>
 <label class="check"><input type="checkbox" name="enabled" {{ 'checked' if b.enabled }}> {{ _('bot_f_enabled') }}</label>
 <label class="check"><input type="checkbox" name="copy_enabled" {{ 'checked' if b.copy_enabled }}> {{ _('bot_f_copy') }}</label>
 <label class="check"><input type="checkbox" name="public" {{ 'checked' if b.public }}> {{ _('bot_f_public') }}</label>

@@ -8,11 +8,11 @@
   <a class="card" href="{{ base }}?group={{ g.id }}&market={{ market }}&days={{ period }}{{ '&pair=' ~ pair if pair }}" style="color:inherit;{{ 'outline:2px solid var(--brand)' if group_sel == g.id and not bot_sel }}">
     <h2>📦 {{ g.name }}</h2>{% if g.description %}<p class="small muted">{{ g.description }}</p>{% endif %}
     {% if c %}<p class="small">{{ c.bots }} {{ _('bots_word') }} · {{ c.trades }} {{ _('perf_trades') }} · <span class="num">{{ '%.0f'|format(c.win_rate) }}%</span> ·
-    <span class="{{ 'pos' if c.total >= 0 else 'neg' }}">{{ c.total|pct(1) }}</span></p>{% endif %}</a>
+    <span class="{{ 'pos' if c.profit_abs >= 0 else 'neg' }}">{{ c.profit_abs|signed }}</span>{% if c.return_pct is not none %} · <span class="{{ 'pos' if c.return_pct >= 0 else 'neg' }}">{{ c.return_pct|pct(1) }}</span>{% endif %}</p>{% endif %}</a>
   {% endfor %}
   {% if ungrouped %}{% set c = (gcards or {}).get(0, {}) %}
   <a class="card" href="{{ base }}?group=0&market={{ market }}&days={{ period }}{{ '&pair=' ~ pair if pair }}" style="color:inherit;{{ 'outline:2px solid var(--brand)' if group_sel == 0 and not bot_sel }}">
-    <h2>{{ _('ungrouped') }}</h2>{% if c %}<p class="small">{{ c.trades }} {{ _('perf_trades') }} · <span class="{{ 'pos' if c.total >= 0 else 'neg' }}">{{ c.total|pct(1) }}</span></p>{% endif %}</a>
+    <h2>{{ _('ungrouped') }}</h2>{% if c %}<p class="small">{{ c.trades }} {{ _('perf_trades') }} · <span class="{{ 'pos' if c.profit_abs >= 0 else 'neg' }}">{{ c.profit_abs|signed }}</span></p>{% endif %}</a>
   {% endif %}
 </div>
 {% endif %}
@@ -21,7 +21,7 @@
   {% for b in scope_bots %}{% set c = cards.get(b.id, {}) %}
   <a class="card" href="{{ base }}?{{ 'group=' ~ group_sel ~ '&' if group_sel is not none }}bot={{ b.id }}&market={{ market }}&days={{ period }}" style="color:inherit;padding:12px 14px;{{ 'outline:2px solid var(--brand)' if bot_sel == b.id }}">
     <b>{{ b.name }}</b>{% if b.description %}<br><span class="small muted">{{ b.description }}</span>{% endif %}
-    <br><span class="small">{{ c.trades or 0 }} · <span class="num">{{ '%.0f'|format(c.win_rate or 0) }}%</span> · <span class="{{ 'pos' if (c.total or 0) >= 0 else 'neg' }}">{{ (c.total or 0)|pct(1) }}</span> · <span class="num">{{ '%.1f'|format(c.avg_lev or 0) }}x</span></span></a>
+    <br><span class="small">{{ c.trades or 0 }} · <span class="num">{{ '%.0f'|format(c.win_rate or 0) }}%</span> · <span class="{{ 'pos' if (c.profit_abs or 0) >= 0 else 'neg' }}">{{ (c.profit_abs or 0)|signed }}</span>{% if c.return_pct is not none %} · <span class="{{ 'pos' if c.return_pct >= 0 else 'neg' }}">{{ c.return_pct|pct(1) }}</span>{% endif %} · <span class="num">{{ '%.1f'|format(c.avg_lev or 0) }}x</span></span></a>
   {% endfor %}
 </div>
 {% endif %}

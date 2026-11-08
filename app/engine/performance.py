@@ -161,22 +161,47 @@ def _closed(market: str, days: int | None, bots: list[int] | None = None) -> lis
     return [t for t in rows if t.bot_id not in bots or bots[t.bot_id].allows(t.pair)]
 
 
-def _stats(trades: list[BotTrade]) -> dict:
+def _amount(t: BotTrade) -> float:
+    """Profit in stake currency: Freqtrade's close_profit_abs, else stake * ratio."""
+    if t.profit_abs is not None:
+        return t.profit_abs
+    return (t.stake_amount or 0) * (t.profit_ratio or 0)
+
+
+def capitals(bot_ids: list[int]) -> float | None:
+    """Sum of the bots' starting capital; None if any bot's capital is unknown (no misleading %)."""
+    with SessionLocal() as s:
+        caps = [b.capital for b in s.scalars(select(Bot).where(Bot.id.in_(bot_ids or [-1])))]
+    return sum(caps) if caps and all(c for c in caps) else None
+
+
+def _stats(trades: list[BotTrade], capital: float | None = None) -> dict:
+    """Same definitions as Freqtrade/FreqUI:
+    profit_abs  = sum of close_profit_abs                     (FreqUI "Profit")
+    return_pct  = profit_abs / starting capital               (FreqUI "Profit %", needs capital)
+    avg         = mean of close_profit per trade              (FreqUI "Avg. profit")
+    max_dd_*    = largest fall of the balance from its high   (Freqtrade calculate_max_drawdown)
+    """
     if not trades:
-        return {"trades": 0, "wins": 0, "win_rate": 0, "total": 0, "avg": 0, "best": 0, "worst": 0,
-                "max_dd": 0, "avg_hours": 0, "last": None, "profit_abs": 0, "avg_lev": 0}
-    r = [t.profit_ratio or 0.0 for t in trades]  # exactly Freqtrade's profit %, with the bot's leverage
-    eq, peak, dd = 0.0, 0.0, 0.0
-    for x in r:
-        eq += x
-        peak = max(peak, eq)
-        dd = min(dd, eq - peak)
+        return {"trades": 0, "wins": 0, "win_rate": 0, "profit_abs": 0, "sum_ratio": 0, "return_pct": None, "avg": 0,
+                "best": 0, "worst": 0, "max_dd_pct": None, "max_dd_abs": 0, "avg_lev": 0, "avg_hours": 0, "last": None}
+    r = [t.profit_ratio or 0.0 for t in trades]
+    amounts = [_amount(t) for t in trades]
+    cum = high = dd_abs = dd_rel = 0.0
+    for x in amounts:
+        cum += x
+        high = max(high, cum)
+        dd_abs = max(dd_abs, high - cum)
+        if capital:
+            dd_rel = max(dd_rel, (high - cum) / (capital + high))
     hours = [((t.close_date - t.open_date).total_seconds() / 3600) for t in trades if t.close_date and t.open_date]
-    wins = sum(1 for t in trades if (t.profit_abs if t.profit_abs is not None else t.profit_ratio or 0) > 0)
-    return {"trades": len(r), "wins": wins, "win_rate": wins / len(r) * 100, "total": sum(r) * 100,
-            "profit_abs": sum(t.profit_abs or 0 for t in trades),
+    wins = sum(1 for x in amounts if x > 0)
+    profit = sum(amounts)
+    return {"trades": len(r), "wins": wins, "win_rate": wins / len(r) * 100, "profit_abs": profit,
+            "sum_ratio": sum(r), "return_pct": profit / capital * 100 if capital else None,
+            "avg": sum(r) / len(r) * 100, "best": max(r) * 100, "worst": min(r) * 100,
+            "max_dd_pct": dd_rel * 100 if capital else None, "max_dd_abs": dd_abs,
             "avg_lev": sum(t.leverage or 1 for t in trades) / len(trades),
-            "avg": sum(r) / len(r) * 100, "best": max(r) * 100, "worst": min(r) * 100, "max_dd": dd * 100,
             "avg_hours": sum(hours) / len(hours) if hours else 0, "last": trades[-1].close_date}
 
 
@@ -190,13 +215,14 @@ def pair_stats(market: str = "all", days: int | None = None, bots: list[int] | N
 def summary(market: str = "all", days: int | None = None, pairs: list[str] | None = None,
             bots: list[int] | None = None) -> dict:
     trades = [t for t in _closed(market, days, bots) if not pairs or t.pair in pairs]
-    st = _stats(trades)
-    # equity curve: cumulative profit in stake currency (like FreqUI), or sum of % if amounts are unknown
-    use_abs = bool(trades) and all(t.profit_abs is not None for t in trades)
-    st["curve_abs"] = use_abs
+    ids = bots if bots is not None else sorted({t.bot_id for t in trades if t.bot_id})
+    st = _stats(trades, capitals(ids))
+    st["capital"] = capitals(ids)
+    # equity curve: cumulative profit in stake currency, like the FreqUI chart
+    st["curve_abs"] = True
     pts, eq = [], 0.0
     for t in trades:
-        eq += (t.profit_abs or 0) if use_abs else (t.profit_ratio or 0) * 100
+        eq += _amount(t)
         pts.append((t.close_date, eq))
     if len(pts) > 200:
         step = len(pts) / 200
@@ -223,7 +249,8 @@ def bot_summaries(bot_ids: list[int], market: str = "all", days: int | None = 90
     by_bot: dict[int, list[BotTrade]] = defaultdict(list)
     for t in _closed(market, days, bot_ids):
         by_bot[t.bot_id].append(t)
-    return {b: {k: v for k, v in _stats(by_bot.get(b, [])).items() if k != "last"} for b in bot_ids}
+    caps = {b: capitals([b]) for b in bot_ids}
+    return {b: {k: v for k, v in _stats(by_bot.get(b, []), caps[b]).items() if k != "last"} for b in bot_ids}
 
 
 def stats_json(bot_ids: list[int], days: int | None = 90) -> str:
@@ -236,7 +263,7 @@ def stats_json(bot_ids: list[int], days: int | None = 90) -> str:
             for t in _closed(m, days, [b]):
                 by_pair[t.pair].append(t)
             out[str(b)][m] = {p: {k: (round(v, 4) if isinstance(v, float) else v) for k, v in _stats(ts).items()
-                                  if k != "last"} for p, ts in by_pair.items()}
+                                  if k in ("trades", "wins", "profit_abs", "sum_ratio")} for p, ts in by_pair.items()}
     return json.dumps(out)
 
 
@@ -263,7 +290,7 @@ def group_summaries(groups: list[BotGroup], bots_by_group: dict[int, list[int]],
     out = {}
     for g in groups:
         ids = bots_by_group.get(g.id, [])
-        st = _stats(_closed(market, days, ids)) if ids else _stats([])
+        st = _stats(_closed(market, days, ids), capitals(ids)) if ids else _stats([])
         out[g.id] = {k: v for k, v in st.items() if k != "last"} | {"bots": len(ids)}
     return out
 
@@ -314,7 +341,7 @@ def pair_compare(pair: str, market: str, days: int | None, bots: list[Bot], grou
         ts = [t for t in trades if t.bot_id in ids]
         if ts:
             grows.append({"kind": "group", "id": g.id, "name": g.name, "stats": _stats(ts), "curve": _curve(ts)})
-    rows.sort(key=lambda r: -r["stats"]["total"])
+    rows.sort(key=lambda r: -r["stats"]["profit_abs"])
     shown = rows[: len(PALETTE)]
     chart = multi_svg([r["curve"] for r in shown])
     for i, r in enumerate(shown):

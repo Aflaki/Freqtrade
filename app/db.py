@@ -312,12 +312,22 @@ class Bot(Base):
     # pair filter: "none" | "whitelist" (only these pairs) | "blacklist" (all except these)
     pair_filter_mode: Mapped[str | None] = mapped_column(String(10), nullable=True)
     pair_filter: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    stats_capital: Mapped[float | None] = mapped_column(Float, nullable=True)  # override of Freqtrade's starting_capital
     state: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)  # monitor result
     created_at: Mapped[dt.datetime] = mapped_column(default=utcnow)
 
     @property
     def st(self) -> dict[str, Any]:
         return self.state or {}
+
+    @property
+    def capital(self) -> float | None:
+        """Starting capital used for % figures: manual value, else Freqtrade's /balance starting_capital."""
+        v = self.stats_capital or (self.state or {}).get("starting_capital")
+        try:
+            return float(v) if v and float(v) > 0 else None
+        except (TypeError, ValueError):
+            return None
 
     def allows(self, pair: str) -> bool:
         """Is this pair part of the bot's results / signals (per its whitelist or blacklist)?"""

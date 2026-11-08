@@ -18,7 +18,7 @@ def _scope(request: Request) -> dict:
     """Shared filters of the public pages: market, period, group, bot."""
     qp = request.query_params
     market = {"long": "long", "short": "short", "spot": "long"}.get(qp.get("market", ""), "all")
-    period = qp.get("days", "90") if qp.get("days", "90") in PERIODS else "90"
+    period = qp.get("days", "all") if qp.get("days", "all") in PERIODS else "all"
     all_bots, groups = perf.visible_bots()
     group_ids = {g.id for g in groups}
     group = int(qp["group"]) if qp.get("group", "").isdigit() and (int(qp["group"]) in group_ids or qp["group"] == "0") else None
@@ -63,7 +63,7 @@ async def compare(request: Request):
     m, d = sc["market"], sc["days"]
     matrix = perf.pair_matrix(m, d, sc["scope_bots"]) if show else {}
     cmp = perf.pair_compare(pair, m, d, sc["scope_bots"], sc["groups"]) if show and pair else None
-    maxabs = max([abs(st["total"]) for row in matrix.values() for st in row.values()] or [1]) or 1
+    maxabs = max([abs(st["profit_abs"]) for row in matrix.values() for st in row.values()] or [1]) or 1
     return render(request, "compare.html", show=show, pair=pair, matrix=matrix, cmp=cmp, maxabs=maxabs,
                   group_names={g.id: g.name for g in sc["groups"]}, **sc)
 

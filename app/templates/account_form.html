@@ -42,8 +42,8 @@
 {% for b in gbots %}{% set cf = cards.all.get(b.id, {}) %}{% set cs = cards.long.get(b.id, {}) %}
 <label class="card check" style="margin:0;cursor:pointer"><input type="checkbox" class="bc" data-g="{{ b.group_id or 0 }}" name="bot__{{ b.id }}" value="{{ b.id }}" {{ 'checked' if b.id in followed }}>
 <span><b>{{ b.name }}</b>{% if b.description %}<br><span class="small muted">{{ b.description }}</span>{% endif %}<br>
-<span class="small">{{ _('mkt_all') }}: {{ cf.trades or 0 }} · <span class="num">{{ '%.0f'|format(cf.win_rate or 0) }}%</span> · <span class="{{ 'pos' if (cf.total or 0) >= 0 else 'neg' }}">{{ (cf.total or 0)|pct(1) }}</span></span><br>
-<span class="small">{{ _('mkt_long') }}: {{ cs.trades or 0 }} · <span class="num">{{ '%.0f'|format(cs.win_rate or 0) }}%</span> · <span class="{{ 'pos' if (cs.total or 0) >= 0 else 'neg' }}">{{ (cs.total or 0)|pct(1) }}</span></span><br><span class="small muted">{{ _('perf_avg_lev') }}: {{ '%.1f'|format(cf.avg_lev or 0) }}x</span></span></label>
+<span class="small">{{ _('mkt_all') }}: {{ cf.trades or 0 }} · <span class="num">{{ '%.0f'|format(cf.win_rate or 0) }}%</span> · <span class="{{ 'pos' if (cf.profit_abs or 0) >= 0 else 'neg' }}">{{ (cf.profit_abs or 0)|signed }}</span></span><br>
+<span class="small">{{ _('mkt_long') }}: {{ cs.trades or 0 }} · <span class="num">{{ '%.0f'|format(cs.win_rate or 0) }}%</span> · <span class="{{ 'pos' if (cs.profit_abs or 0) >= 0 else 'neg' }}">{{ (cs.profit_abs or 0)|signed }}</span></span><br><span class="small muted">{{ _('perf_avg_lev') }}: {{ '%.1f'|format(cf.avg_lev or 0) }}x</span></span></label>
 {% endfor %}
 </div>
 {% else %}<div class="flash warn">{{ _('no_bots') }}</div>{% endfor %}
@@ -62,7 +62,7 @@
 </div>
 <div class="pills" style="margin-top:12px"><span class="small muted">{{ _('stats_window') }}</span></div>
 <div class="table-wrap"><table class="pairs">
-<tr><th><input type="checkbox" id="all" title="all"></th><th>{{ _('col_pair') }}</th><th>{{ _('perf_trades') }}</th><th>{{ _('perf_win_rate') }}</th><th>{{ _('perf_total') }}</th><th>{{ _('perf_max_dd') }}</th>
+<tr><th><input type="checkbox" id="all" title="all"></th><th>{{ _('col_pair') }}</th><th>{{ _('perf_trades') }}</th><th>{{ _('perf_win_rate') }}</th><th>{{ _('perf_total_abs') }}</th><th>{{ _('perf_avg') }}</th>
 <th>{{ _('pair_from_bot') }}</th><th id="valhead">{{ _('col_weight') }}</th><th>{{ _('col_margin_trade') }}</th><th>{{ _('col_position_value') }}</th></tr>
 {% for p in gs.allowed_pairs %}{% set sel = acc and p in acc.pairs %}
 <tr><td><input type="checkbox" class="pc" name="pair__{{ p }}" data-p="{{ p }}" {{ 'checked' if sel }}></td><td class="mono">{{ p }}</td>
@@ -110,13 +110,13 @@
     const srcs=new Set([...bsel, ...Object.values(only)]);
     srcs.forEach(b=>{const per=((stats[b]||{})[mk])||{}; Object.entries(per).forEach(([p,x])=>{
       if(only[p] ? only[p]!==b : !bsel.includes(b)) return;  // pair taken from one chosen bot only
-      const a=st[p]||(st[p]={trades:0,wins:0,total:0,max_dd:0});
-      a.trades+=x.trades; a.wins+=x.wins; a.total+=x.total; a.max_dd=Math.min(a.max_dd,x.max_dd);});});
-    Object.values(st).forEach(a=>a.win_rate=a.trades?a.wins/a.trades*100:0);
+      const a=st[p]||(st[p]={trades:0,wins:0,profit:0,ratio:0});
+      a.trades+=x.trades; a.wins+=x.wins; a.profit+=x.profit_abs; a.ratio+=x.sum_ratio;});});
+    Object.values(st).forEach(a=>{a.win_rate=a.trades?a.wins/a.trades*100:0; a.avg=a.trades?a.ratio/a.trades*100:0;});
     $$('.s-trades').forEach(td=>{const s=st[td.dataset.p]; td.textContent=s?s.trades:'-';});
     $$('.s-wr').forEach(td=>{const s=st[td.dataset.p]; td.textContent=s?Math.round(s.win_rate)+'%':'-';});
-    $$('.s-total').forEach(td=>{const s=st[td.dataset.p]; td.textContent=s?(s.total>=0?'+':'')+s.total.toFixed(1)+'%':'-'; td.className='s-total '+(s?(s.total>=0?'pos':'neg'):'');});
-    $$('.s-dd').forEach(td=>{const s=st[td.dataset.p]; td.textContent=s?s.max_dd.toFixed(1)+'%':'-';});
+    $$('.s-total').forEach(td=>{const s=st[td.dataset.p]; td.textContent=s?(s.profit>=0?'+':'')+s.profit.toFixed(2):'-'; td.className='s-total '+(s?(s.profit>=0?'pos':'neg'):'');});
+    $$('.s-dd').forEach(td=>{const s=st[td.dataset.p]; td.textContent=s?(s.avg>=0?'+':'')+s.avg.toFixed(2)+'%':'-'; td.className='s-dd '+(s?(s.avg>=0?'pos':'neg'):'');});
     const lev=spot?1:(parseInt($('#lev').value)||1), cap=parseFloat($('#capital').value)||0;
     const sel=$$('.pc').filter(c=>c.checked).map(c=>c.dataset.p);
     const val=p=>Math.max(0,parseFloat(($(`.pv[data-p="${p}"]`)||{}).value)||0);

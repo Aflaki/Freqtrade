@@ -107,6 +107,7 @@ async def fetch_info(url: str, user: str, pw: str) -> dict[str, Any]:
         health = await get("/health")
         count = await get("/count")
         wl = (await get("/whitelist")).get("whitelist", [])
+        bal = await get("/balance")
     last = health.get("last_process")
     stalled = False
     if last:
@@ -122,6 +123,7 @@ async def fetch_info(url: str, user: str, pw: str) -> dict[str, Any]:
                 stake_currency=cfg.get("stake_currency"), timeframe=cfg.get("timeframe"),
                 max_open_trades=_clean(cfg.get("max_open_trades")), version=cfg.get("version"),
                 open_trades=count.get("current"), last_process=last, stalled=stalled,
+                starting_capital=bal.get("starting_capital"),
                 whitelist=sorted({p.split(":")[0].upper() for p in wl}))
 
 

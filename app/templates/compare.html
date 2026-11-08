@@ -11,7 +11,7 @@
   <span class="pills" style="margin:0">
   {% for mk in ['all','long','short'] %}<a href="?{{ 'group=' ~ group_sel ~ '&' if group_sel is not none }}{{ 'pair=' ~ pair ~ '&' if pair }}market={{ mk }}&days={{ period }}" class="{{ 'on' if market == mk }}">{{ _('mkt_' ~ mk) }}</a>{% endfor %}
   <span style="width:8px"></span>
-  {% for pr in periods %}<a href="?{{ 'group=' ~ group_sel ~ '&' if group_sel is not none }}{{ 'pair=' ~ pair ~ '&' if pair }}market={{ market }}&days={{ pr }}" class="{{ 'on' if pr == period }}">{{ _('period_' ~ pr) }}</a>{% endfor %}
+  {% for pr in periods|reverse %}<a href="?{{ 'group=' ~ group_sel ~ '&' if group_sel is not none }}{{ 'pair=' ~ pair ~ '&' if pair }}market={{ market }}&days={{ pr }}" class="{{ 'on' if pr == period }}">{{ _('period_' ~ pr) }}</a>{% endfor %}
   </span>
 </form>
 
@@ -24,17 +24,17 @@
 </svg>
 <p class="small muted">{{ _('compare_chart_note') }}</p>
 <div class="table-wrap"><table>
-<tr><th></th><th>{{ _('col_bot') }}</th><th>{{ _('adm_group') }}</th><th>{{ _('perf_trades') }}</th><th>{{ _('perf_win_rate') }}</th><th>{{ _('perf_total') }}</th><th>{{ _('perf_total_abs') }}</th>
-<th>{{ _('perf_avg') }}</th><th>{{ _('perf_max_dd') }}</th><th>{{ _('perf_avg_lev') }}</th><th>{{ _('perf_avg_hours') }}</th></tr>
+<tr><th></th><th>{{ _('col_bot') }}</th><th>{{ _('adm_group') }}</th><th>{{ _('perf_trades') }}</th><th>{{ _('perf_win_rate') }}</th><th>{{ _('perf_total_abs') }}</th>
+<th>{{ _('perf_avg') }}</th><th>{{ _('perf_max_dd_abs') }}</th><th>{{ _('perf_avg_lev') }}</th><th>{{ _('perf_avg_hours') }}</th></tr>
 {% for r in cmp.rows %}{% set st = r.stats %}<tr>
 <td>{% if r.color %}<span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:{{ r.color }}"></span>{% endif %}</td>
 <td><b>{{ r.name }}</b></td><td class="small muted">{{ group_names.get(r.group_id, '—') }}</td><td>{{ st.trades }}</td><td><span class="num">{{ '%.0f'|format(st.win_rate) }}%</span></td>
-<td class="{{ 'pos' if st.total >= 0 else 'neg' }}">{{ st.total|pct(1) }}</td><td class="{{ 'pos' if st.profit_abs >= 0 else 'neg' }}">{{ st.profit_abs|signed }}</td>
-<td>{{ st.avg|pct }}</td><td class="neg">{{ st.max_dd|pct(1) }}</td><td><span class="num">{{ '%.1f'|format(st.avg_lev) }}x</span></td><td>{{ '%.1f'|format(st.avg_hours) }}</td></tr>{% endfor %}
+<td class="{{ 'pos' if st.profit_abs >= 0 else 'neg' }}">{{ st.profit_abs|signed }}</td>
+<td>{{ st.avg|pct }}</td><td class="neg">{{ (0 - st.max_dd_abs)|signed }}</td><td><span class="num">{{ '%.1f'|format(st.avg_lev) }}x</span></td><td>{{ '%.1f'|format(st.avg_hours) }}</td></tr>{% endfor %}
 {% for r in cmp.groups %}{% set st = r.stats %}<tr style="background:var(--brand-soft)">
 <td>📦</td><td colspan="2"><b>{{ r.name }}</b> <span class="small muted">({{ _('compare_group_total') }})</span></td><td>{{ st.trades }}</td><td><span class="num">{{ '%.0f'|format(st.win_rate) }}%</span></td>
-<td class="{{ 'pos' if st.total >= 0 else 'neg' }}">{{ st.total|pct(1) }}</td><td class="{{ 'pos' if st.profit_abs >= 0 else 'neg' }}">{{ st.profit_abs|signed }}</td>
-<td>{{ st.avg|pct }}</td><td class="neg">{{ st.max_dd|pct(1) }}</td><td><span class="num">{{ '%.1f'|format(st.avg_lev) }}x</span></td><td>{{ '%.1f'|format(st.avg_hours) }}</td></tr>{% endfor %}
+<td class="{{ 'pos' if st.profit_abs >= 0 else 'neg' }}">{{ st.profit_abs|signed }}</td>
+<td>{{ st.avg|pct }}</td><td class="neg">{{ (0 - st.max_dd_abs)|signed }}</td><td><span class="num">{{ '%.1f'|format(st.avg_lev) }}x</span></td><td>{{ '%.1f'|format(st.avg_hours) }}</td></tr>{% endfor %}
 </table></div>
 {% else %}<p class="muted">{{ _('perf_no_data') }}</p>{% endif %}
 </div>
@@ -42,12 +42,12 @@
 
 <div class="card"><h2>{{ _('compare_matrix') }}</h2>
 <p class="small muted">{{ _('compare_matrix_note') }}</p>
-{% if matrix %}<div class="table-wrap"><table class="small">
+{% if matrix %}<div class="table-wrap scroll-table"><table class="small">
 <tr><th>{{ _('col_pair') }}</th>{% for b in scope_bots %}<th style="white-space:normal;min-width:80px">{{ b.name }}</th>{% endfor %}</tr>
 {% for p, row in matrix.items() %}<tr><td class="mono"><a href="?{{ 'group=' ~ group_sel ~ '&' if group_sel is not none }}pair={{ p|urlencode }}&market={{ market }}&days={{ period }}">{{ p }}</a></td>
 {% for b in scope_bots %}{% set st = row.get(b.id) %}
-{% if st %}{% set a = [st.total|abs / maxabs, 1]|min * 0.45 %}
-<td style="background:{{ 'rgba(16,185,129,%.2f)'|format(a) if st.total >= 0 else 'rgba(244,63,94,%.2f)'|format(a) }}"><b class="num">{{ st.total|pct(1) }}</b><br><span class="muted">{{ st.trades }} · {{ '%.0f'|format(st.win_rate) }}%</span></td>
+{% if st %}{% set a = [st.profit_abs|abs / maxabs, 1]|min * 0.45 %}
+<td style="background:{{ 'rgba(16,185,129,%.2f)'|format(a) if st.profit_abs >= 0 else 'rgba(244,63,94,%.2f)'|format(a) }}"><b>{{ st.profit_abs|signed }}</b><br><span class="muted">{{ st.trades }} · {{ '%.0f'|format(st.win_rate) }}% · {{ st.avg|pct(1) }}</span></td>
 {% else %}<td class="muted">—</td>{% endif %}{% endfor %}</tr>{% endfor %}
 </table></div>{% else %}<p class="muted">{{ _('perf_no_data') }}</p>{% endif %}
 </div>

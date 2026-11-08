@@ -217,6 +217,11 @@ async def bot_action(bot_id: int, request: Request):
                     b.api_pass_enc = encrypt(str(f["api_pass"]).strip())
                 b.enabled, b.copy_enabled, b.public = bool(f.get("enabled")), bool(f.get("copy_enabled")), bool(f.get("public"))
                 b.sort = int(f.get("sort") or b.sort or 0)
+                try:
+                    cap = float(str(f.get("stats_capital", "")).replace(",", "") or 0)
+                except ValueError:
+                    cap = 0
+                b.stats_capital = cap if cap > 0 else None
                 g = str(f.get("group_id", ""))
                 b.group_id = int(g) if g.isdigit() and int(g) > 0 and s.get(BotGroup, int(g)) else None
                 mode = str(f.get("pair_filter_mode", "none"))
