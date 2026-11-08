@@ -22,6 +22,8 @@ class FakeExchange:
         self.orders = []
         self.leverage = {}
         self.markets = {}
+        self.stops = []
+        self.cancelled = []
         self.balance = {"USDT": 10_000.0, "BTC": 0.0, "ETH": 0.0}
         FakeExchange.instances.append(self)
 
@@ -35,6 +37,13 @@ class FakeExchange:
 
     def market(self, symbol):
         return self.markets[symbol]
+
+    def price_to_precision(self, symbol, price):
+        return f"{price:.2f}"
+
+    async def cancel_order(self, oid, symbol, params=None):
+        self.cancelled.append(oid)
+        return {"id": oid, "status": "canceled"}
 
     def amount_to_precision(self, symbol, amount):
         return f"{int(amount * 1000) / 1000:.3f}"
@@ -53,6 +62,9 @@ class FakeExchange:
 
     async def create_order(self, symbol, type_, side, amount, price, params):
         oid = str(next(_ids))
+        if params.get("stopLossPrice"):
+            self.stops.append({"id": oid, "symbol": symbol, "side": side, "amount": amount, "params": params})
+            return {"id": oid, "status": "open"}
         px = PRICES[symbol]
         m = self.markets[symbol]
         fee = {"cost": amount * 0.001, "currency": m["base"]} if m["spot"] and side == "buy" else \

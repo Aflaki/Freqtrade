@@ -1,3 +1,4 @@
-<p><a class="btn {{ '' if tab=='users' else 'ghost' }} sm" href="/admin">کاربران</a>
-<a class="btn {{ '' if tab=='settings' else 'ghost' }} sm" href="/admin/settings">فرمول و تنظیمات</a>
-<a class="btn {{ '' if tab=='trades' else 'ghost' }} sm" href="/admin/trades">معاملات و سیگنال‌ها</a></p>
+<div class="pills">
+{% for k, url in [('users','/admin'),('settings','/admin/settings'),('performance','/admin/performance'),('logs','/admin/logs'),('trades','/admin/trades')] %}
+<a href="{{ url }}" class="{{ 'on' if tab == k }}">{{ _('adm_' ~ k) }}</a>{% endfor %}
+</div>

@@ -1,14 +1,12 @@
-{% extends "base.html" %}{% block title %}ثبت‌نام{% endblock %}
-{% block content %}{% set form = form or {} %}<div class="auth card">
-<h1>ثبت‌نام</h1>
+{% extends "base.html" %}{% block content %}<div class="auth card">
+<h1>{{ _('nav_register') }}</h1>
 <form method="post" action="/register"><input type="hidden" name="csrf" value="{{ csrf }}">
-<label>نام و نام خانوادگی</label><input type="text" name="name" value="{{ form.name }}" required>
-<label>ایمیل</label><input class="ltr" type="email" name="email" value="{{ form.email }}" required>
-<label>موبایل</label><input class="ltr" type="text" name="phone" value="{{ form.phone }}">
-<label>رمز عبور (حداقل ۸ کاراکتر)</label><input class="ltr" type="password" name="password" required minlength="8">
-<label>تکرار رمز عبور</label><input class="ltr" type="password" name="password2" required minlength="8">
-<label class="check"><input type="checkbox" name="terms" required>
-<span>می‌دانم معاملات ارز دیجیتال، به‌خصوص با لوریج، ریسک از دست رفتن کل سرمایه را دارد و مسئولیت کلید API و سرمایه با خودم است.</span></label>
-<p><button>ثبت‌نام</button></p></form>
-<p class="muted">حساب دارید؟ <a href="/login">ورود</a></p>
+<label>{{ _('f_name') }}</label><input type="text" name="name" value="{{ form.name }}" required>
+<label>{{ _('f_email') }}</label><input class="ltr" type="email" name="email" value="{{ form.email }}" required>
+<label>{{ _('f_phone') }}</label><input class="ltr" type="text" name="phone" value="{{ form.phone }}">
+<label>{{ _('f_password_new') }}</label><input class="ltr" type="password" name="password" required minlength="8">
+<label>{{ _('f_password_repeat') }}</label><input class="ltr" type="password" name="password2" required minlength="8">
+<label class="check"><input type="checkbox" name="terms" required><span>{{ _('f_terms') }}</span></label>
+<p><button>{{ _('nav_register') }}</button></p></form>
+<p class="muted">{{ _('have_account') }} <a href="/login">{{ _('nav_login') }}</a></p>
 </div>{% endblock %}

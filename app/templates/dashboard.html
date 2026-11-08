@@ -1,30 +1,43 @@
 {% extends "base.html" %}{% block content %}
-<h1>سلام {{ user.name or user.email }}</h1>
-{% if user.status == 'pending' %}<div class="flash warn">حساب شما در انتظار تأیید ادمین است. تا تأیید نشود معامله‌ای انجام نمی‌شود؛ در این فاصله صرافی و تلگرام را تنظیم کنید.</div>{% endif %}
-{% if not gs.entries_enabled %}<div class="flash warn">ورود جدید به‌طور موقت توسط ادمین متوقف شده است. خروج پوزیشن‌های باز ادامه دارد.</div>{% endif %}
-{% if not user.trading_enabled %}<div class="flash warn">معاملات شما متوقف است (pause). از <a href="/settings">تنظیمات</a> یا /resume در تلگرام فعال کنید.</div>{% endif %}
-{% if not user.telegram_chat_id %}<div class="flash warn">تلگرام وصل نیست. از <a href="/settings">تنظیمات</a> وصل کنید تا گزارش هر معامله را بگیرید.</div>{% endif %}
-{% if not accounts %}<div class="card"><h2>شروع</h2><p>۱. یک صرافی و کلید API اضافه کنید ۲. سرمایه و ارزها را انتخاب کنید ۳. تلگرام را وصل کنید.</p><a class="btn" href="/accounts/new">افزودن صرافی</a></div>{% endif %}
+<h1>{{ _('hello', name=(user.name or user.email)) }}</h1>
+{% if user.status == 'pending' %}<div class="flash warn">{{ _('warn_pending') }}</div>{% endif %}
+{% if not user.subscription_active %}<div class="flash error">{{ _('warn_sub_expired') }}</div>
+{% elif user.days_left is not none and user.days_left <= 7 %}<div class="flash warn">{{ _('warn_sub_soon', days=user.days_left) }}</div>{% endif %}
+{% if not gs.entries_enabled %}<div class="flash warn">{{ _('warn_entries_off') }}</div>{% endif %}
+{% if not user.trading_enabled %}<div class="flash warn">{{ _('warn_paused') }}</div>{% endif %}
+{% if not user.telegram_chat_id %}<div class="flash warn">{{ _('warn_no_telegram') }} <a href="/settings">{{ _('nav_settings') }}</a></div>{% endif %}
+
+{% if not accounts %}
+<div class="choice">
+  <div class="card"><h2>🤖 {{ _('plan_auto_title') }}</h2><p class="muted">{{ _('plan_auto_desc') }}</p><a class="btn" href="/accounts/new">{{ _('btn_add_exchange') }}</a></div>
+  {% if gs.signal_only_enabled %}<div class="card"><h2>📢 {{ _('plan_signal_title') }}</h2><p class="muted">{{ _('plan_signal_desc') }}</p><a class="btn" href="/accounts/new?kind=signal">{{ _('btn_add_signal') }}</a></div>{% endif %}
+</div>
+{% endif %}
 
 <div class="grid">
-  <div class="card stat"><div class="k">سرمایه تعیین‌شده</div><div class="v">{{ total_capital|money }} <span class="small muted">{{ gs.stake_currency }}</span></div></div>
-  <div class="card stat"><div class="k">سود/زیان محقق‌شده</div><div class="v {{ 'pos' if pnl >= 0 else 'neg' }}">{{ '%+.2f'|format(pnl) }}</div></div>
-  <div class="card stat"><div class="k">پوزیشن باز</div><div class="v">{{ open_trades|length }}</div></div>
-  <div class="card stat"><div class="k">معاملات بسته / درصد برد</div><div class="v">{{ n_closed }} <span class="small muted">/ {{ (wins / n_closed * 100)|round|int if n_closed else 0 }}%</span></div></div>
+  <div class="card stat"><div class="k">{{ _('st_capital') }}</div><div class="v">{{ total_capital|money }} <span class="small muted">{{ gs.stake_currency }}</span></div></div>
+  <div class="card stat"><div class="k">{{ _('st_realized') }}</div><div class="v {{ 'pos' if pnl >= 0 else 'neg' }}">{{ pnl|signed }}</div></div>
+  <div class="card stat"><div class="k">{{ _('st_open') }}</div><div class="v">{{ open_trades|length }}</div></div>
+  <div class="card stat"><div class="k">{{ _('st_closed_wr') }}</div><div class="v">{{ n_closed }} <span class="small muted">/ {{ (wins / n_closed * 100)|round|int if n_closed else 0 }}%</span></div></div>
+  <div class="card stat"><div class="k">{{ _('st_subscription') }}</div><div class="v small">{{ user.subscription_until.strftime('%Y-%m-%d') if user.subscription_until else _('unlimited') }}</div></div>
 </div>
 
-<div class="card"><h2>پوزیشن‌های باز</h2>
+<div class="card"><h2>{{ _('open_positions') }}</h2>
 {% if open_trades %}<div class="table-wrap"><table>
-<tr><th>جفت‌ارز</th><th>جهت</th><th>صرافی</th><th>قیمت ورود</th><th>مقدار</th><th>مارجین</th><th>لوریج</th><th>زمان</th></tr>
-{% for t in open_trades %}<tr><td class="mono">{{ t.pair }}</td><td class="{{ 'pos' if t.side=='long' else 'neg' }}">{{ t.side|upper }}</td>
-<td>{{ acc_names.get(t.account_id) }}{% if t.dry_run %} <span class="badge">آزمایشی</span>{% endif %}</td><td>{{ t.entry_price|price }}</td><td>{{ (t.amount * t.contract_size)|price }}</td>
-<td>{{ t.stake|money }}</td><td>{{ t.leverage|int }}x</td><td class="small muted">{{ t.opened_at.strftime('%Y-%m-%d %H:%M') }}</td></tr>{% endfor %}
-</table></div>{% else %}<p class="muted">پوزیشن بازی ندارید.</p>{% endif %}</div>
+<tr><th>#</th><th>{{ _('col_pair') }}</th><th>{{ _('col_side') }}</th><th>{{ _('col_portfolio') }}</th><th>{{ _('col_entry') }}</th><th>{{ _('col_amount') }}</th><th>{{ _('col_margin') }}</th><th>{{ _('col_leverage') }}</th><th>{{ _('col_sl') }}</th><th>{{ _('col_opened') }}</th><th></th></tr>
+{% for t in open_trades %}<tr><td>{{ t.id }}</td><td class="mono">{{ t.pair }}</td><td class="{{ 'pos' if t.side=='long' else 'neg' }}">{{ t.side|upper }}</td>
+<td>{{ acc_names.get(t.account_id) }}{% if t.is_signal %} <span class="badge brand">{{ _('badge_signal') }}</span>{% elif t.dry_run %} <span class="badge">{{ _('badge_paper') }}</span>{% endif %}</td>
+<td>{{ t.entry_price|price }}</td><td>{{ (t.amount * t.contract_size)|price }}</td><td>{{ t.stake|money }}</td><td>{{ t.leverage|int }}x</td><td>{{ t.sl_price|price }}</td>
+<td class="small muted">{{ t.opened_at.strftime('%Y-%m-%d %H:%M') }}</td>
+<td><form class="inline" method="post" action="/trades/{{ t.id }}/close" onsubmit="return confirm('{{ _('confirm_close') }}')"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger sm">{{ _('btn_close') }}</button></form></td></tr>{% endfor %}
+</table></div>
+<form method="post" action="/trades/close-all" onsubmit="return confirm('{{ _('confirm_close_all') }}')" style="margin-top:10px"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger sm">{{ _('btn_close_all') }}</button></form>
+{% else %}<p class="muted">{{ _('no_open') }}</p>{% endif %}</div>
 
-<div class="card"><h2>آخرین معاملات بسته‌شده</h2>
+<div class="card"><h2>{{ _('recent_closed') }}</h2>
 {% if closed %}<div class="table-wrap"><table>
-<tr><th>جفت‌ارز</th><th>جهت</th><th>ورود</th><th>خروج</th><th>سود/زیان</th><th>٪</th><th>دلیل</th></tr>
+<tr><th>{{ _('col_pair') }}</th><th>{{ _('col_side') }}</th><th>{{ _('col_entry') }}</th><th>{{ _('col_exit') }}</th><th>{{ _('col_pnl') }}</th><th>%</th><th>{{ _('col_reason') }}</th></tr>
 {% for t in closed %}<tr><td class="mono">{{ t.pair }}</td><td>{{ t.side|upper }}</td><td>{{ t.entry_price|price }}</td><td>{{ t.exit_price|price }}</td>
-<td class="{{ 'pos' if t.realized_pnl >= 0 else 'neg' }}">{{ '%+.2f'|format(t.realized_pnl) }}</td><td>{{ '%+.2f'|format(t.pnl_ratio*100) }}%</td><td class="small">{{ t.exit_reason }}</td></tr>{% endfor %}
-</table></div><p><a href="/trades">همه معاملات ←</a></p>{% else %}<p class="muted">هنوز معامله‌ای بسته نشده.</p>{% endif %}</div>
+<td class="{{ 'pos' if t.realized_pnl >= 0 else 'neg' }}">{{ t.realized_pnl|signed }}</td><td>{{ (t.pnl_ratio*100)|pct }}</td><td class="small">{{ t.exit_reason }}</td></tr>{% endfor %}
+</table></div><p><a href="/trades">{{ _('all_trades') }}</a></p>{% else %}<p class="muted">{{ _('no_closed') }}</p>{% endif %}</div>
 {% endblock %}

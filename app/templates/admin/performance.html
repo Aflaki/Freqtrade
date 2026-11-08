@@ -1,0 +1,18 @@
+{% extends "base.html" %}{% block content %}
+<h1>{{ _('nav_admin') }}</h1>{% include "admin/_nav.html" %}
+<div class="card"><h2>{{ _('adm_performance') }}</h2>
+<p>{{ _('perf_admin_intro') }}</p>
+<div class="sum"><span>{{ _('perf_trades') }}: <b>{{ n }}</b></span><span>{{ _('st_open') }}: <b>{{ n_open }}</b></span>
+{% for src, c in by_source.items() %}<span class="badge">{{ src }}: {{ c }}</span>{% endfor %}</div>
+<form method="post" style="display:flex;gap:8px;flex-wrap:wrap"><input type="hidden" name="csrf" value="{{ csrf }}">
+<button name="action" value="import_api" {{ 'disabled' if not gs.ft_api_url }}>{{ _('btn_import_api') }}</button>
+<button name="action" value="import_sqlite" class="ghost" {{ 'disabled' if not gs.ft_db_path }}>{{ _('btn_import_sqlite') }}</button>
+<button name="action" value="clear" class="danger" onclick="return confirm('{{ _('confirm_clear_perf') }}')">{{ _('btn_clear_perf') }}</button></form>
+<p class="small muted">{{ _('perf_import_help') }} <a href="/admin/settings#freqtrade">{{ _('sec_freqtrade') }}</a></p></div>
+<div class="card"><h2>{{ _('perf_recent') }}</h2><div class="table-wrap"><table class="small">
+<tr><th>FT #</th><th>{{ _('col_pair') }}</th><th>{{ _('col_side') }}</th><th>{{ _('col_leverage') }}</th><th>{{ _('col_opened') }}</th><th>{{ _('col_closed') }}</th><th>{{ _('col_status') }}</th><th>{{ _('perf_result') }}</th><th>{{ _('perf_result_1x') }}</th><th>{{ _('col_reason') }}</th><th>{{ _('col_source') }}</th></tr>
+{% for b in recent %}<tr><td>{{ b.ft_trade_id }}</td><td class="mono">{{ b.pair }}</td><td>{{ b.side|upper }}</td><td>{{ b.leverage }}x</td>
+<td class="muted">{{ b.open_date.strftime('%Y-%m-%d %H:%M') }}</td><td class="muted">{{ b.close_date.strftime('%Y-%m-%d %H:%M') if b.close_date }}</td>
+<td>{{ _('status_open') if b.is_open else _('status_closed') }}</td><td>{{ ((b.profit_ratio or 0)*100)|pct }}</td><td>{{ (b.ratio_1x*100)|pct }}</td><td>{{ b.exit_reason }}</td><td>{{ b.source }}</td></tr>
+{% else %}<tr><td colspan="11" class="muted">—</td></tr>{% endfor %}</table></div></div>
+{% endblock %}

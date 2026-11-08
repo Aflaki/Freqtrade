@@ -1,0 +1,30 @@
+{% extends "base.html" %}{% from "_logs.html" import exec_table, note_table with context %}{% block content %}
+<h1>{{ _('nav_admin') }}</h1>{% include "admin/_nav.html" %}
+<div class="card"><h2>{{ u.name or u.email }} <span class="badge {{ 'ok' if u.status=='active' else 'warn' if u.status=='pending' else 'err' }}">{{ _('status_' ~ u.status) }}</span></h2>
+<p class="small"><span class="mono">{{ u.email }}</span> · <span class="mono">{{ u.phone }}</span> · {{ LANGS[u.lang].name if u.lang in LANGS else u.lang }} ·
+Telegram: {{ ('@' ~ u.telegram_username) if u.telegram_username else (u.telegram_chat_id or '—') }} · {{ _('registered') }} {{ u.created_at.strftime('%Y-%m-%d') }}
+{% if u.last_login_at %} · {{ _('last_login') }} {{ u.last_login_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}</p>
+<form method="post" action="/admin/users/{{ u.id }}" class="row"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="subscription">
+<div><label>{{ _('st_subscription') }} <span class="small muted">({{ _('empty_unlimited') }})</span></label><input type="date" name="until" value="{{ u.subscription_until.strftime('%Y-%m-%d') if u.subscription_until else '' }}"></div>
+<div><label>{{ _('admin_note') }}</label><input type="text" name="note" value="{{ u.admin_note }}"></div>
+<div style="align-self:end"><button>{{ _('btn_save') }}</button></div></form>
+<form method="post" action="/admin/users/{{ u.id }}" style="margin-top:10px"><input type="hidden" name="csrf" value="{{ csrf }}">
+{% if u.status != 'active' %}<button class="sm" name="action" value="approve">{{ _('btn_approve') }}</button>{% endif %}
+{% if u.status != 'suspended' %}<button class="sm danger" name="action" value="suspend">{{ _('btn_suspend') }}</button>{% endif %}
+{% if not u.is_admin %}<button class="sm ghost" name="action" value="promote">{{ _('btn_promote') }}</button>{% else %}<button class="sm ghost" name="action" value="demote">{{ _('btn_demote') }}</button>{% endif %}
+</form></div>
+<div class="card"><h2>{{ _('nav_portfolios') }}</h2><div class="table-wrap"><table class="small">
+<tr><th>#</th><th>{{ _('col_kind') }}</th><th>{{ _('f_label') }}</th><th>{{ _('f_market') }}</th><th>{{ _('f_sizing') }}</th><th>{{ _('st_capital') }}</th><th>{{ _('col_pairs') }}</th><th>{{ _('col_status') }}</th></tr>
+{% for a in accs %}<tr><td>{{ a.id }}</td><td>{{ _('badge_signal') if a.is_signal else EXCHANGES.get(a.exchange, a.exchange) }}</td><td>{{ a.label }}</td>
+<td>{{ a.trading_mode }} {{ a.leverage }}x</td><td>{{ _('mode_' ~ a.sizing_mode) }}</td><td>{{ a.capital|money }}</td>
+<td class="mono" style="white-space:normal">{% for p, v in a.pairs.items() %}{{ p }}={{ v }} {% endfor %}</td>
+<td>{{ _('badge_disabled') if not a.enabled else ('dry-run' if a.dry_run and not a.is_signal else 'live' if not a.is_signal else '') }}</td></tr>{% endfor %}
+</table></div></div>
+<div class="card"><h2>{{ _('nav_trades') }}</h2><div class="table-wrap"><table class="small">
+<tr><th>#</th><th>{{ _('col_pair') }}</th><th>{{ _('col_side') }}</th><th>{{ _('col_status') }}</th><th>{{ _('col_entry') }}</th><th>{{ _('col_exit') }}</th><th>{{ _('col_margin') }}</th><th>{{ _('col_pnl') }}</th><th>{{ _('col_opened') }}</th></tr>
+{% for t in trades %}<tr><td>{{ t.id }}</td><td class="mono">{{ t.pair }}</td><td>{{ t.side|upper }}</td><td>{{ _('status_' ~ t.status) }}</td><td>{{ t.entry_price|price }}</td><td>{{ t.exit_price|price }}</td>
+<td>{{ t.stake|money }}</td><td class="{{ 'pos' if t.realized_pnl >= 0 else 'neg' }}">{{ t.realized_pnl|signed }}</td><td class="muted">{{ t.opened_at.strftime('%m-%d %H:%M') }}</td></tr>{% endfor %}
+</table></div></div>
+<div class="card"><h2>{{ _('log_executions') }}</h2>{{ exec_table(execs) }}</div>
+<div class="card"><h2>{{ _('log_notifications') }}</h2>{{ note_table(notes) }}</div>
+{% endblock %}

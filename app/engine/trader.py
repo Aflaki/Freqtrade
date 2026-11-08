@@ -1,18 +1,22 @@
-"""Executes one signal on one user's exchange account, records it, and notifies the user."""
+"""Executes one signal on one portfolio, records it, logs every exchange call, and notifies the user."""
 from __future__ import annotations
 
+import datetime as dt
 import logging
+import time
 from dataclasses import dataclass
 
 import ccxt.async_support as ccxt
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..db import ExchangeAccount, GlobalSettings, Order, SessionLocal, Trade, User, get_global, open_trade_for, utcnow
+from ..db import (ExchangeAccount, ExecutionLog, GlobalSettings, Order, SessionLocal, Trade, User, get_global,
+                  open_trade_for, utcnow)
+from ..i18n import t
 from ..signal import Signal
 from ..telegram import bot, esc, fmt_num
-from .exchange import EXCHANGES, ExchangeClient, pool
-from .sizing import max_open_trades, pair_budget
+from .exchange import EXCHANGES, pool
+from .sizing import leverage_for, max_open_trades, pair_budget, stop_price
 
 log = logging.getLogger("relay.trader")
 
@@ -25,14 +29,18 @@ class Outcome:
 
 
 def _acc_name(acc: ExchangeAccount) -> str:
+    if acc.is_signal:
+        return acc.label or "Signals"
     return acc.label or EXCHANGES.get(acc.exchange, acc.exchange)
 
 
-def _side_txt(side: str) -> str:
-    return "🟢 Long" if side == "long" else "🔴 Short"
+def _side(side: str) -> str:
+    return "🟢 LONG" if side == "long" else "🔴 SHORT"
 
 
-async def run_for_account(account_id: int, sig: Signal, pair: str) -> Outcome:
+async def run_for_account(account_id: int, sig: Signal, pair: str, event_id: int | None = None) -> Outcome:
+    t0 = time.monotonic()
+    client = None
     async with pool.lock(account_id):
         with SessionLocal() as s:
             acc = s.get(ExchangeAccount, account_id)
@@ -40,42 +48,76 @@ async def run_for_account(account_id: int, sig: Signal, pair: str) -> Outcome:
                 return Outcome(account_id, "none", "account deleted")
             user = s.get(User, acc.user_id)
             gs = get_global(s)
+            trade_ref: list[int] = []
             try:
                 client = await pool.get(acc)
                 if sig.action in ("long", "short"):
-                    return await _open(s, acc, user, gs, client, sig, pair)
-                return await _close(s, acc, user, gs, client, sig, pair)
+                    out = await _open(s, acc, user, gs, client, sig, pair, trade_ref)
+                else:
+                    out = await _close(s, acc, user, gs, client, sig, pair, trade_ref)
             except (ccxt.AuthenticationError, ccxt.PermissionDenied) as e:
-                return _error(s, acc, user, pair, f"کلید API رد شد: {e}", disable=True)
+                out = _error(s, acc, user, pair, f"API key rejected: {e}", disable=True)
             except ccxt.InsufficientFunds as e:
-                return _skip(acc, user, pair, f"موجودی کافی نیست ({str(e)[:120]})")
-            except ValueError as e:  # our own validation messages (min size, symbol not found, ...)
-                return _skip(acc, user, pair, str(e))
+                out = _skip(acc, user, pair, t(user.lang, "why_funds", err=str(e)[:120]))
+            except ValueError as e:
+                out = _skip(acc, user, pair, str(e))
             except Exception as e:
                 log.exception("[acc %s] %s %s failed", account_id, sig.action, pair)
-                return _error(s, acc, user, pair, f"{type(e).__name__}: {str(e)[:200]}")
+                out = _error(s, acc, user, pair, f"{type(e).__name__}: {str(e)[:200]}")
+            s.add(ExecutionLog(webhook_event_id=event_id, user_id=acc.user_id, account_id=acc.id,
+                               trade_id=trade_ref[0] if trade_ref else None, action=sig.action, pair=pair,
+                               status=out.status, message=out.message[:1000],
+                               calls=client.drain_calls() if client else [],
+                               duration_ms=int((time.monotonic() - t0) * 1000)))
+            s.commit()
+            return out
 
 
 def _skip(acc: ExchangeAccount, user: User, pair: str, why: str) -> Outcome:
     log.info("[acc %s] skip %s: %s", acc.id, pair, why)
-    bot.notify(user, "skipped", f"⏭ <b>{esc(pair)}</b> روی {esc(_acc_name(acc))} انجام نشد\nدلیل: {esc(why)}")
+    bot.notify(user, "skipped", t(user.lang, "tg_skipped", pair=esc(pair), acc=esc(_acc_name(acc)), why=esc(why)))
     return Outcome(acc.id, "skipped", why)
 
 
 def _error(s: Session, acc: ExchangeAccount, user: User, pair: str, msg: str, disable: bool = False) -> Outcome:
+    text = msg
     if disable:
         acc.enabled = False
         acc.last_check_ok = False
         acc.last_check_msg = msg[:500]
         s.commit()
-        msg += "\nاین صرافی غیرفعال شد؛ کلید را در سایت اصلاح و دوباره فعال کنید."
-    bot.notify(user, "errors", f"⚠️ خطا در {esc(_acc_name(acc))} — <b>{esc(pair)}</b>\n{esc(msg)}")
+        text += "\n" + t(user.lang, "tg_key_disabled")
+    bot.notify(user, "errors", t(user.lang, "tg_error", acc=esc(_acc_name(acc)), pair=esc(pair), msg=esc(text)))
     return Outcome(acc.id, "error", msg)
 
 
+def _today_pnl(s: Session, acc_id: int) -> float:
+    start = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    return s.scalar(select(func.coalesce(func.sum(Trade.realized_pnl), 0)).where(
+        Trade.account_id == acc_id, Trade.closed_at >= start)) or 0.0
+
+
+async def _refresh_stop(s: Session, acc: ExchangeAccount, user: User, client, trade: Trade) -> None:
+    """(Re)place the exchange-side stop loss for the remaining amount."""
+    if not acc.stoploss_pct or acc.is_spot:
+        return
+    await client.cancel(trade.sl_order_id, trade.symbol)
+    trade.sl_order_id = None
+    if trade.status != "open" or trade.amount <= 0:
+        return
+    trade.sl_price = stop_price(trade.entry_price, trade.side, acc.stoploss_pct, trade.leverage)
+    try:
+        trade.sl_order_id = await client.place_stop(trade.symbol, "sell" if trade.side == "long" else "buy",
+                                                    trade.amount, trade.sl_price)
+    except Exception as e:
+        bot.notify(user, "errors", t(user.lang, "tg_error", acc=esc(_acc_name(acc)), pair=esc(trade.pair),
+                                     msg=esc(t(user.lang, "tg_sl_failed", err=str(e)[:200]))))
+
+
 # ---------------------------------------------------------------------------- entries
-async def _open(s: Session, acc: ExchangeAccount, user: User, gs: GlobalSettings,
-                client: ExchangeClient, sig: Signal, pair: str) -> Outcome:
+async def _open(s: Session, acc: ExchangeAccount, user: User, gs: GlobalSettings, client,
+                sig: Signal, pair: str, trade_ref: list) -> Outcome:
+    L = user.lang
     side = sig.action
     if acc.is_spot and side == "short":
         return Outcome(acc.id, "none", "short not possible on spot")
@@ -86,13 +128,18 @@ async def _open(s: Session, acc: ExchangeAccount, user: User, gs: GlobalSettings
         same_ft = sig.ft_trade_id is not None and existing.ft_trade_id == sig.ft_trade_id
         if not same_ft or not sig.stake or not existing.scale:
             return Outcome(acc.id, "none", "position already open")
-        stake = sig.stake * existing.scale  # DCA: same proportion as the original entry
+        stake = sig.stake * existing.scale
     else:
-        if gs.sizing_formula == "equal_split":
-            n_open = s.scalar(select(func.count(Trade.id)).where(
-                Trade.account_id == acc.id, Trade.status == "open")) or 0
-            if n_open >= max_open_trades(gs, acc):
-                return _skip(acc, user, pair, f"به سقف {max_open_trades(gs, acc)} معامله باز رسیده‌اید")
+        if open_trade_for(s, acc.id, pair, "short" if side == "long" else "long"):
+            return Outcome(acc.id, "none", "opposite position open")
+        n_open = s.scalar(select(func.count(Trade.id)).where(Trade.account_id == acc.id, Trade.status == "open")) or 0
+        mot = max_open_trades(gs, acc)
+        if n_open >= mot:
+            return _skip(acc, user, pair, t(L, "why_max_trades", n=mot))
+        if acc.daily_loss_limit_pct:
+            today = _today_pnl(s, acc.id)
+            if today <= -acc.daily_loss_limit_pct / 100 * max(acc.capital, 1e-9):
+                return _skip(acc, user, pair, t(L, "why_daily_loss", pct=acc.daily_loss_limit_pct))
         stake = pair_budget(gs, acc, pair)
     if gs.max_stake_per_trade:
         stake = min(stake, gs.max_stake_per_trade)
@@ -100,14 +147,14 @@ async def _open(s: Session, acc: ExchangeAccount, user: User, gs: GlobalSettings
         return Outcome(acc.id, "none", "zero stake")
 
     symbol = client.resolve(pair)
-    lev = 1 if acc.is_spot else max(1, min(acc.leverage, gs.max_leverage))
-
+    lev = leverage_for(gs, acc)
     if not client.dry_run:
         free = await client.free_balance(gs.stake_currency)
         if free < stake:
             if free < stake * 0.5:
-                return _skip(acc, user, pair, f"موجودی آزاد {free:,.2f} {gs.stake_currency} کمتر از مارجین لازم {stake:,.2f} است")
-            stake = free * 0.98  # amend last stake, like Freqtrade's amend_last_stake_amount
+                return _skip(acc, user, pair, t(L, "why_balance", free=f"{free:,.2f}", cur=gs.stake_currency,
+                                                need=f"{stake:,.2f}"))
+            stake = free * 0.98  # like Freqtrade's amend_last_stake_amount
 
     price = await client.price(symbol, sig.price)
     await client.setup_leverage(symbol, lev, acc.margin_mode)
@@ -116,14 +163,13 @@ async def _open(s: Session, acc: ExchangeAccount, user: User, gs: GlobalSettings
                                      reduce_only=False, price_hint=sig.price)
 
     cs = client.contract_size(symbol)
-    held = fill.amount - (fill.fee_base if acc.is_spot else 0.0)  # spot buy fee is taken in base
+    held = fill.amount - (fill.fee_base if acc.is_spot else 0.0)
     real_stake = fill.amount * cs * fill.price / lev
-
     if existing is None:
         trade = Trade(user_id=user.id, account_id=acc.id, ft_trade_id=sig.ft_trade_id, pair=pair, symbol=symbol,
                       side=side, amount=held, contract_size=cs, entry_price=fill.price, stake=real_stake,
                       ft_stake=sig.stake, scale=(real_stake / sig.stake) if sig.stake else None, leverage=lev,
-                      fees=fill.fee_quote, enter_tag=sig.enter_tag, dry_run=fill.simulated)
+                      fees=fill.fee_quote, enter_tag=sig.enter_tag, dry_run=fill.simulated, is_signal=acc.is_signal)
         s.add(trade)
     else:
         trade = existing
@@ -133,53 +179,69 @@ async def _open(s: Session, acc: ExchangeAccount, user: User, gs: GlobalSettings
         trade.stake += real_stake
         trade.fees += fill.fee_quote
     s.flush()
+    trade_ref.append(trade.id)
     s.add(Order(trade_id=trade.id, exchange_order_id=fill.order_id, kind="dca" if is_dca else "entry",
                 side="buy" if side == "long" else "sell", amount=amount, filled=fill.amount,
                 price=fill.price, fee=fill.fee_quote, status=fill.status))
+    if acc.stoploss_pct:
+        trade.sl_price = stop_price(trade.entry_price, side, acc.stoploss_pct, lev)
+    if not acc.is_signal:
+        await _refresh_stop(s, acc, user, client, trade)
     s.commit()
 
-    title = "➕ افزایش پوزیشن" if is_dca else "✅ پوزیشن باز شد"
-    bot.notify(user, "entry_fill", (
-        f"{title} {'(آزمایشی)' if fill.simulated else ''}\n"
-        f"<b>{esc(pair)}</b> {_side_txt(side)} — {esc(_acc_name(acc))}\n"
-        f"قیمت: <b>{fmt_num(fill.price)}</b>\n"
-        f"مقدار: {fmt_num(fill.amount * cs)} | ارزش: {fill.amount * cs * fill.price:,.2f} {gs.stake_currency}\n"
-        f"مارجین: {real_stake:,.2f} | لوریج: {lev}x"
-        + (f"\nتگ: {esc(sig.enter_tag)}" if sig.enter_tag else "")))
+    qty, value = fill.amount * cs, fill.amount * cs * fill.price
+    cur = gs.stake_currency
+    sl_line = f"\n{t(L, 'tg_stoploss')}: {fmt_num(trade.sl_price)}" if trade.sl_price else ""
+    tag_line = f"\n{t(L, 'tg_tag')}: {esc(sig.enter_tag)}" if sig.enter_tag else ""
+    if acc.is_signal:
+        head = t(L, "tg_signal_add" if is_dca else "tg_signal_open")
+        text = (f"{head}\n<b>{esc(pair)}</b> {_side(side)} {'' if acc.is_spot else f'· {lev}x'}\n"
+                f"{t(L, 'tg_entry')}: <b>{fmt_num(fill.price)}</b>\n"
+                f"{t(L, 'tg_your_size')}: {real_stake:,.2f} {cur} ({t(L, 'tg_value')} {value:,.2f}){sl_line}{tag_line}")
+    else:
+        head = t(L, "tg_added" if is_dca else "tg_opened") + (f" {t(L, 'tg_paper')}" if fill.simulated else "")
+        text = (f"{head}\n<b>{esc(pair)}</b> {_side(side)} — {esc(_acc_name(acc))}\n"
+                f"{t(L, 'tg_price')}: <b>{fmt_num(fill.price)}</b>\n"
+                f"{t(L, 'tg_amount')}: {fmt_num(qty)} | {t(L, 'tg_value')}: {value:,.2f} {cur}\n"
+                f"{t(L, 'tg_margin')}: {real_stake:,.2f} | {t(L, 'tg_leverage')}: {lev}x{sl_line}{tag_line}")
+    bot.notify(user, "entry_fill", text)
     return Outcome(acc.id, "added" if is_dca else "opened", f"{side} {fill.amount} {symbol} @ {fill.price}")
 
 
 # ---------------------------------------------------------------------------- exits
-async def _close(s: Session, acc: ExchangeAccount, user: User, gs: GlobalSettings,
-                 client: ExchangeClient, sig: Signal, pair: str) -> Outcome:
+async def _close(s: Session, acc: ExchangeAccount, user: User, gs: GlobalSettings, client,
+                 sig: Signal, pair: str, trade_ref: list) -> Outcome:
+    L = user.lang
     side = {"close_long": "long", "close_short": "short"}.get(sig.action)
     trade = open_trade_for(s, acc.id, pair, side)
     if trade is None:
         return Outcome(acc.id, "none", "no open position")
+    trade_ref.append(trade.id)
 
     full = sig.close_fraction >= 0.999
     amount = trade.amount if full else client.precise(trade.symbol, trade.amount * sig.close_fraction)
     if acc.is_spot and not client.dry_run:
         base = client.market(trade.symbol)["base"]
-        amount = client.precise(trade.symbol, min(amount, await client.free_balance(base)))
-    else:
-        amount = client.precise(trade.symbol, amount)
+        amount = min(amount, await client.free_balance(base))
+    amount = client.precise(trade.symbol, amount)
     if amount <= 0 or amount < client.min_amount(trade.symbol):
-        if full:  # nothing left that the exchange would accept: treat as closed
+        if full:
             trade.status, trade.closed_at, trade.exit_reason = "closed", utcnow(), "dust"
+            await client.cancel(trade.sl_order_id, trade.symbol)
             s.commit()
         return Outcome(acc.id, "none", "amount below exchange minimum")
 
+    await client.cancel(trade.sl_order_id, trade.symbol)  # free the position for the exit order
+    trade.sl_order_id = None
     close_side = "sell" if trade.side == "long" else "buy"
     try:
         fill = await client.market_order(trade.symbol, close_side, amount, reduce_only=True, price_hint=sig.price)
     except ccxt.InvalidOrder as e:
         msg = str(e).lower()
-        if any(k in msg for k in ("reduce", "position", "no position", "110017", "-2022")):
-            # position no longer exists on the exchange (closed manually / liquidated)
+        if any(k in msg for k in ("reduce", "position", "110017", "-2022", "51169")):
             trade.status, trade.closed_at, trade.exit_reason = "closed", utcnow(), "not_on_exchange"
             s.commit()
-            return _error(s, acc, user, pair, "پوزیشن روی صرافی پیدا نشد (دستی بسته شده یا لیکویید شده). در سیستم بسته شد.")
+            return _error(s, acc, user, pair, t(L, "tg_not_on_exchange"))
         raise
 
     direction = 1 if trade.side == "long" else -1
@@ -196,22 +258,40 @@ async def _close(s: Session, acc: ExchangeAccount, user: User, gs: GlobalSetting
         trade.status, trade.closed_at = "closed", utcnow()
     s.add(Order(trade_id=trade.id, exchange_order_id=fill.order_id, kind="exit", side=close_side, amount=amount,
                 filled=fill.amount, price=fill.price, fee=fill.fee_quote, status=fill.status))
+    if not is_final:
+        await _refresh_stop(s, acc, user, client, trade)
     s.commit()
 
-    pct = pnl / stake_part * 100 if stake_part else 0
-    icon = "💰" if pnl >= 0 else "🔻"
+    cur = gs.stake_currency
+    paper = f" {t(L, 'tg_paper')}" if fill.simulated and not acc.is_signal else ""
+    reason = f"\n{t(L, 'tg_reason')}: {esc(sig.exit_reason)}" if sig.exit_reason else ""
     if is_final:
-        total_pct = trade.realized_pnl / trade.stake * 100 if trade.stake else 0
-        text = (f"{icon} پوزیشن بسته شد {'(آزمایشی)' if fill.simulated else ''}\n"
-                f"<b>{esc(pair)}</b> {_side_txt(trade.side)} — {esc(_acc_name(acc))}\n"
-                f"ورود: {fmt_num(trade.entry_price)} ← خروج: <b>{fmt_num(fill.price)}</b>\n"
-                f"سود/زیان: <b>{trade.realized_pnl:+,.2f} {gs.stake_currency}</b> ({total_pct:+.2f}%)"
-                + (f"\nدلیل: {esc(sig.exit_reason)}" if sig.exit_reason else ""))
+        pct = trade.realized_pnl / trade.stake * 100 if trade.stake else 0
+        icon = "💰" if trade.realized_pnl >= 0 else "🔻"
+        head = t(L, "tg_signal_close") if acc.is_signal else f"{icon} {t(L, 'tg_closed')}{paper}"
+        text = (f"{head}\n<b>{esc(pair)}</b> {_side(trade.side)} — {esc(_acc_name(acc))}\n"
+                f"{t(L, 'tg_entry')}: {fmt_num(trade.entry_price)} → {t(L, 'tg_exit')}: <b>{fmt_num(fill.price)}</b>\n"
+                f"{t(L, 'tg_pnl')}: <b>{trade.realized_pnl:+,.2f} {cur}</b> ({pct:+.2f}%){reason}")
         bot.notify(user, "exit_fill", text)
         return Outcome(acc.id, "closed", f"closed {trade.symbol} pnl={trade.realized_pnl:.4f}")
-    text = (f"✂️ خروج بخشی ({sig.close_fraction:.0%}) {'(آزمایشی)' if fill.simulated else ''}\n"
-            f"<b>{esc(pair)}</b> {_side_txt(trade.side)} — {esc(_acc_name(acc))}\n"
-            f"قیمت: <b>{fmt_num(fill.price)}</b> | مقدار: {fmt_num(fill.amount * trade.contract_size)}\n"
-            f"سود/زیان این بخش: <b>{pnl:+,.2f} {gs.stake_currency}</b> ({pct:+.2f}%)")
+    pct = pnl / stake_part * 100 if stake_part else 0
+    frac = f"{sig.close_fraction:.0%}"
+    head = t(L, "tg_signal_partial", pct=frac) if acc.is_signal else t(L, "tg_partial", pct=frac) + paper
+    text = (f"{head}\n<b>{esc(pair)}</b> {_side(trade.side)} — {esc(_acc_name(acc))}\n"
+            f"{t(L, 'tg_price')}: <b>{fmt_num(fill.price)}</b> | {t(L, 'tg_amount')}: {fmt_num(fill.amount * trade.contract_size)}\n"
+            f"{t(L, 'tg_pnl_part')}: <b>{pnl:+,.2f} {cur}</b> ({pct:+.2f}%)")
     bot.notify(user, "partial_exit", text)
-    return Outcome(acc.id, "partial", f"partial {sig.close_fraction:.0%} {trade.symbol}")
+    return Outcome(acc.id, "partial", f"partial {frac} {trade.symbol}")
+
+
+# ---------------------------------------------------------------------------- manual close
+async def force_exit(trade_id: int, user_id: int | None = None) -> Outcome | None:
+    """Close one open trade now (web 'close' button, Telegram /forceexit). user_id restricts ownership."""
+    with SessionLocal() as s:
+        tr = s.get(Trade, trade_id)
+        if tr is None or tr.status != "open" or (user_id is not None and tr.user_id != user_id):
+            return None
+        sig = Signal(action=f"close_{tr.side}", symbol=tr.pair.replace("/", ""), pair=tr.pair,
+                     close_fraction=1.0, exit_reason="manual", id=f"manual-{trade_id}-{dt.datetime.now().timestamp()}")
+        acc_id, pair = tr.account_id, tr.pair
+    return await run_for_account(acc_id, sig, pair)

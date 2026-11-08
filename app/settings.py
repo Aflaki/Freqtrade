@@ -1,59 +1,39 @@
-"""Environment-based settings (see .env.example)."""
+"""Bootstrap settings. Everything else is edited from the admin panel and stored in the database.
+
+Only two secrets are needed and they are generated automatically on first start into
+data/secrets.json (back this file up!). They can also be given as env vars.
+"""
 from __future__ import annotations
 
+import json
 import os
-from dataclasses import dataclass
+import secrets
+from pathlib import Path
 
+from cryptography.fernet import Fernet
 from dotenv import load_dotenv
 
 load_dotenv()
 
-
-def _req(name: str) -> str:
-    v = os.getenv(name, "").strip()
-    if not v:
-        raise RuntimeError(f"Environment variable {name} is required (see .env.example)")
-    return v
+DATA_DIR = Path(os.getenv("DATA_DIR", "data")).resolve()
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
-@dataclass(frozen=True)
-class Config:
-    secret_key: str  # signs session cookies
-    master_key: str  # Fernet key that encrypts users' exchange API keys
-    webhook_secret: str  # Freqtrade puts this in the webhook URL
-    database_url: str
-    telegram_bot_token: str
-    base_url: str
-    secure_cookies: bool
-    signal_source: str  # "freqtrade" | "generic"
-    freqtrade_relay_on: str  # "fill" | "order"
-    allowed_ips: tuple[str, ...]
-    dedupe_seconds: int
+def _load_secrets() -> tuple[str, str]:
+    path = DATA_DIR / "secrets.json"
+    data = json.loads(path.read_text()) if path.exists() else {}
+    changed = False
+    if not os.getenv("SECRET_KEY") and "SECRET_KEY" not in data:
+        data["SECRET_KEY"] = secrets.token_urlsafe(48)
+        changed = True
+    if not os.getenv("MASTER_KEY") and "MASTER_KEY" not in data:
+        data["MASTER_KEY"] = Fernet.generate_key().decode()
+        changed = True
+    if changed:
+        path.write_text(json.dumps(data, indent=2))
+        os.chmod(path, 0o600)
+    return os.getenv("SECRET_KEY") or data["SECRET_KEY"], os.getenv("MASTER_KEY") or data["MASTER_KEY"]
 
 
-def load_config() -> Config:
-    webhook_secret = _req("WEBHOOK_SECRET")
-    if len(webhook_secret) < 16:
-        raise RuntimeError("WEBHOOK_SECRET must be at least 16 characters")
-    source = os.getenv("SIGNAL_SOURCE", "freqtrade").lower()
-    relay_on = os.getenv("FREQTRADE_RELAY_ON", "fill").lower()
-    if source not in ("freqtrade", "generic"):
-        raise RuntimeError("SIGNAL_SOURCE must be 'freqtrade' or 'generic'")
-    if relay_on not in ("fill", "order"):
-        raise RuntimeError("FREQTRADE_RELAY_ON must be 'fill' or 'order'")
-    return Config(
-        secret_key=_req("SECRET_KEY"),
-        master_key=_req("MASTER_KEY"),
-        webhook_secret=webhook_secret,
-        database_url=os.getenv("DATABASE_URL", "sqlite:///./data/relay.db"),
-        telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN", "").strip(),
-        base_url=os.getenv("BASE_URL", "http://localhost:8000").rstrip("/"),
-        secure_cookies=os.getenv("SECURE_COOKIES", "false").lower() in ("1", "true", "yes"),
-        signal_source=source,
-        freqtrade_relay_on=relay_on,
-        allowed_ips=tuple(ip.strip() for ip in os.getenv("WEBHOOK_ALLOWED_IPS", "").split(",") if ip.strip()),
-        dedupe_seconds=int(os.getenv("DEDUPE_SECONDS", "30")),
-    )
-
-
-config = load_config()
+SECRET_KEY, MASTER_KEY = _load_secrets()
+DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{(DATA_DIR / 'relay.db').as_posix()}")

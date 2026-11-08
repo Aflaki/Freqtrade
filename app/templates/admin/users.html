@@ -1,20 +1,22 @@
-{% extends "base.html" %}{% block content %}{% set tab='users' %}
-<h1>مدیریت</h1>{% include "admin/_nav.html" %}
-{% if not gs.entries_enabled %}<div class="flash warn">ورود جدید برای همه متوقف است.</div>{% endif %}
+{% extends "base.html" %}{% block content %}
+<h1>{{ _('nav_admin') }}</h1>{% include "admin/_nav.html" %}
+{% if not gs.entries_enabled %}<div class="flash warn">{{ _('warn_entries_off') }}</div>{% endif %}
+<div class="sum"><span>{{ _('status_pending') }}: <b>{{ counts.pending }}</b></span><span>{{ _('status_active') }}: <b>{{ counts.active }}</b></span><span>{{ _('status_suspended') }}: <b>{{ counts.suspended }}</b></span>
+<form method="get" style="margin-inline-start:auto;display:flex;gap:6px"><input type="text" name="q" value="{{ q }}" placeholder="{{ _('search') }}"><button class="sm">{{ _('search') }}</button></form></div>
 <div class="card table-wrap"><table>
-<tr><th>کاربر</th><th>موبایل</th><th>وضعیت</th><th>تلگرام</th><th>صرافی</th><th>سرمایه</th><th>باز</th><th>سود/زیان</th><th>عضویت</th><th></th></tr>
+<tr><th>{{ _('col_user') }}</th><th>{{ _('col_status') }}</th><th>Telegram</th><th>{{ _('col_portfolios') }}</th><th>{{ _('st_capital') }}</th><th>{{ _('st_open') }}</th><th>{{ _('col_pnl') }}</th><th>{{ _('st_subscription') }}</th><th></th></tr>
 {% for u in users %}{% set st = stats[u.id] %}<tr>
-<td>{{ u.name }}<br><span class="small muted mono">{{ u.email }}</span>{% if u.is_admin %} <span class="badge">ادمین</span>{% endif %}</td>
-<td class="mono">{{ u.phone }}</td>
-<td><span class="badge {{ 'ok' if u.status=='active' else 'warn' if u.status=='pending' else 'err' }}">{{ STATUS_FA[u.status] }}</span>{% if not u.trading_enabled %} <span class="badge">pause</span>{% endif %}</td>
-<td>{{ '✓' if u.telegram_chat_id else '—' }}</td><td>{{ st.accounts }}</td><td>{{ st.capital|money }}</td><td>{{ st.open }}</td>
-<td class="{{ 'pos' if st.pnl >= 0 else 'neg' }}">{{ '%+.2f'|format(st.pnl) }}</td><td class="small muted">{{ u.created_at.strftime('%Y-%m-%d') }}</td>
+<td><a href="/admin/users/{{ u.id }}">{{ u.name or '-' }}</a>{% if u.is_admin %} <span class="badge">admin</span>{% endif %}<br><span class="small muted mono">{{ u.email }}</span> <span class="small muted mono">{{ u.phone }}</span></td>
+<td><span class="badge {{ 'ok' if u.status=='active' else 'warn' if u.status=='pending' else 'err' }}">{{ _('status_' ~ u.status) }}</span>{% if not u.trading_enabled %} <span class="badge">pause</span>{% endif %}</td>
+<td>{{ ('@' ~ u.telegram_username) if u.telegram_username else ('✓' if u.telegram_chat_id else '—') }}</td>
+<td>🤖 {{ st.exchange }} · 📢 {{ st.signal }}</td><td>{{ st.capital|money }}</td><td>{{ st.open }}</td>
+<td class="{{ 'pos' if st.pnl >= 0 else 'neg' }}">{{ st.pnl|signed }}</td>
+<td class="small">{% if u.subscription_until %}<span class="{{ '' if u.subscription_active else 'neg' }}">{{ u.subscription_until.strftime('%Y-%m-%d') }}</span>{% else %}{{ _('unlimited') }}{% endif %}</td>
 <td><form class="inline" method="post" action="/admin/users/{{ u.id }}"><input type="hidden" name="csrf" value="{{ csrf }}">
-{% if u.status != 'active' %}<button class="sm" name="action" value="approve">تأیید</button>{% endif %}
-{% if u.status != 'suspended' %}<button class="sm danger" name="action" value="suspend" onclick="return confirm('مسدود شود؟ ورود جدید برایش انجام نمی‌شود.')">مسدود</button>{% endif %}
-{% if not u.is_admin %}<button class="sm ghost" name="action" value="promote">ادمین کن</button>{% else %}<button class="sm ghost" name="action" value="demote">حذف ادمین</button>{% endif %}
-</form></td></tr>{% endfor %}
+{% if u.status != 'active' %}<button class="sm" name="action" value="approve">{{ _('btn_approve') }}</button>{% endif %}
+{% if u.status != 'suspended' %}<button class="sm danger" name="action" value="suspend" onclick="return confirm('{{ _('confirm_suspend') }}')">{{ _('btn_suspend') }}</button>{% endif %}
+</form> <a class="btn ghost sm" href="/admin/users/{{ u.id }}">{{ _('btn_details') }}</a></td></tr>{% endfor %}
 </table></div>
 <form method="post" action="/admin/broadcast" class="card"><input type="hidden" name="csrf" value="{{ csrf }}">
-<h2>پیام همگانی تلگرام</h2><textarea name="text" rows="3" required></textarea><p><button>ارسال به همه کاربران فعال</button></p></form>
+<h2>{{ _('broadcast') }}</h2><textarea name="text" rows="3" required></textarea><p><button>{{ _('btn_send') }}</button></p></form>
 {% endblock %}

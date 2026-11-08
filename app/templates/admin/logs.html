@@ -1,0 +1,26 @@
+{% extends "base.html" %}{% from "_logs.html" import exec_table, note_table with context %}{% block content %}
+<h1>{{ _('nav_admin') }}</h1>{% include "admin/_nav.html" %}
+<div class="pills">
+<a href="?kind=webhooks" class="{{ 'on' if kind=='webhooks' }}">{{ _('log_webhooks') }}</a>
+<a href="?kind=executions" class="{{ 'on' if kind=='executions' }}">{{ _('log_executions') }}</a>
+<a href="?kind=notifications" class="{{ 'on' if kind=='notifications' }}">{{ _('log_notifications') }}</a>
+</div>
+<form method="get" class="sum"><input type="hidden" name="kind" value="{{ kind }}">
+{% if kind != 'webhooks' %}<select name="user" style="width:auto"><option value="">{{ _('all_users') }}</option>{% for id, em in emails.items() %}<option value="{{ id }}" {{ 'selected' if uid == id }}>{{ em }}</option>{% endfor %}</select>{% endif %}
+<select name="status" style="width:auto"><option value="">{{ _('all_statuses') }}</option>
+{% for st in ({'webhooks': ['accepted','ignored','duplicate','rejected'], 'executions': ['opened','added','partial','closed','skipped','error','none'], 'notifications': ['ok','failed']})[kind] %}<option {{ 'selected' if status == st }}>{{ st }}</option>{% endfor %}</select>
+<button class="sm">{{ _('filter') }}</button></form>
+<div class="card">
+{% if kind == 'executions' %}{{ exec_table(rows, emails) }}
+{% elif kind == 'notifications' %}{{ note_table(rows, emails) }}
+{% else %}<div class="table-wrap"><table class="small">
+<tr><th>#</th><th>{{ _('col_time') }}</th><th>IP</th><th>{{ _('col_type') }}</th><th>{{ _('col_status') }}</th><th>{{ _('col_action') }}</th><th>{{ _('col_pair') }}</th><th>{{ _('col_portfolios') }}</th><th>{{ _('col_result') }}</th><th>{{ _('col_details') }}</th></tr>
+{% for e in rows %}<tr><td>{{ e.id }}</td><td class="muted">{{ e.received_at.strftime('%m-%d %H:%M:%S') }}</td><td class="mono">{{ e.ip }}</td><td>{{ e.msg_type }}</td>
+<td><span class="badge {{ 'ok' if e.status=='accepted' else 'err' if e.status=='rejected' else '' }}">{{ e.status }}</span></td><td>{{ e.action }}</td><td class="mono">{{ e.pair }}</td>
+<td>{% if e.status == 'accepted' %}<a href="?kind=executions&event={{ e.id }}">{{ e.accounts }}</a>{% endif %}</td><td style="white-space:normal">{{ e.summary or e.error }}</td>
+<td><details><summary>JSON</summary><pre>{{ e.payload|tojson(indent=2) }}</pre></details></td></tr>
+{% else %}<tr><td colspan="10" class="muted">—</td></tr>{% endfor %}</table></div>{% endif %}
+</div>
+<p>{% if page > 1 %}<a class="btn ghost sm" href="?kind={{ kind }}&status={{ status }}&user={{ uid or '' }}&page={{ page - 1 }}">←</a>{% endif %}
+{% if more %}<a class="btn ghost sm" href="?kind={{ kind }}&status={{ status }}&user={{ uid or '' }}&page={{ page + 1 }}">→</a>{% endif %}</p>
+{% endblock %}

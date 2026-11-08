@@ -1,26 +1,26 @@
 {% extends "base.html" %}{% block content %}
-<h1>تنظیمات</h1>
-<div class="card"><h2>تلگرام</h2>
-{% if not bot_enabled %}<p class="muted">ربات تلگرام توسط ادمین تنظیم نشده است.</p>
-{% elif user.telegram_chat_id %}<p><span class="badge ok">وصل است</span> گزارش معاملات و دستورات /status /profit /balance /pause /resume در دسترس است.</p>
-<form method="post" action="/settings"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="telegram_unlink"><button class="ghost sm">جدا کردن</button></form>
-{% else %}<p>روی دکمه بزنید، در تلگرام <b>Start</b> را بزنید تا وصل شود.</p>
-<form method="post" action="/telegram/link" target="_blank"><input type="hidden" name="csrf" value="{{ csrf }}"><button>اتصال تلگرام{% if bot_username %} (@{{ bot_username }}){% endif %}</button></form>
-<p class="small muted">بعد از Start این صفحه را رفرش کنید.</p>{% endif %}
+<h1>{{ _('nav_settings') }}</h1>
+<div class="card"><h2>Telegram</h2>
+{% if not bot_username %}<p class="muted">{{ _('tg_not_configured') }}</p>
+{% elif user.telegram_chat_id %}<p><span class="badge ok">{{ _('connected') }}</span> {% if user.telegram_username %}@{{ user.telegram_username }}{% endif %} — {{ _('tg_commands_hint') }}</p>
+<form method="post" action="/settings"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="telegram_unlink"><button class="ghost sm">{{ _('btn_unlink') }}</button></form>
+{% else %}<p>{{ _('tg_link_hint') }}</p>
+<form method="post" action="/telegram/link" target="_blank"><input type="hidden" name="csrf" value="{{ csrf }}"><button>{{ _('btn_link_tg') }} (@{{ bot_username }})</button></form>
+<p class="small muted">{{ _('tg_refresh_hint') }}</p>{% endif %}
 </div>
 
-<form method="post" action="/settings" class="card"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="notify">
-<h2>پروفایل و اعلان‌ها</h2>
-<div class="row"><div><label>نام</label><input type="text" name="name" value="{{ user.name }}"></div>
-<div><label>موبایل</label><input class="ltr" type="text" name="phone" value="{{ user.phone }}"></div></div>
-<label>چه پیام‌هایی در تلگرام بیاید (notification_settings)</label>
-{% for k, label in labels.items() %}<label class="check"><input type="checkbox" name="n__{{ k }}" {{ 'checked' if notify.get(k) }}> {{ label }}</label>{% endfor %}
-<label>وضعیت معاملات</label>
-<label class="check"><input type="checkbox" name="trading_enabled" {{ 'checked' if user.trading_enabled }}> <span>ورودهای جدید انجام شود (اگر خاموش کنید، پوزیشن‌های باز همچنان طبق سیگنال بسته می‌شوند)</span></label>
-<p><button>ذخیره</button></p></form>
+<form method="post" action="/settings" class="card"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="profile">
+<h2>{{ _('sec_profile') }}</h2>
+<div class="row"><div><label>{{ _('f_name') }}</label><input type="text" name="name" value="{{ user.name }}"></div>
+<div><label>{{ _('f_phone') }}</label><input class="ltr" type="text" name="phone" value="{{ user.phone }}"></div></div>
+<label>{{ _('f_notify') }}</label>
+{% for k in notify_keys %}<label class="check"><input type="checkbox" name="n__{{ k }}" {{ 'checked' if notify.get(k) }}> {{ _('notify_' ~ k) }}</label>{% endfor %}
+<label>{{ _('f_trading_state') }}</label>
+<label class="check"><input type="checkbox" name="trading_enabled" {{ 'checked' if user.trading_enabled }}> <span>{{ _('f_trading_enabled') }}</span></label>
+<p><button>{{ _('btn_save') }}</button></p></form>
 
 <form method="post" action="/settings" class="card"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="password">
-<h2>تغییر رمز</h2><div class="row"><div><label>رمز فعلی</label><input class="ltr" type="password" name="old" required></div>
-<div><label>رمز جدید</label><input class="ltr" type="password" name="new" required minlength="8"></div></div>
-<p><button>تغییر رمز</button></p></form>
+<h2>{{ _('sec_password') }}</h2><div class="row"><div><label>{{ _('f_old_password') }}</label><input class="ltr" type="password" name="old" required></div>
+<div><label>{{ _('f_password_new') }}</label><input class="ltr" type="password" name="new" required minlength="8"></div></div>
+<p><button>{{ _('btn_save') }}</button></p></form>
 {% endblock %}

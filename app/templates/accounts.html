@@ -1,32 +1,36 @@
 {% extends "base.html" %}{% block content %}
-<h1>صرافی‌ها و سرمایه</h1>
-<p><a class="btn" href="/accounts/new">+ افزودن صرافی</a></p>
+<h1>{{ _('nav_portfolios') }}</h1>
+<p><a class="btn" href="/accounts/new">+ {{ _('btn_add_exchange') }}</a>
+{% if gs.signal_only_enabled %}<a class="btn ghost" href="/accounts/new?kind=signal">+ {{ _('btn_add_signal') }}</a>{% endif %}</p>
 {% for r in rows %}{% set a = r.acc %}
 <div class="card">
-  <h2>{{ a.label or EXCHANGES.get(a.exchange, a.exchange) }}
-    <span class="badge">{{ EXCHANGES.get(a.exchange, a.exchange) }} · {{ 'اسپات' if a.is_spot else 'فیوچرز ' ~ a.leverage ~ 'x ' ~ a.margin_mode }}</span>
-    {% if a.dry_run %}<span class="badge warn">آزمایشی</span>{% endif %}
-    {% if not a.enabled %}<span class="badge err">غیرفعال</span>{% endif %}
-    {% if a.last_check_ok %}<span class="badge ok">اتصال تأیید شد</span>{% elif a.last_check_ok == false %}<span class="badge err">اتصال ناموفق</span>{% endif %}
+  <h2>{{ a.label or (EXCHANGES.get(a.exchange, a.exchange) if not a.is_signal else _('plan_signal_title')) }}
+    {% if a.is_signal %}<span class="badge brand">{{ _('badge_signal') }}</span>{% else %}<span class="badge">{{ EXCHANGES.get(a.exchange, a.exchange) }}</span>{% endif %}
+    <span class="badge">{{ _('mkt_spot') if a.is_spot else _('mkt_futures') ~ ' ' ~ a.leverage ~ 'x' }}</span>
+    <span class="badge">{{ _('mode_' ~ r.mode) }}</span>
+    {% if a.dry_run and not a.is_signal %}<span class="badge warn">{{ _('badge_paper') }}</span>{% endif %}
+    {% if not a.enabled %}<span class="badge err">{{ _('badge_disabled') }}</span>{% endif %}
+    {% if a.last_check_ok %}<span class="badge ok">{{ _('badge_conn_ok') }}</span>{% elif a.last_check_ok == false %}<span class="badge err">{{ _('badge_conn_fail') }}</span>{% endif %}
   </h2>
-  <p class="small muted">کلید: <span class="mono">{{ r.key }}</span>{% if a.last_check_msg %} — {{ a.last_check_msg }}{% endif %}</p>
+  {% if not a.is_signal %}<p class="small muted">API: <span class="mono">{{ r.key }}</span>{% if a.last_check_msg %} — {{ a.last_check_msg }}{% endif %}</p>{% endif %}
   <div class="grid">
-    <div class="stat"><div class="k">سرمایه</div><div class="v">{{ a.capital|money }}</div></div>
-    <div class="stat"><div class="k">قابل معامله ({{ (gs.tradable_balance_ratio*100)|round|int }}٪)</div><div class="v">{{ r.tradable|money }}</div></div>
-    <div class="stat"><div class="k">حداکثر معامله هم‌زمان</div><div class="v">{{ r.mot }}</div></div>
-    <div class="stat"><div class="k">پوزیشن باز</div><div class="v">{{ r.open }}</div></div>
+    <div class="stat"><div class="k">{{ _('st_capital') }}</div><div class="v">{{ r.capital|money }}</div></div>
+    <div class="stat"><div class="k">{{ _('st_tradable') }}</div><div class="v">{{ r.tradable|money }}</div></div>
+    <div class="stat"><div class="k">{{ _('f_max_open') }}</div><div class="v">{{ r.mot }}</div></div>
+    <div class="stat"><div class="k">{{ _('st_open') }}</div><div class="v">{{ r.open }}</div></div>
+    {% if a.stoploss_pct %}<div class="stat"><div class="k">{{ _('col_sl') }}</div><div class="v">{{ a.stoploss_pct }}%</div></div>{% endif %}
   </div>
   <div class="table-wrap"><table class="small">
-    <tr><th>جفت‌ارز</th>{% if gs.sizing_formula == 'pair_weights' %}<th>وزن</th>{% endif %}<th>مارجین هر معامله</th><th>ارزش پوزیشن</th></tr>
-    {% for p in r.alloc %}<tr><td class="mono">{{ p.pair }}</td>{% if gs.sizing_formula == 'pair_weights' %}<td>{{ p.weight }}</td>{% endif %}
+    <tr><th>{{ _('col_pair') }}</th>{% if r.mode == 'pair_weights' %}<th>{{ _('col_weight') }}</th>{% endif %}<th>{{ _('col_margin_trade') }}</th><th>{{ _('col_position_value') }}</th></tr>
+    {% for p in r.alloc %}<tr><td class="mono">{{ p.pair }}</td>{% if r.mode == 'pair_weights' %}<td>{{ p.value }}</td>{% endif %}
     <td>{{ p.stake|money }} {{ gs.stake_currency }}</td><td>{{ p.notional|money }} {{ gs.stake_currency }}</td></tr>{% endfor %}
   </table></div>
   <p>
-    <form class="inline" method="post" action="/accounts/{{ a.id }}/test"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="sm">تست اتصال</button></form>
-    <a class="btn ghost sm" href="/accounts/{{ a.id }}/edit">ویرایش</a>
-    <form class="inline" method="post" action="/accounts/{{ a.id }}/toggle"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost sm">{{ 'غیرفعال کردن' if a.enabled else 'فعال کردن' }}</button></form>
-    <form class="inline" method="post" action="/accounts/{{ a.id }}/delete" onsubmit="return confirm('حذف شود؟ کلیدها پاک می‌شوند.')"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger sm">حذف</button></form>
+    {% if not a.is_signal %}<form class="inline" method="post" action="/accounts/{{ a.id }}/test"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="sm">{{ _('btn_test') }}</button></form>{% endif %}
+    <a class="btn ghost sm" href="/accounts/{{ a.id }}/edit">{{ _('btn_edit') }}</a>
+    <form class="inline" method="post" action="/accounts/{{ a.id }}/toggle"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost sm">{{ _('btn_disable') if a.enabled else _('btn_enable') }}</button></form>
+    <form class="inline" method="post" action="/accounts/{{ a.id }}/delete" onsubmit="return confirm('{{ _('confirm_delete') }}')"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger sm">{{ _('btn_delete') }}</button></form>
   </p>
 </div>
-{% else %}<div class="card muted">هنوز صرافی‌ای اضافه نکرده‌اید.</div>{% endfor %}
+{% else %}<div class="card muted">{{ _('no_portfolios') }}</div>{% endfor %}
 {% endblock %}

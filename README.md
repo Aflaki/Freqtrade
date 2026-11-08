@@ -1,68 +1,63 @@
-# Signal Relay — پنل چندکاربره کپی‌ترید از Freqtrade
+# Signal Relay — Multi-user copy-trading & signal platform for Freqtrade
 
-یک ربات Freqtrade سیگنال می‌دهد؛ این پنل همان معامله را روی صرافی **همه کاربران** با سرمایه و تنظیمات خودشان اجرا می‌کند، قیمت و مقدار واقعی پرشده را از صرافی می‌گیرد و برای هر کاربر در **تلگرام خودش** گزارش می‌فرستد.
+**[فارسی پایین‌تر](#فارسی)**
 
-```
-Freqtrade ──webhook──▶ /webhook/<secret> ──▶ برای هر کاربر واجد شرایط:
-                                              ├─ محاسبه مارجین طبق فرمول ادمین و سرمایه کاربر
-                                              ├─ سفارش روی صرافی کاربر (کلید رمزنگاری‌شده)
-                                              ├─ گرفتن fill واقعی از صرافی (قیمت، مقدار، کارمزد)
-                                              ├─ ثبت معامله و سود/زیان در دیتابیس
-                                              └─ پیام تلگرام به همان کاربر
-```
+One Freqtrade bot produces signals. Each user either **auto-trades** them on their own exchange account
+(API key, no withdrawal rights) or receives them as **Telegram signals only**. The public home page shows the
+bot's real, per-pair track record so users can build their own basket.
 
-## امکانات
-**کاربر**
-- ثبت‌نام / ورود، تأیید توسط ادمین قبل از شروع معامله
-- افزودن چند صرافی (Binance, Bybit, OKX, Bitget, KuCoin, Gate, MEXC, HTX, BingX)، اسپات یا فیوچرز
-- کلید API و Secret و Passphrase **رمزنگاری‌شده** (Fernet) ذخیره می‌شود و دیگر نمایش داده نمی‌شود
-- تعیین سرمایه هر صرافی، لوریج، isolated/cross، انتخاب ارزها و وزن هر ارز، پیش‌نمایش زنده تقسیم سرمایه
-- حالت آزمایشی (dry-run) و testnet، دکمه تست اتصال
-- اتصال تلگرام با یک کلیک؛ دستورات `/status` `/profit` `/balance` `/pause` `/resume`
-- انتخاب نوع اعلان‌ها (مثل `notification_settings` در Freqtrade)
+## Features
+| Area | What it does |
+|---|---|
+| Public site | Landing page with verified bot performance per pair, spot/futures view, 30/90/365/all periods, equity curve, latest trades — in **Persian, English, German, Spanish** |
+| Users | Sign-up, admin approval, subscription end date / trial days, own language, Telegram link with one click |
+| Portfolios | Several per user: **exchange** (Binance, Bybit, OKX, Bitget, KuCoin, Gate, MEXC, HTX, BingX; spot or futures) or **signals-only** (no API) |
+| Basket builder | Pick coins next to their track record; allocation **equal split** (Freqtrade `stake_amount: unlimited`), **weights**, or **custom amount per coin**; live preview |
+| Risk | Exchange-side stop loss (survives server outages), daily loss limit, max open trades, admin caps on leverage/stake |
+| Engine | Entry, DCA (same ratio as Freqtrade), partial exits (same %), full exit; real fills read from the exchange; exits always run even for paused users |
+| Telegram | Per-user messages in their language; `/status /profit /daily /performance /balance /pause /resume /forceexit /lang`; daily report; subscription reminders; admin broadcast |
+| Admin panel | Everything from the browser: formula, pairs, exchanges, Telegram token, webhook URL (regenerate), Freqtrade history import (REST API or `tradesv3.sqlite`), home-page texts per language, users, logs |
+| Logs (SQLite) | Every webhook (incl. rejected), every exchange request/response per user, every Telegram message — browsable and filterable |
 
-**ادمین**
-- فرمول سرمایه: درصد قابل معامله (`tradable_balance_ratio`)، تقسیم مساوی (`stake_amount: unlimited` ÷ `max_open_trades`) یا وزنی بین ارزها، سقف مارجین هر معامله، حداکثر لوریج، حداقل سرمایه
-- صرافی‌ها و جفت‌ارزهای مجاز (`pair_whitelist`)
-- کلید توقف ورودهای جدید برای همه (خروج‌ها ادامه دارد)
-- تأیید/مسدود کردن کاربران، دیدن همه معاملات و سیگنال‌ها، پیام همگانی تلگرام
-
-**موتور معامله**
-- ورود، افزایش پوزیشن (DCA به همان نسبت ورود اول)، خروج بخشی به همان درصد Freqtrade، خروج کامل
-- خروج‌ها برای همه کسانی که پوزیشن باز دارند اجرا می‌شود، حتی اگر کاربر pause کرده یا صرافی را غیرفعال کرده باشد
-- بررسی موجودی، حداقل سفارش صرافی، کارمزد اسپات که از خود ارز کم می‌شود
-- اگر کلید API رد شود، آن صرافی خودکار غیرفعال و به کاربر خبر داده می‌شود
-- حذف سیگنال تکراری، قفل جدا برای هر حساب
-
-## راه‌اندازی
+## Run
 ```bash
 pip install -r requirements.txt
-cp .env.example .env
-python -m app.cli genkeys          # خروجی را در .env بگذارید
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
 ```
-- اولین کسی که ثبت‌نام کند **ادمین** می‌شود (یا: `python -m app.cli create-admin EMAIL PASSWORD`).
-- ربات تلگرام را از `@BotFather` بسازید و توکن را در `TELEGRAM_BOT_TOKEN` بگذارید.
-- حتماً پشت HTTPS (nginx / Caddy) اجرا کنید و `SECURE_COOKIES=true` بگذارید.
-- **از `MASTER_KEY` نسخه پشتیبان امن بگیرید.** اگر گم شود، کلیدهای API کاربران قابل بازیابی نیست.
-- فقط با `--workers 1` اجرا کنید (ربات تلگرام و قفل سفارش‌ها داخل همان پروسس است).
+Open the site → the **first account you register becomes admin** → *Admin → Settings*:
+1. Telegram bot token (from @BotFather) — the bot starts immediately.
+2. Site URL, allowed exchanges & pairs (same as Freqtrade's `pair_whitelist`), formula.
+3. Copy the webhook URL into Freqtrade (template: [`freqtrade/webhook-config.json`](freqtrade/webhook-config.json)).
+4. Optional: *Admin → Performance data* → import the bot's earlier trades.
+
+Data lives in `data/` (SQLite database + `secrets.json`). **Back up `data/secrets.json`** — without it the stored API keys cannot be decrypted.
+Serve behind HTTPS (nginx/Caddy) and set `SECURE_COOKIES=true`. Use a single worker.
 
 Docker:
 ```bash
-docker build -t signal-relay .
-docker run -d -p 8000:8000 --env-file .env -v $PWD/data:/app/data signal-relay
+docker build -t signal-relay . && docker run -d -p 8000:8000 -v $PWD/data:/app/data signal-relay
 ```
 
-## اتصال Freqtrade
-بلوک `webhook` در [`freqtrade/webhook-config.json`](freqtrade/webhook-config.json) را در `config.json` ربات Freqtrade کپی کنید و `url` را با آدرسی که در **مدیریت ← فرمول و تنظیمات** نمایش داده می‌شود عوض کنید. `pair_whitelist` ربات و «جفت‌ارزهای مجاز» پنل باید یکی باشند.
-
-## فرمول سرمایه (مثال)
-سرمایه کاربر ۱۰۰۰ USDT، درصد قابل معامله ۹۰٪، لوریج ۵:
-- **مساوی** با `max_open_trades = 3` ← مارجین هر معامله ۳۰۰، ارزش پوزیشن ۱۵۰۰
-- **وزنی** با BTC=2، ETH=1 ← BTC مارجین ۶۰۰، ETH مارجین ۳۰۰
-
-## تست
+## Tests
 ```bash
 pip install pytest && python -m pytest -q
 ```
-تست کامل (ثبت‌نام، تأیید ادمین، افزودن صرافی، ورود/DCA/خروج بخشی/خروج کامل، اسپات، تلگرام) با یک صرافی شبیه‌سازی‌شده اجرا می‌شود.
+
+---
+
+<div dir="rtl">
+
+## فارسی
+
+یک ربات Freqtrade سیگنال تولید می‌کند. هر کاربر یا با کلید API صرافی خودش **معامله خودکار** می‌کند، یا فقط **سیگنال در تلگرام** می‌گیرد. صفحه اول سایت عملکرد واقعی ربات را به تفکیک هر ارز نشان می‌دهد تا کاربر بتواند سبد خودش را بسازد.
+
+- **سایت چهارزبانه:** فارسی، انگلیسی، آلمانی، اسپانیایی (زبان تلگرام هر کاربر هم جدا).
+- **سبدساز:** ارزها را کنار آمار عملکرد ربات انتخاب کنید و سرمایه را مساوی، وزنی یا با مبلغ دلخواه برای هر ارز تقسیم کنید.
+- **فقط سیگنال:** برای کسانی که API ندارند؛ سیگنال ورود و خروج با مبلغ پیشنهادی و سود و زیان فرضی.
+- **مدیریت ریسک:** حد ضرر روی خود صرافی، سقف ضرر روزانه، سقف تعداد معاملات.
+- **همه‌چیز از داخل پنل:** توکن تلگرام، فرمول، ارزها، صرافی‌ها، آدرس وب‌هوک، متن صفحه اول، کاربران و اشتراک‌ها؛ بدون ویرایش فایل.
+- **دیتابیس SQLite با لاگ کامل:** هر وب‌هوک، هر درخواست به صرافی و پاسخش برای هر کاربر، و هر پیام تلگرام.
+
+**راه‌اندازی:** دستور بالا را اجرا کنید، اولین ثبت‌نام ادمین می‌شود، بقیه تنظیمات از «مدیریت ← تنظیمات». از فایل `data/secrets.json` نسخه پشتیبان بگیرید.
+
+</div>

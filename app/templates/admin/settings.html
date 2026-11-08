@@ -1,35 +1,70 @@
-{% extends "base.html" %}{% block content %}{% set tab='settings' %}
-<h1>مدیریت</h1>{% include "admin/_nav.html" %}
-<form method="post" class="card"><input type="hidden" name="csrf" value="{{ csrf }}">
-<h2>کنترل کلی</h2>
-<label class="check"><input type="checkbox" name="entries_enabled" {{ 'checked' if gs.entries_enabled }}> <span><b>ورود جدید فعال</b> — خاموش = هیچ پوزیشن جدیدی برای هیچ‌کس باز نمی‌شود (خروج‌ها ادامه دارد)</span></label>
-<label class="check"><input type="checkbox" name="require_approval" {{ 'checked' if gs.require_approval }}> کاربران جدید باید توسط ادمین تأیید شوند</label>
+{% extends "base.html" %}{% block content %}
+<h1>{{ _('nav_admin') }}</h1>{% include "admin/_nav.html" %}
 
-<h2 style="margin-top:22px">فرمول مدیریت سرمایه</h2>
+<form method="post" class="card" id="general"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="section" value="general">
+<h2>{{ _('sec_general') }}</h2>
 <div class="row">
-<div><label>ارز پایه (stake_currency)</label><input class="ltr" type="text" name="stake_currency" value="{{ gs.stake_currency }}"></div>
-<div><label>درصد سرمایه که وارد معامله می‌شود (tradable_balance_ratio)</label><input type="number" step="any" min="1" max="100" name="tradable_pct" value="{{ (gs.tradable_balance_ratio*100)|round(2) }}"></div>
-<div><label>حداقل سرمایه هر کاربر</label><input type="number" step="any" name="min_capital" value="{{ gs.min_capital }}"></div>
+<div><label>{{ _('f_site_name') }}</label><input type="text" name="site_name" value="{{ gs.site_name }}"></div>
+<div><label>{{ _('f_default_lang') }}</label><select name="default_lang">{% for c, l in LANGS.items() %}<option value="{{ c }}" {{ 'selected' if c == gs.default_lang }}>{{ l.name }}</option>{% endfor %}</select></div>
+<div><label>{{ _('f_base_url') }}</label><input class="ltr" type="text" name="base_url" value="{{ gs.base_url }}"></div>
+<div><label>{{ _('f_trial_days') }}</label><input type="number" min="0" name="trial_days" value="{{ gs.trial_days }}"></div>
+<div><label>{{ _('f_report_hour') }}</label><input type="number" min="0" max="23" name="daily_report_hour_utc" value="{{ gs.daily_report_hour_utc }}"></div>
 </div>
-<label>روش تقسیم بین ارزها</label>
-<label class="check"><input type="radio" name="sizing_formula" value="equal_split" {{ 'checked' if gs.sizing_formula=='equal_split' }}>
-<span><b>مساوی (مثل stake_amount: unlimited در Freqtrade)</b>: مارجین هر معامله = سرمایه × درصد ÷ max_open_trades</span></label>
-<label class="check"><input type="radio" name="sizing_formula" value="pair_weights" {{ 'checked' if gs.sizing_formula=='pair_weights' }}>
-<span><b>وزنی</b>: هر ارز سهم ثابت دارد = سرمایه × درصد × وزن ارز ÷ مجموع وزن‌ها (کاربر وزن هر ارز را تعیین می‌کند)</span></label>
-<div class="row">
-<div><label>max_open_trades پیش‌فرض (حالت مساوی)</label><input type="number" min="1" name="default_max_open_trades" value="{{ gs.default_max_open_trades }}"></div>
-<div><label>حداکثر لوریج مجاز</label><input type="number" min="1" max="125" name="max_leverage" value="{{ gs.max_leverage }}"></div>
-<div><label>سقف مارجین هر معامله (۰ = بدون سقف)</label><input type="number" step="any" min="0" name="max_stake_per_trade" value="{{ gs.max_stake_per_trade or 0 }}"></div>
-</div>
+<label class="check"><input type="checkbox" name="public_performance" {{ 'checked' if gs.public_performance }}> {{ _('f_public_perf') }}</label>
+<label class="check"><input type="checkbox" name="signal_only_enabled" {{ 'checked' if gs.signal_only_enabled }}> {{ _('f_signal_only') }}</label>
+<label class="check"><input type="checkbox" name="require_approval" {{ 'checked' if gs.require_approval }}> {{ _('f_require_approval') }}</label>
+<h3>{{ _('f_hero') }}</h3>
+{% for c, l in LANGS.items() %}{% set h = (gs.hero or {}).get(c) or {} %}
+<div class="row" dir="{{ l.dir }}"><div><label>{{ l.name }} — {{ _('f_hero_title') }}</label><input type="text" name="hero_title__{{ c }}" value="{{ h.title or '' }}" placeholder="{{ _('hero_title') if c == lang else '' }}"></div>
+<div><label>{{ l.name }} — {{ _('f_hero_sub') }}</label><input type="text" name="hero_sub__{{ c }}" value="{{ h.subtitle or '' }}"></div></div>{% endfor %}
+<p><button>{{ _('btn_save') }}</button></p></form>
 
-<h2 style="margin-top:22px">صرافی‌ها و ارزهای مجاز</h2>
-<div>{% for e, name in all_exchanges.items() %}<label class="check" style="display:inline-flex;margin-left:16px"><input type="checkbox" name="ex__{{ e }}" {{ 'checked' if e in gs.allowed_exchanges }}> {{ name }}</label>{% endfor %}</div>
-<label>جفت‌ارزهای مجاز (pair_whitelist) — هر خط یکی، مثل BTC/USDT. باید با whitelist ربات Freqtrade یکی باشد.</label>
+<form method="post" class="card" id="trading"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="section" value="trading">
+<h2>{{ _('sec_trading') }}</h2>
+<label class="check"><input type="checkbox" name="entries_enabled" {{ 'checked' if gs.entries_enabled }}> <span><b>{{ _('f_entries_enabled') }}</b> — {{ _('f_entries_enabled_help') }}</span></label>
+<div class="row">
+<div><label>{{ _('f_stake_currency') }}</label><input class="ltr" type="text" name="stake_currency" value="{{ gs.stake_currency }}"></div>
+<div><label>{{ _('f_tradable_pct') }}</label><input type="number" step="any" min="1" max="100" name="tradable_pct" value="{{ (gs.tradable_balance_ratio*100)|round(2) }}"></div>
+<div><label>{{ _('f_min_capital') }}</label><input type="number" step="any" name="min_capital" value="{{ gs.min_capital }}"></div>
+<div><label>{{ _('f_default_mot') }}</label><input type="number" min="1" name="default_max_open_trades" value="{{ gs.default_max_open_trades }}"></div>
+<div><label>{{ _('f_max_leverage') }}</label><input type="number" min="1" max="125" name="max_leverage" value="{{ gs.max_leverage }}"></div>
+<div><label>{{ _('f_max_stake') }}</label><input type="number" step="any" min="0" name="max_stake_per_trade" value="{{ gs.max_stake_per_trade or 0 }}"></div>
+<div><label>{{ _('f_default_sl') }}</label><input type="number" step="any" min="0" max="100" name="default_stoploss_pct" value="{{ gs.default_stoploss_pct or 0 }}"></div>
+</div>
+<label>{{ _('f_sizing_modes') }}</label>
+{% for m in sizing_all %}<label class="check"><input type="checkbox" name="mode__{{ m }}" {{ 'checked' if m in gs.sizing_modes }}> <span><b>{{ _('mode_' ~ m) }}</b> — {{ _('mode_help_' ~ m, pct=(gs.tradable_balance_ratio*100)|round|int) }}</span></label>{% endfor %}
+<label>{{ _('f_exchanges') }}</label>
+<div>{% for e, name in all_exchanges.items() %}<label class="check" style="display:inline-flex;margin-inline-end:16px"><input type="checkbox" name="ex__{{ e }}" {{ 'checked' if e in gs.allowed_exchanges }}> {{ name }}</label>{% endfor %}</div>
+<label>{{ _('f_pairs') }}</label>
 <textarea class="ltr" name="allowed_pairs" rows="8">{{ gs.allowed_pairs|join('\n') }}</textarea>
-<p><button>ذخیره</button></p></form>
+<p><button>{{ _('btn_save') }}</button></p></form>
 
-<div class="card"><h2>اتصال Freqtrade</h2>
-<p>این آدرس را در بخش <code>webhook.url</code> کانفیگ Freqtrade بگذارید (قالب کامل در <code>freqtrade/webhook-config.json</code>):</p>
-<p><code>{{ webhook_url }}</code></p>
-<p class="small muted">این آدرس محرمانه است؛ هر کس آن را داشته باشد می‌تواند برای همه کاربران سیگنال بفرستد.</p></div>
+<form method="post" class="card" id="freqtrade"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="section" value="freqtrade">
+<h2>{{ _('sec_freqtrade') }}</h2>
+<label>{{ _('f_webhook_url') }}</label><input class="ltr" type="text" readonly value="{{ webhook_url }}" onclick="this.select()">
+<p class="small muted">{{ _('f_webhook_help') }}</p>
+<div class="row">
+<div><label>{{ _('f_relay_on') }}</label><select name="relay_on"><option value="fill" {{ 'selected' if gs.relay_on=='fill' }}>{{ _('relay_fill') }}</option><option value="order" {{ 'selected' if gs.relay_on=='order' }}>{{ _('relay_order') }}</option></select></div>
+<div><label>{{ _('f_source') }}</label><select name="signal_source"><option value="freqtrade" {{ 'selected' if gs.signal_source=='freqtrade' }}>Freqtrade</option><option value="generic" {{ 'selected' if gs.signal_source=='generic' }}>Generic JSON (TradingView …)</option></select></div>
+<div><label>{{ _('f_allowed_ips') }}</label><input class="ltr" type="text" name="allowed_ips" value="{{ gs.allowed_ips|join(', ') }}"></div>
+<div><label>{{ _('f_dedupe') }}</label><input type="number" min="0" name="dedupe_seconds" value="{{ gs.dedupe_seconds }}"></div>
+</div>
+<h3>{{ _('f_ft_history') }}</h3><p class="small muted">{{ _('f_ft_history_help') }}</p>
+<div class="row">
+<div><label>Freqtrade API URL</label><input class="ltr" type="text" name="ft_api_url" value="{{ gs.ft_api_url }}" placeholder="http://127.0.0.1:8080"></div>
+<div><label>API username</label><input class="ltr" type="text" name="ft_api_user" value="{{ gs.ft_api_user }}"></div>
+<div><label>API password</label><input class="ltr" type="password" name="ft_api_pass" placeholder="{{ '••••' if has_ft_pass else '' }}"></div>
+<div><label>{{ _('f_ft_db') }}</label><input class="ltr" type="text" name="ft_db_path" value="{{ gs.ft_db_path }}" placeholder="/freqtrade/user_data/tradesv3.sqlite"></div>
+</div>
+<p><button>{{ _('btn_save') }}</button></p></form>
+<form method="post" class="card"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="section" value="regenerate_secret">
+<p class="small muted">{{ _('regen_help') }}</p><button class="danger sm" onclick="return confirm('{{ _('confirm_regen') }}')">{{ _('btn_regen') }}</button></form>
+
+<form method="post" class="card" id="telegram"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="section" value="telegram">
+<h2>{{ _('sec_telegram') }}</h2>
+<p>{% if bot_username %}<span class="badge ok">{{ _('connected') }}</span> @{{ bot_username }}{% elif has_token %}<span class="badge err">{{ bot_error or _('error') }}</span>{% else %}<span class="badge warn">{{ _('tg_not_configured') }}</span>{% endif %}</p>
+<label>{{ _('f_bot_token') }}</label><input class="ltr" type="password" name="telegram_token" placeholder="{{ '•••• ' ~ _('keep_blank') if has_token else '123456:ABC…' }}">
+<p class="small muted">{{ _('f_bot_token_help') }}</p>
+<p><button>{{ _('btn_save') }}</button> {% if has_token %}<button class="ghost" name="remove" value="1">{{ _('btn_remove') }}</button>{% endif %}</p></form>
+{% if bot_username %}<form method="post" action="/admin/telegram-test" class="card"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost sm">{{ _('btn_tg_test') }}</button></form>{% endif %}
 {% endblock %}

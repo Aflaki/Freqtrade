@@ -1,25 +1,32 @@
 <!doctype html>
-<html lang="fa" dir="rtl">
+<html lang="{{ lang }}" dir="{{ dir }}">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{% block title %}پنل معاملات{% endblock %}</title>
+<title>{% block title %}{{ site.site_name }}{% endblock %}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-{% if user %}
 <nav class="nav"><div class="in">
-  <a class="brand" href="/">پنل معاملات</a>
+  <a class="brand" href="/">{{ site.site_name }}</a>
   {% set p = request.url.path %}
-  <a href="/" class="{{ 'on' if p == '/' }}">داشبورد</a>
-  <a href="/accounts" class="{{ 'on' if p.startswith('/accounts') }}">صرافی‌ها و سرمایه</a>
-  <a href="/trades" class="{{ 'on' if p == '/trades' }}">معاملات</a>
-  <a href="/settings" class="{{ 'on' if p == '/settings' }}">تنظیمات و تلگرام</a>
-  {% if user.is_admin %}<a href="/admin" class="{{ 'on' if p.startswith('/admin') }}">مدیریت</a>{% endif %}
-  <form class="inline" method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost sm">خروج</button></form>
+  <a href="/" class="{{ 'on' if p == '/' }}">{{ _('nav_performance') }}</a>
+  {% if user %}
+  <a href="/dashboard" class="{{ 'on' if p == '/dashboard' }}">{{ _('nav_dashboard') }}</a>
+  <a href="/accounts" class="{{ 'on' if p.startswith('/accounts') }}">{{ _('nav_portfolios') }}</a>
+  <a href="/trades" class="{{ 'on' if p == '/trades' }}">{{ _('nav_trades') }}</a>
+  <a href="/activity" class="{{ 'on' if p == '/activity' }}">{{ _('nav_activity') }}</a>
+  <a href="/settings" class="{{ 'on' if p == '/settings' }}">{{ _('nav_settings') }}</a>
+  {% if user.is_admin %}<a href="/admin" class="{{ 'on' if p.startswith('/admin') }}">{{ _('nav_admin') }}</a>{% endif %}
+  {% endif %}
+  <span class="langs">{% for code, l in LANGS.items() %}<a href="/lang/{{ code }}" class="{{ 'on' if code == lang }}" title="{{ l.name }}">{{ code|upper }}</a>{% endfor %}</span>
+  {% if user %}
+  <form class="inline" method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost sm">{{ _('nav_logout') }}</button></form>
+  {% else %}
+  <a class="btn ghost sm" href="/login">{{ _('nav_login') }}</a><a class="btn sm" href="/register">{{ _('nav_register') }}</a>
+  {% endif %}
 </div></nav>
-{% endif %}
 <main>
 {% for kind, msg in flashes %}<div class="flash {{ kind }}">{{ msg }}</div>{% endfor %}
 {% block content %}{% endblock %}

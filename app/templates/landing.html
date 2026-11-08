@@ -1,0 +1,17 @@
+{% extends "base.html" %}{% block content %}
+{% set h = (site.hero or {}).get(lang) or {} %}
+<section class="hero">
+  <h1>{{ h.title or _('hero_title') }}</h1>
+  <p>{{ h.subtitle or _('hero_subtitle') }}</p>
+  <div class="cta">{% if user %}<a class="btn" href="/dashboard">{{ _('nav_dashboard') }}</a>{% else %}
+    <a class="btn" href="/register">{{ _('cta_start') }}</a><a class="btn ghost" href="#performance">{{ _('cta_see_perf') }}</a>{% endif %}</div>
+</section>
+<div class="choice">
+  <div class="card"><h2>🤖 {{ _('plan_auto_title') }}</h2><p class="muted">{{ _('plan_auto_desc') }}</p></div>
+  {% if site.signal_only_enabled %}<div class="card"><h2>📢 {{ _('plan_signal_title') }}</h2><p class="muted">{{ _('plan_signal_desc') }}</p></div>{% endif %}
+  <div class="card"><h2>🧺 {{ _('plan_basket_title') }}</h2><p class="muted">{{ _('plan_basket_desc') }}</p></div>
+</div>
+<h1 id="performance" style="margin-top:20px">{{ _('perf_title') }}</h1>
+<p class="muted">{{ _('perf_intro') }}</p>
+{% if show %}{% include "_perf.html" %}{% else %}<div class="card muted">{{ _('perf_hidden') }}</div>{% endif %}
+{% endblock %}

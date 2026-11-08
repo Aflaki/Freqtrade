@@ -3,7 +3,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
+COPY freqtrade ./freqtrade
+ENV DATA_DIR=/app/data SECURE_COOKIES=true
 VOLUME /app/data
 EXPOSE 8000
-# single worker: the Telegram poller and per-account order locks live in-process
+# single worker: Telegram poller and per-account order locks live in-process
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--proxy-headers"]

@@ -10,12 +10,12 @@ from cryptography.fernet import Fernet, InvalidToken
 from fastapi import HTTPException, Request
 
 from .db import SessionLocal, User
-from .settings import config
+from .settings import MASTER_KEY
 
 try:
-    _fernet = Fernet(config.master_key.encode())
+    _fernet = Fernet(MASTER_KEY.encode())
 except (ValueError, TypeError) as e:  # pragma: no cover
-    raise RuntimeError("MASTER_KEY is not a valid Fernet key. Generate one with: python -m app.cli genkeys") from e
+    raise RuntimeError("MASTER_KEY is not a valid Fernet key") from e
 
 
 # ------------------------------------------------------------------ passwords (scrypt, stdlib)
@@ -68,7 +68,7 @@ async def form_with_csrf(request: Request) -> dict:
     form = await request.form()
     sent = str(form.get("csrf", ""))
     if not sent or not hmac.compare_digest(sent, request.session.get("csrf", "")):
-        raise HTTPException(400, "CSRF token نامعتبر است. صفحه را رفرش کنید.")
+        raise HTTPException(400, "CSRF token invalid - reload the page")
     return form
 
 
@@ -106,5 +106,5 @@ def require_user(request: Request) -> User:
 def require_admin(request: Request) -> User:
     u = require_user(request)
     if not u.is_admin:
-        raise HTTPException(403, "فقط ادمین")
+        raise HTTPException(403, "admin only")
     return u

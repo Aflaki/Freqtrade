@@ -1,0 +1,39 @@
+{# expects: data, pairs, market, period, periods, base_url #}
+<div class="pills">
+  <a href="?market=futures&days={{ period }}" class="{{ 'on' if market == 'futures' }}">{{ _('mkt_futures') }}</a>
+  <a href="?market=spot&days={{ period }}" class="{{ 'on' if market == 'spot' }}">{{ _('mkt_spot') }}</a>
+  <span style="width:12px"></span>
+  {% for pr in periods %}<a href="?market={{ market }}&days={{ pr }}" class="{{ 'on' if pr == period }}">{{ _('period_' ~ pr) }}</a>{% endfor %}
+</div>
+{% if not data or not data.trades %}
+<div class="card muted">{{ _('perf_no_data') }}</div>
+{% else %}
+<div class="grid">
+  <div class="card stat"><div class="k">{{ _('perf_trades') }}</div><div class="v">{{ data.trades }}</div></div>
+  <div class="card stat"><div class="k">{{ _('perf_win_rate') }}</div><div class="v"><span class="num">{{ '%.0f'|format(data.win_rate) }}%</span></div></div>
+  <div class="card stat"><div class="k">{{ _('perf_total') }}</div><div class="v {{ 'pos' if data.total >= 0 else 'neg' }}">{{ data.total|pct(1) }}</div></div>
+  <div class="card stat"><div class="k">{{ _('perf_avg') }}</div><div class="v {{ 'pos' if data.avg >= 0 else 'neg' }}">{{ data.avg|pct }}</div></div>
+  <div class="card stat"><div class="k">{{ _('perf_max_dd') }}</div><div class="v neg">{{ data.max_dd|pct(1) }}</div></div>
+</div>
+{% if data.curve.line %}
+<div class="card"><h2>{{ _('perf_curve') }}</h2>
+<svg class="chart" viewBox="0 0 600 160" preserveAspectRatio="none" role="img" aria-label="{{ _('perf_curve') }}">
+  <path class="area" d="{{ data.curve.area }}"/><line class="zero" x1="0" x2="600" y1="{{ data.curve.zero }}" y2="{{ data.curve.zero }}"/>
+  <path class="line" d="{{ data.curve.line }}" vector-effect="non-scaling-stroke"/></svg>
+<div class="small muted">{{ _('perf_curve_note') }}</div></div>
+{% endif %}
+<div class="card"><h2>{{ _('perf_by_pair') }}</h2><div class="table-wrap"><table>
+<tr><th>{{ _('col_pair') }}</th><th>{{ _('perf_trades') }}</th><th>{{ _('perf_win_rate') }}</th><th>{{ _('perf_total') }}</th><th>{{ _('perf_avg') }}</th>
+<th>{{ _('perf_best') }}</th><th>{{ _('perf_worst') }}</th><th>{{ _('perf_max_dd') }}</th><th>{{ _('perf_avg_hours') }}</th></tr>
+{% for p, st in pairs.items() %}<tr><td class="mono">{{ p }}</td><td>{{ st.trades }}</td><td>{{ '%.0f'|format(st.win_rate) }}%</td>
+<td class="{{ 'pos' if st.total >= 0 else 'neg' }}">{{ st.total|pct(1) }}</td><td>{{ st.avg|pct }}</td><td class="pos">{{ st.best|pct(1) }}</td>
+<td class="neg">{{ st.worst|pct(1) }}</td><td class="neg">{{ st.max_dd|pct(1) }}</td><td>{{ '%.1f'|format(st.avg_hours) }}</td></tr>{% endfor %}
+</table></div></div>
+<div class="card"><h2>{{ _('perf_recent') }}</h2><div class="table-wrap"><table class="small">
+<tr><th>#</th><th>{{ _('col_pair') }}</th><th>{{ _('col_side') }}</th><th>{{ _('col_opened') }}</th><th>{{ _('col_closed') }}</th><th>{{ _('col_entry') }}</th><th>{{ _('col_exit') }}</th><th>{{ _('perf_result_1x') }}</th><th>{{ _('col_reason') }}</th></tr>
+{% for tr in data.recent %}<tr><td>{{ tr.ft_trade_id }}</td><td class="mono">{{ tr.pair }}</td><td class="{{ 'pos' if tr.side=='long' else 'neg' }}">{{ tr.side|upper }}</td>
+<td class="muted">{{ tr.open_date.strftime('%Y-%m-%d %H:%M') }}</td><td class="muted">{{ tr.close_date.strftime('%Y-%m-%d %H:%M') if tr.close_date }}</td>
+<td>{{ tr.open_rate|price }}</td><td>{{ tr.close_rate|price }}</td><td class="{{ 'pos' if tr.ratio_1x >= 0 else 'neg' }}">{{ (tr.ratio_1x*100)|pct }}</td><td>{{ tr.exit_reason }}</td></tr>{% endfor %}
+</table></div></div>
+{% endif %}
+<p class="disclaimer">{{ _('perf_disclaimer') }}</p>

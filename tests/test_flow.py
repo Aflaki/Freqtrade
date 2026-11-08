@@ -1,4 +1,5 @@
 import asyncio
+import datetime as dt
 import re
 
 import pytest
@@ -7,33 +8,35 @@ from fastapi.testclient import TestClient
 from tests import fake_exchange as fx
 
 import app.engine.exchange as exmod
-from app.db import ExchangeAccount, SessionLocal, Trade, User
+from app.db import (BotTrade, ExchangeAccount, ExecutionLog, NotificationLog, SessionLocal, Trade, User,
+                    WebhookEvent, get_global)
 from app.main import app
 from app.telegram import bot
-
-SECRET = "webhook-secret-123456"
 
 
 @pytest.fixture(scope="module")
 def sent():
     msgs = []
+    real_send = bot.send
 
-    async def fake_send(chat_id, text):
+    async def fake_send(chat_id, text, user_id=None, kind="reply"):
         msgs.append((str(chat_id), text))
-        return True
+        bot.token = "x"
+        return await real_send.__func__(type("B", (), {"enabled": False, "_client": None, "_url": None})(), chat_id,
+                                        text, user_id, kind) or True  # still writes NotificationLog
 
-    bot.token = "test"  # enables notify()
-    bot.username = "TestRelayBot"
+    async def no_configure(token):
+        bot.token, bot.username = "test", "TestRelayBot"
+
+    bot.configure = no_configure
     bot.send = fake_send
-    bot.start = lambda: asyncio.sleep(0)
     for name in ("binanceusdm", "binance", "bybit"):
         setattr(exmod.ccxt, name, fx.FakeExchange)
     return msgs
 
 
 def csrf(client, url):
-    html = client.get(url).text
-    return re.search(r'name="csrf" value="([^"]+)"', html).group(1)
+    return re.search(r'name="csrf" value="([^"]+)"', client.get(url).text).group(1)
 
 
 def register(client, email, name):
@@ -42,127 +45,179 @@ def register(client, email, name):
                                           "password2": "password123", "terms": "on"}, follow_redirects=False)
 
 
+def secret():
+    with SessionLocal() as s:
+        return get_global(s).webhook_secret
+
+
 def ft(client, **p):
     base = {"pair": "ETH/USDT:USDT", "direction": "Short", "leverage": "5.0", "order_rate": "3000.0",
-            "open_rate": "3000.0", "trade_id": "11", "enter_tag": "rsi_x"}
-    r = client.post(f"/webhook/{SECRET}?wait=1", json={**base, **p})
+            "open_rate": "3000.0", "trade_id": "11", "enter_tag": "rsi_x", "open_date": "2026-11-01 10:00:00+00:00"}
+    r = client.post(f"/webhook/{secret()}?wait=1", json={**base, **p})
     assert r.status_code == 200, r.text
     return r.json()
 
 
+def uid_of(email):
+    with SessionLocal() as s:
+        return s.query(User).filter_by(email=email).one().id
+
+
 def test_full_flow(sent):
-    admin = TestClient(app)
-    user = TestClient(app)
-    with admin, user:
-        # ---- first user becomes admin
+    admin, ali, sara = TestClient(app), TestClient(app), TestClient(app)
+    with admin, ali, sara:
+        # ---------------- admin sets the formula from the panel
         assert register(admin, "admin@x.com", "Admin").status_code == 303
         tok = csrf(admin, "/admin/settings")
         r = admin.post("/admin/settings", data={
-            "csrf": tok, "entries_enabled": "on", "require_approval": "on", "sizing_formula": "equal_split",
-            "tradable_pct": "90", "default_max_open_trades": "3", "max_leverage": "10", "min_capital": "100",
-            "max_stake_per_trade": "0", "stake_currency": "USDT", "ex__binance": "on", "ex__bybit": "on",
-            "allowed_pairs": "BTC/USDT\nETHUSDT\n"}, follow_redirects=False)
+            "csrf": tok, "section": "trading", "entries_enabled": "on", "tradable_pct": "90",
+            "mode__equal_split": "on", "mode__pair_weights": "on", "mode__custom_amounts": "on",
+            "default_max_open_trades": "3", "max_leverage": "10", "min_capital": "100", "max_stake_per_trade": "0",
+            "default_stoploss_pct": "0", "stake_currency": "USDT", "ex__binance": "on", "ex__bybit": "on",
+            "allowed_pairs": "BTC/USDT\nETHUSDT\nSOL/USDT\n"}, follow_redirects=False)
         assert r.status_code == 303
-
-        # ---- second user is pending until approved
-        register(user, "ali@x.com", "Ali")
-        assert "در انتظار تأیید" in user.get("/").text
+        admin.post("/admin/settings", data={"csrf": tok, "section": "general", "site_name": "AlphaBot",
+                                            "default_lang": "fa", "base_url": "https://bot.example.com",
+                                            "public_performance": "on", "signal_only_enabled": "on",
+                                            "require_approval": "on", "trial_days": "30", "daily_report_hour_utc": "20",
+                                            "hero_title__en": "Custom EN title"})
         with SessionLocal() as s:
-            uid = s.query(User).filter_by(email="ali@x.com").one().id
+            gs = get_global(s)
+            assert gs.allowed_pairs == ["BTC/USDT", "ETH/USDT", "SOL/USDT"] and gs.site_name == "AlphaBot"
+
+        # ---------------- ali: auto-trading with custom amounts per coin + exchange stop loss
+        register(ali, "ali@x.com", "Ali")
+        ali_id = uid_of("ali@x.com")
+        with SessionLocal() as s:
+            assert s.get(User, ali_id).subscription_until is not None  # 30-day trial
         tok = csrf(admin, "/admin")
-        admin.post(f"/admin/users/{uid}", data={"csrf": tok, "action": "approve"})
-
-        # ---- add a futures account (real-order path against the fake exchange)
-        tok = csrf(user, "/accounts/new")
-        r = user.post("/accounts/new", data={
-            "csrf": tok, "label": "Binance Main", "exchange": "binance", "api_key": "KEY1234567890",
+        admin.post(f"/admin/users/{ali_id}", data={"csrf": tok, "action": "approve"})
+        tok = csrf(ali, "/accounts/new")
+        r = ali.post("/accounts/new", data={
+            "csrf": tok, "kind": "exchange", "label": "Binance Main", "exchange": "binance", "api_key": "KEY1234567890",
             "secret": "SECRET1234567890", "no_withdraw": "on", "trading_mode": "futures", "leverage": "5",
-            "margin_mode": "isolated", "capital": "1000", "pair__BTC/USDT": "on", "pair__ETH/USDT": "on"},
-            follow_redirects=False)
-        assert r.status_code == 303 and r.headers["location"] == "/accounts"
+            "margin_mode": "isolated", "sizing_mode": "custom_amounts",
+            "pair__ETH/USDT": "on", "value__ETH/USDT": "200", "pair__BTC/USDT": "on", "value__BTC/USDT": "100",
+            "stoploss_pct": "20"}, follow_redirects=False)
+        assert r.headers["location"] == "/accounts", r.headers
         with SessionLocal() as s:
-            acc = s.query(ExchangeAccount).one()
-            assert acc.api_key_enc != "KEY1234567890"  # encrypted at rest
-            assert acc.pairs == {"BTC/USDT": 1.0, "ETH/USDT": 1.0}
-            s.query(User).filter_by(id=uid).update({"telegram_chat_id": "555"})
+            acc = s.query(ExchangeAccount).filter_by(user_id=ali_id).one()
+            assert acc.pairs == {"ETH/USDT": 200.0, "BTC/USDT": 100.0} and acc.capital == 300
+            acc.dry_run = False  # real-order path against the fake exchange
+            s.query(User).filter_by(id=ali_id).update({"telegram_chat_id": "111", "lang": "en"})
             s.commit()
-        page = user.get("/accounts").text
-        assert "KEY1…7890" in page and "300.00" in page  # 1000 * 90% / 3 trades
 
-        # ---- Freqtrade opens a short on ETH
-        res = ft(user, type="entry_fill", amount="1.0", stake_amount="600.0", sub_trade="False")
-        assert res["results"][0]["status"] == "opened", res
+        # ---------------- sara: signals only, no API, Persian
+        register(sara, "sara@x.com", "Sara")
+        sara_id = uid_of("sara@x.com")
+        admin.post(f"/admin/users/{sara_id}", data={"csrf": csrf(admin, "/admin"), "action": "approve"})
+        tok = csrf(sara, "/accounts/new?kind=signal")
+        r = sara.post("/accounts/new", data={
+            "csrf": tok, "kind": "signal", "label": "My signals", "trading_mode": "futures", "leverage": "3",
+            "sizing_mode": "pair_weights", "capital": "1000", "pair__ETH/USDT": "on", "value__ETH/USDT": "3",
+            "pair__SOL/USDT": "on", "value__SOL/USDT": "1"}, follow_redirects=False)
+        assert r.headers["location"] == "/accounts"
         with SessionLocal() as s:
-            t = s.query(Trade).one()
-            assert (t.side, t.symbol, t.amount, t.entry_price) == ("short", "ETH/USDT:USDT", 0.5, 3000.0)
-            assert abs(t.stake - 300) < 1e-6 and abs(t.scale - 0.5) < 1e-6
-        ex = fx.FakeExchange.instances[-1]
-        assert ex.leverage["ETH/USDT:USDT"] == 5 and ex.orders[-1]["side"] == "sell"
+            s.query(User).filter_by(id=sara_id).update({"telegram_chat_id": "222", "lang": "fa"})
+            s.commit()
 
-        # duplicate delivery is ignored
-        assert ft(user, type="entry_fill", amount="1.0", stake_amount="600.0", sub_trade="False")["status"] == "duplicate"
-
-        # ---- DCA: Freqtrade adds 0.5 ETH (300 margin) -> we add half of that
-        res = ft(user, type="entry_fill", amount="0.5", stake_amount="900.0", sub_trade="True", order_rate="2900.0")
-        assert res["results"][0]["status"] == "added", res
+        # ---------------- Freqtrade: short ETH
+        res = ft(ali, type="entry_fill", amount="1.0", stake_amount="600.0", sub_trade="False")
+        statuses = sorted(r["status"] for r in res["results"])
+        assert statuses == ["opened", "opened"], res
         with SessionLocal() as s:
-            # FT order margin 0.5*2900/5=290 -> ours 145 -> 145*5/3000 (live price) = 0.241
-            assert abs(s.query(Trade).one().amount - 0.741) < 1e-9
+            t_ali = s.query(Trade).filter_by(user_id=ali_id).one()
+            t_sara = s.query(Trade).filter_by(user_id=sara_id).one()
+            # ali: 200 margin * 5x / 3000 = 0.333 ETH ; stop at +4% (20% / 5x)
+            assert t_ali.amount == 0.333 and abs(t_ali.sl_price - 3120) < 1e-6 and t_ali.sl_order_id
+            # sara: 1000 * 90% * 3/4 = 675 margin, 3x, signal price
+            assert abs(t_sara.stake - 675) < 1e-6 and t_sara.is_signal and t_sara.leverage == 3
+        ex = [e for e in fx.FakeExchange.instances if e.orders][-1]
+        assert ex.stops[-1]["params"] == {"stopLossPrice": 3120.0, "reduceOnly": True}
 
-        # ---- partial exit 1/3 (Freqtrade closed 0.5 of 1.5)
+        # ---------------- partial exit 50% -> stop re-placed for the rest
+        fx.PRICES["ETH/USDT:USDT"] = 2900.0
+        res = ft(ali, type="exit_fill", amount="0.5", stake_amount="300.0", sub_trade="True", is_final_exit="False",
+                 order_rate="2900", exit_reason="tp1")
+        assert sorted(r["status"] for r in res["results"]) == ["partial", "partial"], res
+        assert len(ex.cancelled) == 1 and ex.stops[-1]["amount"] == pytest.approx(0.167)
+
+        # ---------------- final exit
         fx.PRICES["ETH/USDT:USDT"] = 2800.0
-        res = ft(user, type="exit_fill", amount="0.5", stake_amount="580.0", sub_trade="True",
-                 is_final_exit="False", open_rate="2966.6667", exit_reason="partial_tp")
-        assert res["results"][0]["status"] == "partial", res
-        assert ex.orders[-1]["params"] == {"reduceOnly": True} and ex.orders[-1]["side"] == "buy"
-
-        # ---- final exit
-        fx.PRICES["ETH/USDT:USDT"] = 2700.0
-        res = ft(user, type="exit_fill", amount="1.0", stake_amount="580.0", sub_trade="False",
-                 is_final_exit="True", exit_reason="roi")
-        assert res["results"][0]["status"] == "closed", res
+        res = ft(ali, type="exit_fill", amount="0.5", stake_amount="300.0", sub_trade="False", is_final_exit="True",
+                 order_rate="2800", exit_reason="roi", profit_ratio="0.3", final_profit_ratio="0.2833",
+                 close_rate="2800", close_date="2026-11-02 12:00:00+00:00")
+        assert sorted(r["status"] for r in res["results"]) == ["closed", "closed"], res
         with SessionLocal() as s:
-            t = s.query(Trade).one()
-            assert t.status == "closed" and t.amount == 0 and t.realized_pnl > 0 and t.exit_reason == "roi"
+            assert all(t.status == "closed" and t.realized_pnl > 0 for t in s.query(Trade))
+            bt = s.query(BotTrade).filter_by(ft_trade_id=11).one()
+            assert not bt.is_open and bt.profit_ratio == pytest.approx(0.2833) and bt.side == "short"
+        assert len(ex.cancelled) == 2  # stop cancelled before the final exit
 
-        # ---- spot account: fee taken in base is respected on exit
-        tok = csrf(user, "/accounts/new")
-        user.post("/accounts/new", data={
-            "csrf": tok, "label": "Bybit Spot", "exchange": "bybit", "api_key": "K2xxxxxxxxxx", "secret": "S2xxxxxxxxxx",
-            "no_withdraw": "on", "trading_mode": "spot", "capital": "500", "pair__BTC/USDT": "on"})
-        res = ft(user, type="entry_fill", pair="BTC/USDT", direction="Long", leverage="1.0", order_rate="60000",
-                 open_rate="60000", amount="0.01", stake_amount="600", sub_trade="False", trade_id="12")
-        assert res["results"][0]["status"] == "opened", res
-        res = ft(user, type="exit_fill", pair="BTC/USDT", direction="Long", leverage="1.0", order_rate="61000",
-                 open_rate="60000", amount="0.01", stake_amount="600", sub_trade="False", is_final_exit="True",
-                 trade_id="12", exit_reason="exit_signal")
-        assert res["results"][0]["status"] == "closed", res
+        # ---------------- public performance page (all languages, both markets)
+        for lang in ("fa", "en", "de", "es"):
+            page = TestClient(app).get(f"/?lang={lang}&days=all").text
+            assert "ETH/USDT" in page and 'dir="' + ("rtl" if lang == "fa" else "ltr") + '"' in page
+        assert "Custom EN title" in TestClient(app).get("/?lang=en").text
+        assert "+5.67%" in TestClient(app).get("/?lang=en&days=all").text  # 28.33% / 5x
 
-        # ---- spot short is ignored, unknown pair is ignored, status messages are acked
-        assert ft(user, type="entry_fill", pair="DOGE/USDT:USDT", amount="10", stake_amount="10")["results"] == []
-        assert user.post(f"/webhook/{SECRET}", json={"type": "status", "status": "running"}).json()["status"] == "ignored"
-        assert user.post("/webhook/wrong", json={}).status_code == 401
-
-        # ---- pages render
-        for url in ("/", "/accounts", "/trades", "/settings"):
-            assert user.get(url).status_code == 200, url
-        for url in ("/admin", "/admin/settings", "/admin/trades"):
-            assert admin.get(url).status_code == 200, url
-        assert user.get("/admin").status_code == 403
-
-        # ---- telegram commands
-        asyncio.run(bot.handle("555", "/profit"))
-        asyncio.run(bot.handle("555", "/pause"))
+        # ---------------- manual close from the web + logs
+        res = ft(ali, type="entry_fill", pair="BTC/USDT:USDT", direction="Long", order_rate="60000",
+                 open_rate="60000", amount="0.01", stake_amount="120", sub_trade="False", trade_id="12")
+        assert [r["status"] for r in res["results"]] == ["opened"]  # sara did not pick BTC
         with SessionLocal() as s:
-            assert s.get(User, uid).trading_enabled is False
-        # paused user gets no new entries
-        res = ft(user, type="entry_fill", amount="1.0", stake_amount="600.0", sub_trade="False", trade_id="13")
-        assert res["results"] == []
+            tid = s.query(Trade).filter_by(user_id=ali_id, status="open").one().id
+        r = ali.post(f"/trades/{tid}/close", data={"csrf": csrf(ali, "/dashboard")}, follow_redirects=False)
+        assert r.status_code == 303
+        with SessionLocal() as s:
+            tr = s.get(Trade, tid)
+            assert tr.status == "closed" and tr.exit_reason == "manual"
+            assert s.query(WebhookEvent).filter_by(status="accepted").count() == 4
+            ex_logs = s.query(ExecutionLog).filter_by(user_id=ali_id).all()
+            assert any(c["method"] == "create_order" for e in ex_logs for c in e.calls)
+            assert any(c["method"] == "create_order(stop)" for e in ex_logs for c in e.calls)
+            assert s.query(NotificationLog).filter_by(user_id=sara_id).count() >= 3
 
-    texts = [t for c, t in sent if c == "555"]
-    assert any("پوزیشن باز شد" in t for t in texts)
-    assert any("افزایش پوزیشن" in t for t in texts)
-    assert any("خروج بخشی (" in t for t in texts)
-    assert any("پوزیشن بسته شد" in t for t in texts)
-    assert any("سود و زیان" in t for t in texts)
-    print("\n\n".join(texts))
+        # ---------------- subscription expired -> no new entries for that user
+        with SessionLocal() as s:
+            s.query(User).filter_by(id=ali_id).update({"subscription_until": dt.datetime(2020, 1, 1)})
+            s.commit()
+        res = ft(ali, type="entry_fill", amount="1.0", stake_amount="600.0", sub_trade="False", trade_id="13")
+        assert [r["status"] for r in res["results"]] == ["opened"]  # only sara
+
+        # ---------------- rejected / ignored webhooks are logged too
+        assert TestClient(app).post("/webhook/wrong", json={"type": "entry"}).status_code == 401
+        assert TestClient(app).post(f"/webhook/{secret()}", json={"type": "status", "status": "running"}).json()["status"] == "ignored"
+        with SessionLocal() as s:
+            assert s.query(WebhookEvent).filter_by(status="rejected").count() == 1
+            assert s.query(WebhookEvent).filter_by(status="ignored").count() == 1
+
+        # ---------------- every page renders in every language
+        for lang in ("fa", "en", "de", "es"):
+            for c, urls in ((ali, ("/dashboard", "/accounts", "/accounts/new", "/accounts/new?kind=signal", "/trades",
+                                   "/activity", "/settings")),
+                            (admin, ("/admin", f"/admin/users/{ali_id}", "/admin/settings", "/admin/performance",
+                                     "/admin/logs", "/admin/logs?kind=executions", "/admin/logs?kind=notifications",
+                                     "/admin/trades"))):
+                c.get(f"/lang/{lang}")
+                for u in urls:
+                    r = c.get(u)
+                    assert r.status_code == 200, (lang, u, r.text[:300])
+                    assert "nav_" not in r.text and "col_" not in r.text, (lang, u)  # no untranslated keys
+        assert ali.get("/admin").status_code == 403
+
+        # ---------------- telegram commands in the user's language
+        asyncio.run(bot.handle("222", "/profit"))
+        asyncio.run(bot.handle("111", "/lang de"))
+        asyncio.run(bot.handle("111", "/daily 3"))
+        with SessionLocal() as s:
+            assert s.get(User, ali_id).lang == "de"
+
+    ali_msgs = [t for c, t in sent if c == "111"]
+    sara_msgs = [t for c, t in sent if c == "222"]
+    assert any("Position opened" in t for t in ali_msgs) and any("Stop loss" in t for t in ali_msgs)
+    assert any("Partial exit" in t for t in ali_msgs)
+    assert any("سیگنال ورود" in t for t in sara_msgs) and any("سیگنال خروج" in t for t in sara_msgs)
+    assert any("مبلغ پیشنهادی" in t for t in sara_msgs)
+    assert any("G&V der letzten 3 Tage" in t for t in ali_msgs)
+    print("\n---- ali (en)\n" + "\n\n".join(ali_msgs[:4]) + "\n---- sara (fa)\n" + "\n\n".join(sara_msgs[:4]))

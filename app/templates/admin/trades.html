@@ -1,13 +1,10 @@
-{% extends "base.html" %}{% block content %}{% set tab='trades' %}
-<h1>مدیریت</h1>{% include "admin/_nav.html" %}
-<div class="card"><h2>آخرین سیگنال‌ها</h2><div class="table-wrap"><table>
-<tr><th>زمان</th><th>اکشن</th><th>جفت‌ارز</th><th>نتیجه</th></tr>
-{% for g in signals %}<tr><td class="small muted">{{ g.received_at.strftime('%m-%d %H:%M:%S') }}</td><td>{{ g.action }}</td><td class="mono">{{ g.pair }}</td><td class="small">{{ g.summary }}</td></tr>
-{% else %}<tr><td colspan="4" class="muted">سیگنالی نرسیده.</td></tr>{% endfor %}</table></div></div>
-<div class="card"><h2>همه معاملات</h2><div class="table-wrap"><table>
-<tr><th>#</th><th>کاربر</th><th>صرافی</th><th>جفت‌ارز</th><th>جهت</th><th>وضعیت</th><th>ورود</th><th>خروج</th><th>مارجین</th><th>سود/زیان ({{ cur }})</th><th>زمان</th></tr>
-{% for t in trades %}<tr><td>{{ t.id }}</td><td class="small mono">{{ emails.get(t.user_id) }}</td><td>{{ acc_names.get(t.account_id, '-') }}{% if t.dry_run %} <span class="badge">آزمایشی</span>{% endif %}</td>
-<td class="mono">{{ t.pair }}</td><td>{{ t.side|upper }}</td><td>{{ 'باز' if t.status=='open' else 'بسته' }}</td><td>{{ t.entry_price|price }}</td><td>{{ t.exit_price|price }}</td>
-<td>{{ t.stake|money }}</td><td class="{{ 'pos' if t.realized_pnl >= 0 else 'neg' }}">{{ '%+.2f'|format(t.realized_pnl) }}</td><td class="small muted">{{ t.opened_at.strftime('%m-%d %H:%M') }}</td></tr>
-{% else %}<tr><td colspan="11" class="muted">معامله‌ای نیست.</td></tr>{% endfor %}</table></div></div>
+{% extends "base.html" %}{% block content %}
+<h1>{{ _('nav_admin') }}</h1>{% include "admin/_nav.html" %}
+<div class="card table-wrap"><table>
+<tr><th>#</th><th>{{ _('col_user') }}</th><th>{{ _('col_portfolio') }}</th><th>{{ _('col_pair') }}</th><th>{{ _('col_side') }}</th><th>{{ _('col_status') }}</th><th>{{ _('col_entry') }}</th><th>{{ _('col_exit') }}</th><th>{{ _('col_margin') }}</th><th>{{ _('col_pnl') }} ({{ cur }})</th><th>{{ _('col_opened') }}</th></tr>
+{% for t in trades %}<tr><td>{{ t.id }}</td><td class="small mono"><a href="/admin/users/{{ t.user_id }}">{{ emails.get(t.user_id) }}</a></td>
+<td>{{ acc_names.get(t.account_id, '-') }}{% if t.is_signal %} <span class="badge brand">{{ _('badge_signal') }}</span>{% elif t.dry_run %} <span class="badge">{{ _('badge_paper') }}</span>{% endif %}</td>
+<td class="mono">{{ t.pair }}</td><td>{{ t.side|upper }}</td><td>{{ _('status_' ~ t.status) }}</td><td>{{ t.entry_price|price }}</td><td>{{ t.exit_price|price }}</td>
+<td>{{ t.stake|money }}</td><td class="{{ 'pos' if t.realized_pnl >= 0 else 'neg' }}">{{ t.realized_pnl|signed }}</td><td class="small muted">{{ t.opened_at.strftime('%m-%d %H:%M') }}</td></tr>
+{% else %}<tr><td colspan="11" class="muted">—</td></tr>{% endfor %}</table></div>
 {% endblock %}

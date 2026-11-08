@@ -1,0 +1,6 @@
+{% extends "base.html" %}{% from "_logs.html" import exec_table, note_table with context %}{% block content %}
+<h1>{{ _('nav_activity') }}</h1>
+<p class="muted">{{ _('activity_intro') }}</p>
+<div class="card"><h2>{{ _('log_executions') }}</h2>{{ exec_table(execs) }}</div>
+<div class="card"><h2>{{ _('log_notifications') }}</h2>{{ note_table(notes) }}</div>
+{% endblock %}
