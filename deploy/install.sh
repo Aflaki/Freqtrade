@@ -2,10 +2,12 @@
 # =============================================================================
 #  Signal Relay — one-command installer for Debian 12+ (also Ubuntu 22.04+)
 #
-#  With a domain (HTTPS certificate is obtained automatically):
+#  With your own domain (its DNS A record must point to this server):
 #      bash install.sh panel.example.com
-#  Without a domain (plain HTTP on the server IP — only for testing):
+#  Without a domain — a free hostname <ip>.sslip.io is used automatically:
 #      bash install.sh
+#  A real HTTPS certificate is obtained automatically in both cases.
+#  Ports 80 and 443 must be free and open.
 #
 #  Safe to run again: it updates the code and keeps your data.
 # =============================================================================
@@ -30,7 +32,7 @@ say "System: ${PRETTY_NAME:-unknown}"
 say "Installing system packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq python3 python3-venv python3-pip git curl sqlite3 ca-certificates >/dev/null
+apt-get install -y -qq python3 python3-venv python3-pip git curl sqlite3 ca-certificates iproute2 >/dev/null
 if ! command -v caddy >/dev/null; then
   if ! apt-get install -y -qq caddy >/dev/null 2>&1; then
     apt-get install -y -qq debian-keyring debian-archive-keyring apt-transport-https gnupg >/dev/null
@@ -42,6 +44,29 @@ fi
 python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' \
   || die "Python 3.11+ is required (you have $(python3 -V)). Use Debian 12 or newer."
 ok "packages ready ($(python3 -V), caddy $(caddy version | cut -d' ' -f1))"
+
+# ----------------------------------------------------------------- address & ports
+PUBLIC_IP="$(curl -fsS4 --max-time 8 https://api.ipify.org || hostname -I | awk '{print $1}')"
+DOMAIN="${DOMAIN#http://}"; DOMAIN="${DOMAIN#https://}"; DOMAIN="${DOMAIN%%/*}"
+if [[ "$DOMAIN" == *:* ]]; then
+  die "Give only a domain name, without a port (you gave '$DOMAIN').
+   HTTPS needs the standard ports 80/443. Run:  bash install.sh   (no argument)  or  bash install.sh your-domain.com"
+fi
+if [[ -z "$DOMAIN" || "$DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  DOMAIN="${PUBLIC_IP//./-}.sslip.io"
+  say "No domain given — using the free hostname $DOMAIN (points to $PUBLIC_IP)"
+else
+  RESOLVED="$(getent ahostsv4 "$DOMAIN" | awk 'NR==1{print $1}')"
+  [[ "$RESOLVED" == "$PUBLIC_IP" ]] || die "$DOMAIN points to '${RESOLVED:-nothing}', not to this server ($PUBLIC_IP).
+   Add a DNS A record: $DOMAIN -> $PUBLIC_IP, wait a few minutes and run again."
+fi
+BUSY="$(ss -Htlnp 'sport = :80 or sport = :443' 2>/dev/null | grep -v '"caddy"' || true)"
+if [[ -n "$BUSY" ]]; then
+  die "Ports 80/443 are already used by another program:
+$BUSY
+   Stop it (or tell the developer which program it is) and run again."
+fi
+ok "address: https://$DOMAIN"
 
 # ----------------------------------------------------------------- user & code
 say "Getting the code into $APP_DIR"
@@ -65,12 +90,7 @@ runuser -u "$APP_USER" -- "$APP_DIR/venv/bin/pip" install -q -r "$APP_DIR/requir
 ok "dependencies installed"
 
 # ----------------------------------------------------------------- config
-if [[ -n "$DOMAIN" ]]; then
-  URL="https://$DOMAIN"; SECURE=true
-else
-  IP="$(curl -fsS4 --max-time 5 https://api.ipify.org || hostname -I | awk '{print $1}')"
-  URL="http://$IP"; SECURE=false
-fi
+URL="https://$DOMAIN"; SECURE=true
 cat > /etc/signal-relay.env <<ENV
 DATA_DIR=$APP_DIR/data
 SECURE_COOKIES=$SECURE
@@ -134,11 +154,10 @@ systemctl enable -q signal-relay
 systemctl restart signal-relay
 
 # ----------------------------------------------------------------- web server (HTTPS)
-say "Configuring Caddy (web server${DOMAIN:+ + HTTPS certificate})"
+say "Configuring Caddy (web server + HTTPS certificate)"
 [[ -f /etc/caddy/Caddyfile && ! -f /etc/caddy/Caddyfile.orig ]] && cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.orig
-SITE="${DOMAIN:-:80}"
 cat > /etc/caddy/Caddyfile <<CADDY
-$SITE {
+$DOMAIN {
 	encode gzip
 	reverse_proxy 127.0.0.1:$PORT
 }
@@ -167,6 +186,11 @@ for _ in $(seq 1 20); do
 done
 curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null || { journalctl -u signal-relay -n 40 --no-pager; die "service did not start"; }
 ok "service is running"
+for _ in $(seq 1 30); do   # wait for the certificate
+  curl -fsS --max-time 5 "$URL/health" >/dev/null 2>&1 && { ok "HTTPS works: $URL"; break; }
+  sleep 2
+done
+curl -fsS --max-time 5 "$URL/health" >/dev/null 2>&1 || printf '\033[1;33m! HTTPS not ready yet. Check that ports 80 and 443 are open in your provider firewall, then: journalctl -u caddy -n 50\033[0m\n'
 
 cat <<DONE
 
