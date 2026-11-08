@@ -80,7 +80,7 @@ def _form_ctx(gs, acc, kind):
     ids = [b.id for b in bots]
     return dict(gs=gs, acc=acc, kind=kind, key_mask=mask(acc.api_key_enc) if acc and not acc.is_signal else "",
                 stats_json=perf.stats_json(ids, 90), modes=[m for m in SIZING_MODES if m in (gs.sizing_modes or [])],
-                bots=bots, cards={m: perf.bot_summaries(ids, m, 90) for m in ("futures", "spot")},
+                bots=bots, cards={m: perf.bot_summaries(ids, m, 90) for m in ("all", "long")},
                 followed=(acc.bots or []) if acc else (ids if len(ids) == 1 else []))
 
 

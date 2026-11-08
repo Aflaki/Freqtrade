@@ -257,6 +257,7 @@ class BotMonitor:
             try:
                 st.update(await fetch_info(url, user, pw))
                 st["missing_pairs"] = [p for p in st["whitelist"] if p not in allowed]
+                st.update(await self._sync_trades(bot_id, url, user, pw, full=not old.get("history_synced")))
             except Exception as e:
                 st.update(_error_state(e))
         with SessionLocal() as s:
@@ -267,6 +268,19 @@ class BotMonitor:
         if alert and url:
             self._alert_changes(name, old, st)
         return st
+
+    async def _sync_trades(self, bot_id: int, url: str, user: str, pw: str, full: bool) -> dict:
+        """Closed trades from the Freqtrade API -> identical history even without webhook."""
+        from . import performance as perf
+        try:
+            if full:
+                n = await perf.import_from_api(bot_id, normalize_api_url(url), user, pw)
+            else:
+                n = await perf.sync_recent_from_api(bot_id, normalize_api_url(url), user, pw)
+            return {"history_synced": True, "synced_at": utcnow().isoformat(timespec="seconds"), "sync_error": "",
+                    **({"history_count": n} if full else {})}
+        except Exception as e:
+            return {"sync_error": f"{type(e).__name__}: {str(e)[:150]}"}
 
     async def poll_all(self, alert: bool = True) -> None:
         with SessionLocal() as s:

@@ -148,7 +148,7 @@ def test_full_flow(sent):
         # ---------------- final exit
         fx.PRICES["ETH/USDT:USDT"] = 2800.0
         res = ft(ali, type="exit_fill", amount="0.5", stake_amount="300.0", sub_trade="False", is_final_exit="True",
-                 order_rate="2800", exit_reason="roi", profit_ratio="0.3", final_profit_ratio="0.2833",
+                 order_rate="2800", exit_reason="roi", profit_ratio="0.3", final_profit_ratio="0.2833", cumulative_profit="170.0",
                  close_rate="2800", close_date="2026-11-02 12:00:00+00:00")
         assert sorted(r["status"] for r in res["results"]) == ["closed", "closed"], res
         with SessionLocal() as s:
@@ -162,7 +162,10 @@ def test_full_flow(sent):
             page = TestClient(app).get(f"/?lang={lang}&days=all").text
             assert "ETH/USDT" in page and 'dir="' + ("rtl" if lang == "fa" else "ltr") + '"' in page
         assert "Custom EN title" in TestClient(app).get("/?lang=en").text
-        assert "+5.67%" in TestClient(app).get("/?lang=en&days=all").text  # 28.33% / 5x
+        page = TestClient(app).get("/?lang=en&days=all").text
+        assert "+28.33%" in page and "+170.00" in page and "5.0x" in page  # exactly as Freqtrade reports, with leverage
+        assert "ETH/USDT" in TestClient(app).get("/?lang=en&days=all&market=short").text
+        assert "ETH/USDT" not in TestClient(app).get("/?lang=en&days=all&market=long").text.split("perf_recent")[-1]
 
         # ---------------- manual close from the web + logs
         res = ft(ali, type="entry_fill", pair="BTC/USDT:USDT", direction="Long", order_rate="60000",
@@ -240,7 +243,13 @@ def test_full_flow(sent):
                     "/api/v1/health": {"last_process": "2020-01-01T00:00:00+00:00"},
                     "/api/v1/count": {"current": 2, "max": 5, "total_stake": 100},
                     "/api/v1/whitelist": {"whitelist": ["BTC/USDT:USDT", "DOGE/USDT:USDT"]},
-                    "/api/v1/stop": {"status": "stopping trader ..."}}.get(request.url.path)
+                    "/api/v1/stop": {"status": "stopping trader ..."},
+                    "/api/v1/trades": {"trades": [{"trade_id": 50, "pair": "SOL/USDT:USDT", "is_short": False,
+                                                   "leverage": 3.0, "open_date": "2026-11-05 10:00:00+00:00",
+                                                   "close_date": "2026-11-05 14:00:00+00:00", "open_rate": 150,
+                                                   "close_rate": 156, "is_open": False, "profit_ratio": 0.1185,
+                                                   "close_profit": 0.1185, "close_profit_abs": 11.85,
+                                                   "stake_amount": 100, "exit_reason": "roi"}]}}.get(request.url.path)
             return httpx.Response(200, json=data) if data else httpx.Response(404)
 
         real_client = httpx.AsyncClient
@@ -258,6 +267,10 @@ def test_full_flow(sent):
             st = asyncio.run(monitor.poll_bot(1))
             assert st["api"] == "ok" and st["state"] == "running" and st["stalled"] is True, st
             assert st["missing_pairs"] == ["DOGE/USDT"] and st["max_open_trades"] == -1
+            assert st["history_synced"] and "/api/v1/trades" in calls  # closed trades pulled from the API
+            with SessionLocal() as s:
+                bt = s.query(BotTrade).filter_by(bot_id=1, ft_trade_id=50).one()
+                assert (bt.leverage, bt.profit_ratio, bt.profit_abs, bt.source) == (3.0, 0.1185, 11.85, "api")
             page = admin.get("/admin/bot").text
             assert "MyStrat" in page and "Main" in page
             page = admin.get("/admin/bots/1").text

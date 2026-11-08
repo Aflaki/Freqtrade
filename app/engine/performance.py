@@ -55,6 +55,7 @@ def record_from_webhook(payload: dict, bot_id: int | None) -> None:
             s.add(bt)
         bt.leverage = _f(payload.get("leverage")) or bt.leverage or 1.0
         bt.open_rate = _f(payload.get("open_rate")) or bt.open_rate
+        bt.stake_amount = _f(payload.get("stake_amount")) or bt.stake_amount
         bt.open_date = _dt(payload.get("open_date")) or bt.open_date or utcnow()
         bt.enter_tag = str(payload.get("enter_tag") or bt.enter_tag or "")[:80].replace("None", "")
         final = str(payload.get("is_final_exit", "")).lower() in ("true", "1")
@@ -64,6 +65,9 @@ def record_from_webhook(payload: dict, bot_id: int | None) -> None:
             bt.close_rate = _f(payload.get("close_rate")) or _f(payload.get("order_rate"))
             ratio = _f(payload.get("final_profit_ratio"))
             bt.profit_ratio = ratio if ratio is not None else _f(payload.get("profit_ratio"))
+            # total realized profit of the whole trade (incl. earlier partial exits), like FreqUI
+            cum = _f(payload.get("cumulative_profit"))
+            bt.profit_abs = cum if cum is not None else _f(payload.get("profit_amount"))
             bt.exit_reason = str(payload.get("exit_reason") or "")[:80]
         s.commit()
 
@@ -86,13 +90,26 @@ def _upsert(s, rows: list[dict], source: str, bot_id: int) -> int:
         bt.open_rate = _f(r.get("open_rate"))
         bt.close_rate = _f(r.get("close_rate"))
         bt.is_open = r.get("is_open") in (True, 1, "1", "true")
-        bt.profit_ratio = _f(r.get("profit_ratio") if r.get("profit_ratio") is not None else r.get("close_profit"))
+        bt.profit_ratio = _f(r.get("close_profit") if r.get("close_profit") is not None else r.get("profit_ratio"))
+        abs_ = r.get("close_profit_abs") if r.get("close_profit_abs") is not None else r.get("profit_abs")
+        bt.profit_abs = _f(abs_)
+        bt.stake_amount = _f(r.get("stake_amount")) or bt.stake_amount
         bt.exit_reason = str(r.get("exit_reason") or "")[:80]
         bt.enter_tag = str(r.get("enter_tag") or "")[:80]
         bt.source = source
         n += 1
     s.commit()
     return n
+
+
+async def sync_recent_from_api(bot_id: int, url: str, user: str, password: str, limit: int = 100) -> int:
+    """Latest closed trades (newest first) -> keeps the record identical to Freqtrade's own database."""
+    async with httpx.AsyncClient(timeout=20, auth=(user, password)) as c:
+        r = await c.get(url.rstrip("/") + "/api/v1/trades", params={"limit": limit, "order_by_id": "false"})
+        r.raise_for_status()
+        rows = r.json().get("trades", [])
+    with SessionLocal() as s:
+        return _upsert(s, rows, "api", bot_id)
 
 
 async def import_from_api(bot_id: int, url: str, user: str, password: str) -> int:
@@ -134,43 +151,49 @@ def _closed(market: str, days: int | None, bots: list[int] | None = None) -> lis
             q = q.where(BotTrade.bot_id.in_(bots or [-1]))
         if days:
             q = q.where(BotTrade.close_date >= utcnow() - dt.timedelta(days=days))
-        if market == "spot":
+        if market in ("long", "spot"):
             q = q.where(BotTrade.side == "long")
+        elif market == "short":
+            q = q.where(BotTrade.side == "short")
         return list(s.scalars(q.order_by(BotTrade.close_date)))
 
 
 def _stats(trades: list[BotTrade]) -> dict:
     if not trades:
         return {"trades": 0, "wins": 0, "win_rate": 0, "total": 0, "avg": 0, "best": 0, "worst": 0,
-                "max_dd": 0, "avg_hours": 0, "last": None}
-    r = [t.ratio_1x for t in trades]
+                "max_dd": 0, "avg_hours": 0, "last": None, "profit_abs": 0, "avg_lev": 0}
+    r = [t.profit_ratio or 0.0 for t in trades]  # exactly Freqtrade's profit %, with the bot's leverage
     eq, peak, dd = 0.0, 0.0, 0.0
     for x in r:
         eq += x
         peak = max(peak, eq)
         dd = min(dd, eq - peak)
     hours = [((t.close_date - t.open_date).total_seconds() / 3600) for t in trades if t.close_date and t.open_date]
-    wins = sum(1 for x in r if x > 0)
+    wins = sum(1 for t in trades if (t.profit_abs if t.profit_abs is not None else t.profit_ratio or 0) > 0)
     return {"trades": len(r), "wins": wins, "win_rate": wins / len(r) * 100, "total": sum(r) * 100,
+            "profit_abs": sum(t.profit_abs or 0 for t in trades),
+            "avg_lev": sum(t.leverage or 1 for t in trades) / len(trades),
             "avg": sum(r) / len(r) * 100, "best": max(r) * 100, "worst": min(r) * 100, "max_dd": dd * 100,
             "avg_hours": sum(hours) / len(hours) if hours else 0, "last": trades[-1].close_date}
 
 
-def pair_stats(market: str = "futures", days: int | None = None, bots: list[int] | None = None) -> dict[str, dict]:
+def pair_stats(market: str = "all", days: int | None = None, bots: list[int] | None = None) -> dict[str, dict]:
     by_pair: dict[str, list[BotTrade]] = defaultdict(list)
     for t in _closed(market, days, bots):
         by_pair[t.pair].append(t)
     return {p: _stats(ts) for p, ts in sorted(by_pair.items())}
 
 
-def summary(market: str = "futures", days: int | None = None, pairs: list[str] | None = None,
+def summary(market: str = "all", days: int | None = None, pairs: list[str] | None = None,
             bots: list[int] | None = None) -> dict:
     trades = [t for t in _closed(market, days, bots) if not pairs or t.pair in pairs]
     st = _stats(trades)
-    # equity curve (sum of 1x returns, %), downsampled for the SVG
+    # equity curve: cumulative profit in stake currency (like FreqUI), or sum of % if amounts are unknown
+    use_abs = bool(trades) and all(t.profit_abs is not None for t in trades)
+    st["curve_abs"] = use_abs
     pts, eq = [], 0.0
     for t in trades:
-        eq += t.ratio_1x * 100
+        eq += (t.profit_abs or 0) if use_abs else (t.profit_ratio or 0) * 100
         pts.append((t.close_date, eq))
     if len(pts) > 200:
         step = len(pts) / 200
@@ -192,7 +215,7 @@ def svg_path(points: list[tuple[Any, float]], w: int = 600, h: int = 160) -> dic
     return {"line": line, "area": f"{line} L{w},{zero:.1f} L0,{zero:.1f} Z", "zero": zero, "min": lo, "max": hi}
 
 
-def bot_summaries(bot_ids: list[int], market: str = "futures", days: int | None = 90) -> dict[int, dict]:
+def bot_summaries(bot_ids: list[int], market: str = "all", days: int | None = 90) -> dict[int, dict]:
     """Headline numbers per bot (cards on the home page and in the portfolio form)."""
     by_bot: dict[int, list[BotTrade]] = defaultdict(list)
     for t in _closed(market, days, bot_ids):
@@ -205,7 +228,7 @@ def stats_json(bot_ids: list[int], days: int | None = 90) -> str:
     out: dict[str, Any] = {}
     for b in bot_ids:
         out[str(b)] = {}
-        for m in ("spot", "futures"):
+        for m in ("long", "all"):
             by_pair: dict[str, list[BotTrade]] = defaultdict(list)
             for t in _closed(m, days, [b]):
                 by_pair[t.pair].append(t)

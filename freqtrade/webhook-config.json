@@ -54,7 +54,9 @@
       "exchange": "{exchange}",
       "close_rate": "{close_rate}",
       "final_profit_ratio": "{final_profit_ratio}",
-      "open_date": "{open_date}"
+      "open_date": "{open_date}",
+      "cumulative_profit": "{cumulative_profit}",
+      "profit_amount": "{profit_amount}"
     },
     "exit_fill": {
       "type": "exit_fill",
@@ -74,7 +76,9 @@
       "exchange": "{exchange}",
       "close_rate": "{close_rate}",
       "final_profit_ratio": "{final_profit_ratio}",
-      "open_date": "{open_date}"
+      "open_date": "{open_date}",
+      "cumulative_profit": "{cumulative_profit}",
+      "profit_amount": "{profit_amount}"
     },
     "status": {
       "type": "status",

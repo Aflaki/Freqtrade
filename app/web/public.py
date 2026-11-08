@@ -18,7 +18,7 @@ PERIODS = {"30": 30, "90": 90, "365": 365, "all": None}
 
 @router.get("/")
 async def landing(request: Request):
-    market = "spot" if request.query_params.get("market") == "spot" else "futures"
+    market = {"long": "long", "short": "short", "spot": "long"}.get(request.query_params.get("market", ""), "all")
     period = request.query_params.get("days", "90")
     days = PERIODS.get(period, 90)
     with SessionLocal() as s:
