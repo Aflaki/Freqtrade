@@ -8,7 +8,7 @@ import datetime as dt
 import secrets
 from typing import Any
 
-from sqlalchemy import JSON, Float, ForeignKey, String, Text, create_engine, event, inspect, select, text
+from sqlalchemy import JSON, Float, ForeignKey, Index, String, Text, create_engine, event, inspect, select, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
 
 from .settings import DATABASE_URL
@@ -112,6 +112,7 @@ class ExchangeAccount(Base):
     max_open_trades: Mapped[int | None] = mapped_column(nullable=True)
     # {"BTC/USDT": value}: value = weight (pair_weights) or margin per trade (custom_amounts)
     pairs: Mapped[dict[str, float]] = mapped_column(JSON, default=dict)
+    bots: Mapped[list[int] | None] = mapped_column(JSON, nullable=True)  # Freqtrade bots this portfolio follows
     # risk
     stoploss_pct: Mapped[float | None] = mapped_column(Float, nullable=True)  # max loss % of margin
     daily_loss_limit_pct: Mapped[float | None] = mapped_column(Float, nullable=True)  # % of capital
@@ -138,6 +139,7 @@ class Trade(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("exchange_accounts.id", ondelete="CASCADE"), index=True)
     ft_trade_id: Mapped[int | None] = mapped_column(nullable=True)
+    bot_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
     pair: Mapped[str] = mapped_column(String(40))
     symbol: Mapped[str] = mapped_column(String(60))
     side: Mapped[str] = mapped_column(String(5))  # long | short
@@ -195,7 +197,9 @@ class BotTrade(Base):
     """The Freqtrade bot's own trades: the public, verifiable track record."""
     __tablename__ = "bot_trades"
     id: Mapped[int] = mapped_column(primary_key=True)
-    ft_trade_id: Mapped[int] = mapped_column(unique=True, index=True)
+    __table_args__ = (Index("uq_bot_trades_bot_ft", "bot_id", "ft_trade_id", unique=True),)
+    bot_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
+    ft_trade_id: Mapped[int] = mapped_column()
     pair: Mapped[str] = mapped_column(String(40), index=True)
     side: Mapped[str] = mapped_column(String(5))
     leverage: Mapped[float] = mapped_column(Float, default=1.0)
@@ -221,6 +225,7 @@ class WebhookEvent(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     received_at: Mapped[dt.datetime] = mapped_column(default=utcnow, index=True)
     ip: Mapped[str] = mapped_column(String(64), default="")
+    bot_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
     raw: Mapped[str] = mapped_column(Text, default="")
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     msg_type: Mapped[str] = mapped_column(String(30), default="")
@@ -260,6 +265,30 @@ class NotificationLog(Base):
     text: Mapped[str] = mapped_column(Text, default="")
     ok: Mapped[bool] = mapped_column(default=False)
     error: Mapped[str] = mapped_column(String(500), default="")
+
+
+# ============================================================================ freqtrade bots
+class Bot(Base):
+    """One Freqtrade instance. It has its own webhook URL, so every message is attributed to it."""
+    __tablename__ = "bots"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(80))
+    description: Mapped[str] = mapped_column(String(500), default="")
+    webhook_secret: Mapped[str] = mapped_column(String(80), unique=True, index=True,
+                                                default=lambda: secrets.token_urlsafe(24))
+    api_url: Mapped[str] = mapped_column(String(200), default="")
+    api_user: Mapped[str] = mapped_column(String(80), default="")
+    api_pass_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    enabled: Mapped[bool] = mapped_column(default=True)       # accept its webhooks
+    copy_enabled: Mapped[bool] = mapped_column(default=True)  # copy its signals to users
+    public: Mapped[bool] = mapped_column(default=True)        # show on the website / selectable by users
+    sort: Mapped[int] = mapped_column(default=0)
+    state: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)  # monitor result
+    created_at: Mapped[dt.datetime] = mapped_column(default=utcnow)
+
+    @property
+    def st(self) -> dict[str, Any]:
+        return self.state or {}
 
 
 # ============================================================================ settings (admin panel)
@@ -317,10 +346,13 @@ def get_global(s: Session) -> GlobalSettings:
     return gs
 
 
-def open_trade_for(s: Session, account_id: int, pair: str, side: str | None) -> Trade | None:
+def open_trade_for(s: Session, account_id: int, pair: str, side: str | None,
+                   bot_id: int | None = None) -> Trade | None:
     q = select(Trade).where(Trade.account_id == account_id, Trade.pair == pair, Trade.status == "open")
     if side:
         q = q.where(Trade.side == side)
+    if bot_id is not None:
+        q = q.where(Trade.bot_id == bot_id)
     return s.scalars(q.order_by(Trade.id)).first()
 
 
@@ -338,8 +370,36 @@ def _auto_migrate() -> None:
                                       f'{col.type.compile(engine.dialect)}'))
 
 
+def _migrate_multi_bot() -> None:
+    """v3 -> v4: single bot settings become 'Bot 1'; trades, events and portfolios are linked to it."""
+    with engine.begin() as conn:
+        idx = {i["name"]: i for i in inspect(conn).get_indexes("bot_trades")}
+        old = idx.get("ix_bot_trades_ft_trade_id")
+        if old and old.get("unique"):  # trade ids are only unique per bot now
+            conn.execute(text("DROP INDEX ix_bot_trades_ft_trade_id"))
+    for table in Base.metadata.sorted_tables:  # indexes added in newer versions
+        for index in table.indexes:
+            index.create(engine, checkfirst=True)
+    with SessionLocal() as s:
+        if s.scalar(select(Bot.id).limit(1)) is not None:
+            return
+        gs = get_global(s)
+        bot = Bot(name="Bot 1", webhook_secret=gs.webhook_secret or secrets.token_urlsafe(24),
+                  api_url=gs.ft_api_url or "", api_user=gs.ft_api_user or "", api_pass_enc=gs.ft_api_pass_enc,
+                  state=gs.bot_state)
+        s.add(bot)
+        s.flush()
+        for model in (BotTrade, Trade, WebhookEvent):
+            s.execute(model.__table__.update().where(model.bot_id.is_(None)).values(bot_id=bot.id))
+        for acc in s.scalars(select(ExchangeAccount)):
+            if not acc.bots:
+                acc.bots = [bot.id]
+        s.commit()
+
+
 def init_db() -> None:
     Base.metadata.create_all(engine)
     _auto_migrate()
     with SessionLocal() as s:
         get_global(s)
+    _migrate_multi_bot()

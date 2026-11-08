@@ -27,7 +27,7 @@ def is_duplicate(sig: Signal, ttl: int) -> bool:
     return False
 
 
-def eligible_accounts(sig: Signal, pair: str) -> list[int]:
+def eligible_accounts(sig: Signal, pair: str, bot_id: int) -> list[int]:
     with SessionLocal() as s:
         gs = get_global(s)
         if sig.action in ("long", "short"):
@@ -37,7 +37,7 @@ def eligible_accounts(sig: Signal, pair: str) -> list[int]:
                 User.status == "active", User.trading_enabled.is_(True), ExchangeAccount.enabled.is_(True))).all()
             out = []
             for a, u in rows:
-                if not u.subscription_active or pair not in (a.pairs or {}):
+                if not u.subscription_active or pair not in (a.pairs or {}) or bot_id not in (a.bots or []):
                     continue
                 if a.is_signal and not gs.signal_only_enabled:
                     continue
@@ -46,23 +46,24 @@ def eligible_accounts(sig: Signal, pair: str) -> list[int]:
                 out.append(a.id)
             return out
         # exits: every portfolio that holds the pair, whatever its current status
-        return list(s.scalars(select(Trade.account_id).where(Trade.pair == pair, Trade.status == "open").distinct()))
+        return list(s.scalars(select(Trade.account_id).where(Trade.pair == pair, Trade.status == "open",
+                                                             Trade.bot_id == bot_id).distinct()))
 
 
-async def dispatch(sig: Signal, event_id: int | None = None) -> list[Outcome]:
+async def dispatch(sig: Signal, event_id: int | None, bot_id: int, bot_name: str = "") -> list[Outcome]:
     with SessionLocal() as s:
         pair = canonical_pair(sig, get_global(s).allowed_pairs)
     results: list[Outcome] = []
     if not pair:
         summary = f"pair {sig.symbol} not recognised"
     else:
-        ids = eligible_accounts(sig, pair)
+        ids = eligible_accounts(sig, pair, bot_id)
         log.info("signal %s %s -> %d account(s)", sig.action, pair, len(ids))
-        results = list(await asyncio.gather(*(run_for_account(i, sig, pair, event_id) for i in ids)))
+        results = list(await asyncio.gather(*(run_for_account(i, sig, pair, event_id, bot_id) for i in ids)))
         c = Counter(r.status for r in results)
         summary = ", ".join(f"{k}: {v}" for k, v in c.items()) or "no eligible accounts"
     try:
-        monitor.report_trade(sig, pair, results)
+        monitor.report_trade(bot_name, sig, pair, results)
     except Exception:
         log.exception("could not report bot trade to admins")
     if event_id:

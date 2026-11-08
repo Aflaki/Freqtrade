@@ -33,6 +33,17 @@
     <option value="cross" {{ 'selected' if acc and acc.margin_mode=='cross' }}>Cross</option></select></div>{% endif %}
 </div>
 
+<h2 style="margin-top:22px">{{ _('sec_bots') }}</h2>
+<p class="small muted">{{ _('bots_pick_intro') }}</p>
+<div class="choice">
+{% for b in bots %}{% set cf = cards.futures.get(b.id, {}) %}{% set cs = cards.spot.get(b.id, {}) %}
+<label class="card check" style="margin:0;cursor:pointer"><input type="checkbox" class="bc" name="bot__{{ b.id }}" value="{{ b.id }}" {{ 'checked' if b.id in followed }}>
+<span><b>{{ b.name }}</b>{% if b.description %}<br><span class="small muted">{{ b.description }}</span>{% endif %}<br>
+<span class="small">{{ _('mkt_futures') }}: {{ cf.trades or 0 }} · <span class="num">{{ '%.0f'|format(cf.win_rate or 0) }}%</span> · <span class="{{ 'pos' if (cf.total or 0) >= 0 else 'neg' }}">{{ (cf.total or 0)|pct(1) }}</span></span><br>
+<span class="small">{{ _('mkt_spot') }}: {{ cs.trades or 0 }} · <span class="num">{{ '%.0f'|format(cs.win_rate or 0) }}%</span> · <span class="{{ 'pos' if (cs.total or 0) >= 0 else 'neg' }}">{{ (cs.total or 0)|pct(1) }}</span></span></span></label>
+{% else %}<div class="flash warn">{{ _('no_bots') }}</div>{% endfor %}
+</div>
+
 <h2 style="margin-top:22px">{{ _('sec_basket') }}</h2>
 <p class="small muted">{{ _('basket_intro') }}</p>
 <div class="row">
@@ -87,7 +98,11 @@
     $('#motbox').style.display=mode==='equal_split'?'':'none';
     $('#valhead').textContent=heads[mode]||''; $$('.pv').forEach(i=>{i.style.display=mode==='equal_split'?'none':''; if(mode==='pair_weights'&&!i.value) i.value=1;});
     $('#modehelp').textContent=help[mode]||'';
-    const st=stats[spot?'spot':'futures']||{};
+    const mk=spot?'spot':'futures', bsel=$$('.bc').filter(c=>c.checked).map(c=>c.value), st={};
+    bsel.forEach(b=>{const per=((stats[b]||{})[mk])||{}; Object.entries(per).forEach(([p,x])=>{
+      const a=st[p]||(st[p]={trades:0,wins:0,total:0,max_dd:0});
+      a.trades+=x.trades; a.wins+=x.wins; a.total+=x.total; a.max_dd=Math.min(a.max_dd,x.max_dd);});});
+    Object.values(st).forEach(a=>a.win_rate=a.trades?a.wins/a.trades*100:0);
     $$('.s-trades').forEach(td=>{const s=st[td.dataset.p]; td.textContent=s?s.trades:'-';});
     $$('.s-wr').forEach(td=>{const s=st[td.dataset.p]; td.textContent=s?Math.round(s.win_rate)+'%':'-';});
     $$('.s-total').forEach(td=>{const s=st[td.dataset.p]; td.textContent=s?(s.total>=0?'+':'')+s.total.toFixed(1)+'%':'-'; td.className='s-total '+(s?(s.total>=0?'pos':'neg'):'');});

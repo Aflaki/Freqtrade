@@ -1,6 +1,8 @@
 {% extends "base.html" %}{% block content %}
 <h1>{{ _('nav_admin') }}</h1>{% include "admin/_nav.html" %}
 {% set api = st.get('api', 'not_configured') %}
+<p><a href="/admin/bot">← {{ _('bots_title') }}</a></p>
+<h2>{{ b.name }} {% if not b.enabled %}<span class="badge err">{{ _('badge_disabled') }}</span>{% endif %}</h2>
 
 <div class="grid">
   <div class="card stat"><div class="k">{{ _('bot_webhook_last') }}</div>
@@ -14,10 +16,12 @@
   <div class="card stat"><div class="k">{{ _('bot_open_trades') }}</div><div class="v">{{ st.open_trades if api == 'ok' else '—' }}{% if api == 'ok' %}<span class="small muted"> / {{ st.max_open_trades }}</span>{% endif %}</div></div>
 </div>
 
-{% if not st.last_webhook %}
-<div class="flash warn">{{ _('bot_no_webhook_help') }} <code>{{ webhook_url }}</code></div>
-{% endif %}
-{% if api == 'not_configured' %}<div class="flash warn">{{ _('bot_api_help') }} <a href="/admin/settings#freqtrade">{{ _('sec_freqtrade') }}</a></div>{% endif %}
+<div class="card"><h2>{{ _('f_webhook_url') }}</h2>
+<input class="ltr" type="text" readonly value="{{ webhook_url }}" onclick="this.select()">
+<p class="small muted">{{ _('bot_webhook_help') }}</p>
+{% if not st.last_webhook %}<div class="flash warn small">{{ _('bot_no_webhook_help') }}</div>{% endif %}
+<form method="post" style="margin-top:6px"><input type="hidden" name="csrf" value="{{ csrf }}"><button name="action" value="regenerate" class="danger sm" onclick="return confirm('{{ _('confirm_regen') }}')">{{ _('btn_regen') }}</button></form></div>
+
 {% if api == 'ok' and st.missing_pairs %}<div class="flash error">⚠️ {{ _('bot_pairs_missing') }}: <span class="mono">{{ st.missing_pairs|join(', ') }}</span> — <a href="/admin/settings#trading">{{ _('adm_settings') }}</a></div>{% endif %}
 
 {% if api == 'ok' %}
@@ -25,9 +29,8 @@
 <tr><th>{{ _('bot_strategy') }}</th><td>{{ st.strategy }}</td><th>{{ _('f_exchange') }}</th><td>{{ st.exchange }}</td></tr>
 <tr><th>{{ _('f_market') }}</th><td>{{ st.trading_mode }} {{ st.margin_mode or '' }}</td><th>{{ _('col_status') }}</th><td>{{ _('bot_dry_run') if st.dry_run else _('bot_live') }}</td></tr>
 <tr><th>Timeframe</th><td>{{ st.timeframe }}</td><th>{{ _('f_stake_currency') }}</th><td>{{ st.stake_currency }}</td></tr>
-<tr><th>{{ _('bot_last_process') }}</th><td class="mono">{{ st.last_process }}</td><th>Version</th><td>{{ st.version }}</td></tr>
+<tr><th>{{ _('bot_last_process') }}</th><td class="mono">{{ st.last_process }}</td><th>Version</th><td>{{ st.version }} · {{ st.bot_name }}</td></tr>
 <tr><th>Whitelist</th><td colspan="3" class="mono" style="white-space:normal">{{ (st.whitelist or [])|join(', ') }}</td></tr>
-{% if st.extra_pairs %}<tr><th>{{ _('bot_pairs_extra') }}</th><td colspan="3" class="mono" style="white-space:normal">{{ st.extra_pairs|join(', ') }}</td></tr>{% endif %}
 </table></div><p class="small muted">{{ _('bot_checked_at') }}: {{ st.checked_at }} UTC</p></div>
 {% endif %}
 
@@ -42,7 +45,29 @@
 <button name="action" value="stop" class="danger" onclick="return confirm('{{ _('confirm_bot_stop') }}')">{{ _('btn_bot_stop') }}</button>
 {% endif %}</div>
 {% if api != 'ok' %}<p class="small muted">{{ _('bot_control_needs_api') }}</p>{% endif %}
-<p class="small muted">{{ _('bot_tg_hint') }} <span class="num mono">/bot /botstart /botstop /botpause /botreload</span></p></form>
+<p class="small muted">{{ _('bot_tg_hint') }} <span class="num mono">/bot {{ b.id }} · /botstart {{ b.id }} · /botstop {{ b.id }}</span></p></form>
+
+<form method="post" class="card"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="save">
+<h2>{{ _('btn_edit') }}</h2>
+<div class="row">
+<div><label>{{ _('col_name') }}</label><input type="text" name="name" value="{{ b.name }}" required></div>
+<div><label>Freqtrade API URL</label><input class="ltr" type="text" name="api_url" value="{{ b.api_url }}" placeholder="http://65.109.188.248:8015"></div>
+<div><label>API username</label><input class="ltr" type="text" name="api_user" value="{{ b.api_user }}"></div>
+<div><label>API password</label><input class="ltr" type="password" name="api_pass" placeholder="{{ '•••• ' ~ _('keep_blank') if has_pass else '' }}" autocomplete="new-password"></div>
+<div><label>{{ _('col_order') }}</label><input type="number" name="sort" value="{{ b.sort }}"></div>
+</div>
+<label>{{ _('col_description') }}</label><input type="text" name="description" value="{{ b.description }}">
+<label class="check"><input type="checkbox" name="enabled" {{ 'checked' if b.enabled }}> {{ _('bot_f_enabled') }}</label>
+<label class="check"><input type="checkbox" name="copy_enabled" {{ 'checked' if b.copy_enabled }}> {{ _('bot_f_copy') }}</label>
+<label class="check"><input type="checkbox" name="public" {{ 'checked' if b.public }}> {{ _('bot_f_public') }}</label>
+<p><button>{{ _('btn_save') }}</button></p></form>
+
+<div class="card"><h2>{{ _('f_ft_history') }} <span class="badge">{{ n_trades }}</span></h2>
+<p class="small muted">{{ _('f_ft_history_help') }}</p>
+<form method="post" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end"><input type="hidden" name="csrf" value="{{ csrf }}">
+<button name="action" value="import_api" {{ 'disabled' if not b.api_url }}>{{ _('btn_import_api') }}</button>
+<input class="ltr" type="text" name="db_path" placeholder="/path/to/tradesv3.sqlite" style="max-width:360px">
+<button name="action" value="import_sqlite" class="ghost">{{ _('btn_import_sqlite') }}</button></form></div>
 
 <div class="card"><h2>{{ _('bot_events') }}</h2><div class="table-wrap"><table class="small">
 <tr><th>{{ _('col_time') }}</th><th>{{ _('col_type') }}</th><th>{{ _('col_status') }}</th><th>{{ _('col_pair') }}</th><th>{{ _('col_message') }}</th></tr>
@@ -50,6 +75,9 @@
 <td><span class="badge {{ 'ok' if e.status=='accepted' else 'err' if e.status=='rejected' else 'brand' if e.status=='event' else '' }}">{{ e.status }}</span></td>
 <td class="mono">{{ e.pair }}</td>
 <td dir="auto" style="white-space:pre-wrap;min-width:280px">{{ (e.payload.get('status') or e.payload.get('msg') or e.payload.get('reason') or e.summary or e.error or '')|plain|truncate(400) }}</td></tr>
-{% else %}<tr><td colspan="5" class="muted">{{ _('bot_never') }}</td></tr>{% endfor %}</table></div>
-<p><a href="/admin/logs">{{ _('adm_logs') }} →</a></p></div>
+{% else %}<tr><td colspan="5" class="muted">{{ _('bot_never') }}</td></tr>{% endfor %}</table></div></div>
+
+<form method="post" class="card"><input type="hidden" name="csrf" value="{{ csrf }}">
+<button name="action" value="delete" class="danger sm" onclick="return confirm('{{ _('confirm_bot_delete') }}')">{{ _('btn_delete') }}</button>
+<span class="small muted">{{ _('bot_delete_help') }}</span></form>
 {% endblock %}

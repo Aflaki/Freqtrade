@@ -12,6 +12,7 @@
     {% if not a.enabled %}<span class="badge err">{{ _('badge_disabled') }}</span>{% endif %}
     {% if a.last_check_ok %}<span class="badge ok">{{ _('badge_conn_ok') }}</span>{% elif a.last_check_ok == false %}<span class="badge err">{{ _('badge_conn_fail') }}</span>{% endif %}
   </h2>
+  <p class="small">🤖 {{ _('sec_bots') }}: <b>{{ r.bots|join(', ') or '—' }}</b></p>
   {% if not a.is_signal %}<p class="small muted">API: <span class="mono">{{ r.key }}</span>{% if a.last_check_msg %} — {{ a.last_check_msg }}{% endif %}</p>{% endif %}
   <div class="grid">
     <div class="stat"><div class="k">{{ _('st_capital') }}</div><div class="v">{{ r.capital|money }}</div></div>

@@ -38,7 +38,8 @@ def _side(side: str) -> str:
     return "🟢 LONG" if side == "long" else "🔴 SHORT"
 
 
-async def run_for_account(account_id: int, sig: Signal, pair: str, event_id: int | None = None) -> Outcome:
+async def run_for_account(account_id: int, sig: Signal, pair: str, event_id: int | None = None,
+                          bot_id: int | None = None) -> Outcome:
     t0 = time.monotonic()
     client = None
     async with pool.lock(account_id):
@@ -52,9 +53,9 @@ async def run_for_account(account_id: int, sig: Signal, pair: str, event_id: int
             try:
                 client = await pool.get(acc)
                 if sig.action in ("long", "short"):
-                    out = await _open(s, acc, user, gs, client, sig, pair, trade_ref)
+                    out = await _open(s, acc, user, gs, client, sig, pair, trade_ref, bot_id)
                 else:
-                    out = await _close(s, acc, user, gs, client, sig, pair, trade_ref)
+                    out = await _close(s, acc, user, gs, client, sig, pair, trade_ref, bot_id)
             except (ccxt.AuthenticationError, ccxt.PermissionDenied) as e:
                 out = _error(s, acc, user, pair, f"API key rejected: {e}", disable=True)
             except ccxt.InsufficientFunds as e:
@@ -116,13 +117,13 @@ async def _refresh_stop(s: Session, acc: ExchangeAccount, user: User, client, tr
 
 # ---------------------------------------------------------------------------- entries
 async def _open(s: Session, acc: ExchangeAccount, user: User, gs: GlobalSettings, client,
-                sig: Signal, pair: str, trade_ref: list) -> Outcome:
+                sig: Signal, pair: str, trade_ref: list, bot_id: int | None = None) -> Outcome:
     L = user.lang
     side = sig.action
     if acc.is_spot and side == "short":
         return Outcome(acc.id, "none", "short not possible on spot")
 
-    existing = open_trade_for(s, acc.id, pair, side)
+    existing = open_trade_for(s, acc.id, pair, side, bot_id)
     is_dca = existing is not None
     if existing is not None:
         same_ft = sig.ft_trade_id is not None and existing.ft_trade_id == sig.ft_trade_id
@@ -132,6 +133,8 @@ async def _open(s: Session, acc: ExchangeAccount, user: User, gs: GlobalSettings
     else:
         if open_trade_for(s, acc.id, pair, "short" if side == "long" else "long"):
             return Outcome(acc.id, "none", "opposite position open")
+        if open_trade_for(s, acc.id, pair, side):  # same pair already held for another bot
+            return _skip(acc, user, pair, t(L, "why_other_bot"))
         n_open = s.scalar(select(func.count(Trade.id)).where(Trade.account_id == acc.id, Trade.status == "open")) or 0
         mot = max_open_trades(gs, acc)
         if n_open >= mot:
@@ -166,7 +169,7 @@ async def _open(s: Session, acc: ExchangeAccount, user: User, gs: GlobalSettings
     held = fill.amount - (fill.fee_base if acc.is_spot else 0.0)
     real_stake = fill.amount * cs * fill.price / lev
     if existing is None:
-        trade = Trade(user_id=user.id, account_id=acc.id, ft_trade_id=sig.ft_trade_id, pair=pair, symbol=symbol,
+        trade = Trade(user_id=user.id, account_id=acc.id, ft_trade_id=sig.ft_trade_id, bot_id=bot_id, pair=pair, symbol=symbol,
                       side=side, amount=held, contract_size=cs, entry_price=fill.price, stake=real_stake,
                       ft_stake=sig.stake, scale=(real_stake / sig.stake) if sig.stake else None, leverage=lev,
                       fees=fill.fee_quote, enter_tag=sig.enter_tag, dry_run=fill.simulated, is_signal=acc.is_signal)
@@ -210,10 +213,10 @@ async def _open(s: Session, acc: ExchangeAccount, user: User, gs: GlobalSettings
 
 # ---------------------------------------------------------------------------- exits
 async def _close(s: Session, acc: ExchangeAccount, user: User, gs: GlobalSettings, client,
-                 sig: Signal, pair: str, trade_ref: list) -> Outcome:
+                 sig: Signal, pair: str, trade_ref: list, bot_id: int | None = None) -> Outcome:
     L = user.lang
     side = {"close_long": "long", "close_short": "short"}.get(sig.action)
-    trade = open_trade_for(s, acc.id, pair, side)
+    trade = open_trade_for(s, acc.id, pair, side, bot_id)
     if trade is None:
         return Outcome(acc.id, "none", "no open position")
     trade_ref.append(trade.id)
@@ -293,5 +296,5 @@ async def force_exit(trade_id: int, user_id: int | None = None) -> Outcome | Non
             return None
         sig = Signal(action=f"close_{tr.side}", symbol=tr.pair.replace("/", ""), pair=tr.pair,
                      close_fraction=1.0, exit_reason="manual", id=f"manual-{trade_id}-{dt.datetime.now().timestamp()}")
-        acc_id, pair = tr.account_id, tr.pair
-    return await run_for_account(acc_id, sig, pair)
+        acc_id, pair, bot_id = tr.account_id, tr.pair, tr.bot_id
+    return await run_for_account(acc_id, sig, pair, None, bot_id)

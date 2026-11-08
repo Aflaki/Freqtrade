@@ -1,54 +1,22 @@
 from __future__ import annotations
 
 import datetime as dt
-import secrets
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy import delete, func, select
 
-from ..db import (SIZING_MODES, BotTrade, ExchangeAccount, ExecutionLog, NotificationLog, SessionLocal, Trade, User,
+from ..db import (SIZING_MODES, Bot, BotTrade, ExchangeAccount, ExecutionLog, NotificationLog, SessionLocal, Trade, User,
                   WebhookEvent, get_global)
-from ..engine import performance as perf
-from ..engine.botmonitor import CONTROL_ACTIONS, monitor
 from ..engine.exchange import EXCHANGES
 from ..engine.sizing import effective_capital
 from ..i18n import LANGS
-from ..security import decrypt, encrypt, flash, form_with_csrf, require_admin
+from ..security import encrypt, flash, form_with_csrf, require_admin
 from ..telegram import bot, esc
 from .common import render, tr
 
 router = APIRouter(prefix="/admin")
 PAGE = 50
-
-
-# ------------------------------------------------------------------ bot status & control
-@router.get("/bot")
-async def admin_bot(request: Request):
-    require_admin(request)
-    st = monitor.load()
-    with SessionLocal() as s:
-        gs = get_global(s)
-        events = s.scalars(select(WebhookEvent).order_by(WebhookEvent.id.desc()).limit(40)).all()
-    return render(request, "admin/bot.html", st=st, gs=gs, events=events, tab="bot",
-                  webhook_url=f"{gs.base_url.rstrip('/')}/webhook/{gs.webhook_secret}")
-
-
-@router.post("/bot")
-async def admin_bot_action(request: Request):
-    require_admin(request)
-    f = await form_with_csrf(request)
-    action = str(f.get("action", ""))
-    try:
-        if action == "refresh":
-            st = await monitor.poll(alert=False)
-            flash(request, tr(request, "msg_done") if st.get("api") in ("ok", "not_configured") else st.get("error", ""),
-                  "ok" if st.get("api") in ("ok", "not_configured") else "error")
-        elif action in CONTROL_ACTIONS:
-            flash(request, f"Freqtrade: {await monitor.control(action)}")
-    except Exception as e:
-        flash(request, f"{type(e).__name__}: {str(e)[:200]}", "error")
-    return RedirectResponse("/admin/bot", 303)
 
 
 # ------------------------------------------------------------------ users
@@ -129,9 +97,8 @@ async def admin_settings(request: Request):
     with SessionLocal() as s:
         gs = get_global(s)
     return render(request, "admin/settings.html", gs=gs, all_exchanges=EXCHANGES, sizing_all=SIZING_MODES,
-                  webhook_url=f"{gs.base_url.rstrip('/')}/webhook/{gs.webhook_secret}", tab="settings",
-                  bot_username=bot.username, bot_error=bot.last_error, has_token=bool(gs.telegram_token_enc),
-                  has_ft_pass=bool(gs.ft_api_pass_enc))
+                  tab="settings", bot_username=bot.username, bot_error=bot.last_error,
+                  has_token=bool(gs.telegram_token_enc))
 
 
 def _num(f, name, default):
@@ -186,13 +153,6 @@ async def admin_settings_save(request: Request):
             gs.signal_source = "generic" if f.get("signal_source") == "generic" else "freqtrade"
             gs.allowed_ips = [x.strip() for x in str(f.get("allowed_ips", "")).replace("\n", ",").split(",") if x.strip()]
             gs.dedupe_seconds = max(0, int(_num(f, "dedupe_seconds", 30)))
-            gs.ft_api_url = str(f.get("ft_api_url", "")).strip()[:200]
-            gs.ft_api_user = str(f.get("ft_api_user", "")).strip()[:80]
-            if str(f.get("ft_api_pass", "")).strip():
-                gs.ft_api_pass_enc = encrypt(str(f["ft_api_pass"]).strip())
-            gs.ft_db_path = str(f.get("ft_db_path", "")).strip()[:300]
-        elif section == "regenerate_secret":
-            gs.webhook_secret = secrets.token_urlsafe(24)
         elif section == "telegram":
             token = str(f.get("telegram_token", "")).strip()
             if f.get("remove"):
@@ -223,40 +183,24 @@ async def admin_performance(request: Request):
     require_admin(request)
     with SessionLocal() as s:
         gs = get_global(s)
-        n = s.scalar(select(func.count(BotTrade.id))) or 0
-        n_open = s.scalar(select(func.count(BotTrade.id)).where(BotTrade.is_open.is_(True))) or 0
-        by_source = dict(s.execute(select(BotTrade.source, func.count(BotTrade.id)).group_by(BotTrade.source)).all())
+        bots = s.scalars(select(Bot).order_by(Bot.sort, Bot.id)).all()
+        counts = dict(s.execute(select(BotTrade.bot_id, func.count(BotTrade.id)).group_by(BotTrade.bot_id)).all())
         recent = s.scalars(select(BotTrade).order_by(BotTrade.id.desc()).limit(50)).all()
-    return render(request, "admin/performance.html", gs=gs, n=n, n_open=n_open, by_source=by_source, recent=recent,
-                  tab="performance")
+    return render(request, "admin/performance.html", gs=gs, bots=bots, counts=counts, recent=recent,
+                  names={b.id: b.name for b in bots}, tab="performance")
 
 
 @router.post("/performance")
 async def admin_performance_action(request: Request):
     require_admin(request)
     f = await form_with_csrf(request)
-    action = f.get("action")
-    with SessionLocal() as s:
-        gs = get_global(s)
-        url, user, pw, path = gs.ft_api_url, gs.ft_api_user, decrypt(gs.ft_api_pass_enc) or "", gs.ft_db_path
-    try:
-        if action == "import_api":
-            if not url:
-                raise ValueError("Freqtrade API URL is empty (Settings → Freqtrade)")
-            n = await perf.import_from_api(url, user, pw)
-            flash(request, tr(request, "msg_imported", n=n))
-        elif action == "import_sqlite":
-            if not path:
-                raise ValueError("Freqtrade database path is empty (Settings → Freqtrade)")
-            n = perf.import_from_sqlite(path)
-            flash(request, tr(request, "msg_imported", n=n))
-        elif action == "clear":
-            with SessionLocal() as s:
-                s.execute(delete(BotTrade))
-                s.commit()
-            flash(request, tr(request, "msg_done"))
-    except Exception as e:
-        flash(request, f"{type(e).__name__}: {str(e)[:300]}", "error")
+    bot_id = int(f.get("bot_id") or 0)
+    if f.get("action") == "clear":
+        with SessionLocal() as s:
+            q = delete(BotTrade) if not bot_id else delete(BotTrade).where(BotTrade.bot_id == bot_id)
+            s.execute(q)
+            s.commit()
+        flash(request, tr(request, "msg_done"))
     return RedirectResponse("/admin/performance", 303)
 
 
@@ -291,7 +235,8 @@ async def admin_logs(request: Request):
                 q = q.where(WebhookEvent.status == status)
         rows = s.scalars(q.offset((page - 1) * PAGE).limit(PAGE + 1)).all()
         emails = {u.id: u.email for u in s.scalars(select(User))}
-    return render(request, "admin/logs.html", kind=kind, rows=rows[:PAGE], more=len(rows) > PAGE, page=page,
+        bot_names = {b.id: b.name for b in s.scalars(select(Bot))}
+    return render(request, "admin/logs.html", bot_names=bot_names, kind=kind, rows=rows[:PAGE], more=len(rows) > PAGE, page=page,
                   uid=uid, status=status, emails=emails, tab="logs")
 
 

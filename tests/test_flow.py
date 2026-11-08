@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from tests import fake_exchange as fx
 
 import app.engine.exchange as exmod
-from app.db import (BotTrade, ExchangeAccount, ExecutionLog, NotificationLog, SessionLocal, Trade, User,
+from app.db import (Bot, BotTrade, ExchangeAccount, ExecutionLog, NotificationLog, SessionLocal, Trade, User,
                     WebhookEvent, get_global)
 from app.main import app
 from app.telegram import bot
@@ -45,15 +45,15 @@ def register(client, email, name):
                                           "password2": "password123", "terms": "on"}, follow_redirects=False)
 
 
-def secret():
+def secret(bot_id=1):
     with SessionLocal() as s:
-        return get_global(s).webhook_secret
+        return s.get(Bot, bot_id).webhook_secret
 
 
-def ft(client, **p):
+def ft(client, bot_id=1, **p):
     base = {"pair": "ETH/USDT:USDT", "direction": "Short", "leverage": "5.0", "order_rate": "3000.0",
             "open_rate": "3000.0", "trade_id": "11", "enter_tag": "rsi_x", "open_date": "2026-11-01 10:00:00+00:00"}
-    r = client.post(f"/webhook/{secret()}?wait=1", json={**base, **p})
+    r = client.post(f"/webhook/{secret(bot_id)}?wait=1", json={**base, **p})
     assert r.status_code == 200, r.text
     return r.json()
 
@@ -100,7 +100,7 @@ def test_full_flow(sent):
             "csrf": tok, "kind": "exchange", "label": "Binance Main", "exchange": "binance", "api_key": "KEY1234567890",
             "secret": "SECRET1234567890", "no_withdraw": "on", "trading_mode": "futures", "leverage": "5",
             "margin_mode": "isolated", "sizing_mode": "custom_amounts",
-            "pair__ETH/USDT": "on", "value__ETH/USDT": "200", "pair__BTC/USDT": "on", "value__BTC/USDT": "100",
+            "pair__ETH/USDT": "on", "value__ETH/USDT": "200", "pair__BTC/USDT": "on", "value__BTC/USDT": "100", "bot__1": "on",
             "stoploss_pct": "20"}, follow_redirects=False)
         assert r.headers["location"] == "/accounts", r.headers
         with SessionLocal() as s:
@@ -117,7 +117,7 @@ def test_full_flow(sent):
         tok = csrf(sara, "/accounts/new?kind=signal")
         r = sara.post("/accounts/new", data={
             "csrf": tok, "kind": "signal", "label": "My signals", "trading_mode": "futures", "leverage": "3",
-            "sizing_mode": "pair_weights", "capital": "1000", "pair__ETH/USDT": "on", "value__ETH/USDT": "3",
+            "sizing_mode": "pair_weights", "capital": "1000", "pair__ETH/USDT": "on", "value__ETH/USDT": "3", "bot__1": "on",
             "pair__SOL/USDT": "on", "value__SOL/USDT": "1"}, follow_redirects=False)
         assert r.headers["location"] == "/accounts"
         with SessionLocal() as s:
@@ -221,7 +221,8 @@ def test_full_flow(sent):
             r = TestClient(app).post(f"/webhook/{secret()}", json=p).json()
             assert r["status"] == "event", r
         from app.engine.botmonitor import monitor
-        assert monitor.load()["webhook_state"] == "running"
+        with SessionLocal() as s:
+            assert s.get(Bot, 1).st["webhook_state"] == "running"
         with SessionLocal() as s:
             assert s.query(WebhookEvent).filter_by(status="event").count() == 4
             assert s.query(Trade).count() == trades_before  # nothing traded
@@ -246,21 +247,49 @@ def test_full_flow(sent):
         import app.engine.botmonitor as bm
         bm.httpx.AsyncClient = lambda **kw: real_client(transport=httpx.MockTransport(fake_api), **kw)
         try:
-            admin.post("/admin/settings", data={"csrf": csrf(admin, "/admin/settings"), "section": "freqtrade",
-                                                "relay_on": "fill", "signal_source": "freqtrade", "dedupe_seconds": "30",
-                                                "ft_api_url": "http://127.0.0.1:8080", "ft_api_user": "u", "ft_api_pass": "p"})
-            st = asyncio.run(monitor.poll())
+            admin.post("/admin/bots/1", data={"csrf": csrf(admin, "/admin/bots/1"), "action": "save", "name": "Main",
+                                              "api_url": "65.109.188.248:8015", "api_user": "u", "api_pass": "p",
+                                              "enabled": "on", "copy_enabled": "on", "public": "on", "sort": "1"})
+            with SessionLocal() as s:
+                assert s.get(Bot, 1).api_url == "http://65.109.188.248:8015"
+            with SessionLocal() as s:  # saving already polled silently; start from a blank state to see alerts
+                s.get(Bot, 1).state = {}
+                s.commit()
+            st = asyncio.run(monitor.poll_bot(1))
             assert st["api"] == "ok" and st["state"] == "running" and st["stalled"] is True, st
             assert st["missing_pairs"] == ["DOGE/USDT"] and st["max_open_trades"] == -1
             page = admin.get("/admin/bot").text
+            assert "MyStrat" in page and "Main" in page
+            page = admin.get("/admin/bots/1").text
             assert "MyStrat" in page and "DOGE/USDT" in page
-            r = admin.post("/admin/bot", data={"csrf": csrf(admin, "/admin/bot"), "action": "stop"}, follow_redirects=False)
+            r = admin.post("/admin/bots/1", data={"csrf": csrf(admin, "/admin/bots/1"), "action": "stop"},
+                           follow_redirects=False)
             assert r.status_code == 303 and "/api/v1/stop" in calls
         finally:
             bm.httpx.AsyncClient = real_client
         for lang in ("fa", "en", "de", "es"):
             admin.get(f"/lang/{lang}")
             assert admin.get("/admin/bot").status_code == 200
+            assert admin.get("/admin/bots/1").status_code == 200
+
+        # ---------------- a second Freqtrade bot (bulk add): own webhook URL, own trade ids
+        admin.get("/lang/en")
+        r = admin.post("/admin/bot", data={"csrf": csrf(admin, "/admin/bot"), "action": "bulk",
+                                           "lines": "Scalper | | |\n# comment line\n"}, follow_redirects=False)
+        assert r.status_code == 303
+        with SessionLocal() as s:
+            bot2 = s.query(Bot).filter_by(name="Scalper").one().id
+            n_trades = s.query(Trade).count()
+        res = ft(admin, bot_id=bot2, type="entry_fill", amount="1.0", stake_amount="600.0", sub_trade="False",
+                 trade_id="11")  # same Freqtrade trade id as bot 1 used
+        assert res["bot"] == "Scalper" and res["results"] == []  # no portfolio follows bot 2
+        with SessionLocal() as s:
+            assert s.query(BotTrade).filter_by(ft_trade_id=11).count() == 2  # one per bot
+            assert s.query(Trade).count() == n_trades
+            ev = s.query(WebhookEvent).order_by(WebhookEvent.id.desc()).first()
+            assert ev.bot_id == bot2
+        assert "Scalper" in TestClient(app).get("/?lang=en").text  # bot cards on the home page
+        assert TestClient(app).get(f"/?lang=en&bot={bot2}").status_code == 200
 
         # ---------------- telegram commands in the user's language
         asyncio.run(bot.handle("222", "/profit"))
@@ -274,6 +303,7 @@ def test_full_flow(sent):
     assert any("🛑" in t and "<pre>boom</pre>" in t for t in admin_msgs)          # exception
     assert any("Protection lock" in t for t in admin_msgs)
     assert any("Bot entry" in t and "Copied to portfolios" in t for t in admin_msgs)  # trade + copy summary
+    assert any("[Scalper]" in t and "no portfolio holds this pair" in t for t in admin_msgs)
     assert any("not allowed on the site" in t and "DOGE/USDT" in t for t in admin_msgs)
     assert any("has not processed" in t for t in admin_msgs)                     # stalled heartbeat alert
     ali_msgs = [t for c, t in sent if c == "111"]

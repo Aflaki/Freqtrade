@@ -14,12 +14,12 @@
 {% if kind == 'executions' %}{{ exec_table(rows, emails) }}
 {% elif kind == 'notifications' %}{{ note_table(rows, emails) }}
 {% else %}<div class="table-wrap"><table class="small">
-<tr><th>#</th><th>{{ _('col_time') }}</th><th>IP</th><th>{{ _('col_type') }}</th><th>{{ _('col_status') }}</th><th>{{ _('col_action') }}</th><th>{{ _('col_pair') }}</th><th>{{ _('col_portfolios') }}</th><th>{{ _('col_result') }}</th><th>{{ _('col_details') }}</th></tr>
-{% for e in rows %}<tr><td>{{ e.id }}</td><td class="muted">{{ e.received_at.strftime('%m-%d %H:%M:%S') }}</td><td class="mono">{{ e.ip }}</td><td>{{ e.msg_type }}</td>
+<tr><th>#</th><th>{{ _('col_time') }}</th><th>{{ _('col_bot') }}</th><th>IP</th><th>{{ _('col_type') }}</th><th>{{ _('col_status') }}</th><th>{{ _('col_action') }}</th><th>{{ _('col_pair') }}</th><th>{{ _('col_portfolios') }}</th><th>{{ _('col_result') }}</th><th>{{ _('col_details') }}</th></tr>
+{% for e in rows %}<tr><td>{{ e.id }}</td><td class="muted">{{ e.received_at.strftime('%m-%d %H:%M:%S') }}</td><td>{% if e.bot_id %}<a href="/admin/bots/{{ e.bot_id }}">{{ bot_names.get(e.bot_id, '#' ~ e.bot_id) }}</a>{% endif %}</td><td class="mono">{{ e.ip }}</td><td>{{ e.msg_type }}</td>
 <td><span class="badge {{ 'ok' if e.status=='accepted' else 'err' if e.status=='rejected' else '' }}">{{ e.status }}</span></td><td>{{ e.action }}</td><td class="mono">{{ e.pair }}</td>
 <td>{% if e.status == 'accepted' %}<a href="?kind=executions&event={{ e.id }}">{{ e.accounts }}</a>{% endif %}</td><td style="white-space:normal">{{ e.summary or e.error }}</td>
 <td><details><summary>JSON</summary><pre>{{ e.payload|tojson(indent=2) }}</pre></details></td></tr>
-{% else %}<tr><td colspan="10" class="muted">—</td></tr>{% endfor %}</table></div>{% endif %}
+{% else %}<tr><td colspan="11" class="muted">—</td></tr>{% endfor %}</table></div>{% endif %}
 </div>
 <p>{% if page > 1 %}<a class="btn ghost sm" href="?kind={{ kind }}&status={{ status }}&user={{ uid or '' }}&page={{ page - 1 }}">←</a>{% endif %}
 {% if more %}<a class="btn ghost sm" href="?kind={{ kind }}&status={{ status }}&user={{ uid or '' }}&page={{ page + 1 }}">→</a>{% endif %}</p>

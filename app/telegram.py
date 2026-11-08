@@ -161,7 +161,7 @@ class TelegramBot:
         if h is None:
             extra = "\n\n" + t(user.lang, "tg_help_admin") if user.is_admin else ""
             return await self.send(chat_id, t(user.lang, "tg_help") + extra, user.id)
-        await h(chat_id, user, cmd if h == self._bot_ctl else arg.strip())
+        await h(chat_id, user, f"{cmd} {arg.strip()}" if h == self._bot_ctl else arg.strip())
 
     async def _link(self, chat_id: str, token: str, username: str) -> None:
         with SessionLocal() as s:
@@ -298,13 +298,39 @@ class TelegramBot:
 
     # ------------------------------------------------------------ admin: Freqtrade bot
     async def _bot_status(self, chat_id: str, user: User, arg: str) -> None:
+        """/bot -> one line per bot; /bot ID -> details of one bot."""
+        from .db import Bot
         from .engine.botmonitor import monitor
-        st = await monitor.poll(alert=False)
         L = user.lang
-        lines = [f"<b>{t(L, 'bot_title')}</b>",
+        with SessionLocal() as s:
+            bots = s.scalars(select(Bot).order_by(Bot.sort, Bot.id)).all()
+        if not bots:
+            return await self.send(chat_id, t(L, "no_bots"), user.id)
+        target = next((b for b in bots if arg and (str(b.id) == arg.lstrip("#") or b.name.lower() == arg.lower())), None)
+        if target is None:
+            await monitor.poll_all(alert=False)
+            with SessionLocal() as s:
+                bots = s.scalars(select(Bot).order_by(Bot.sort, Bot.id)).all()
+            lines = [f"<b>{t(L, 'bots_title')}</b> ({len(bots)})"]
+            for b in bots:
+                st = b.st
+                api = st.get("api", "not_configured")
+                if api == "ok":
+                    icon = "🟢" if st.get("state") == "running" and not st.get("stalled") else "🔴"
+                    info = f"{esc(st.get('state'))} · {esc(st.get('strategy'))} · {esc(st.get('open_trades'))} {t(L, 'st_open')}"
+                elif api == "not_configured":
+                    icon, info = "⚪", esc(st.get("webhook_state") or t(L, "bot_api_not_configured"))
+                else:
+                    icon, info = "🔴", t(L, "bot_api_" + api)
+                last = (st.get("last_webhook") or "—").replace("T", " ")[5:16]
+                lines.append(f"{icon} <b>{b.id}</b> {esc(b.name)} — {info} · ✉ {last}")
+            lines.append("\n/bot ID · /botstart ID · /botstop ID · /botpause ID · /botreload ID")
+            return await self.send(chat_id, "\n".join(lines), user.id)
+        st = await monitor.poll_bot(target.id, alert=False)
+        lines = [f"<b>{esc(target.name)}</b> (#{target.id})",
                  f"{t(L, 'bot_webhook_last')}: {esc(st.get('last_webhook') or t(L, 'bot_never'))} ({esc(st.get('last_webhook_type', ''))})"]
         if st.get("webhook_state"):
-            lines.append(f"{t(L, 'bot_webhook_state')}: <b>{esc(st['webhook_state'])}</b> ({esc(st.get('webhook_state_at', ''))})")
+            lines.append(f"{t(L, 'bot_webhook_state')}: <b>{esc(st['webhook_state'])}</b>")
         lines.append(f"API: <b>{t(L, 'bot_api_' + str(st.get('api', 'not_configured')))}</b> {esc(st.get('error', ''))}")
         if st.get("api") == "ok":
             lines += [f"{t(L, 'bot_state')}: <b>{esc(st.get('state'))}</b>{' ⏳ ' + t(L, 'bot_stalled') if st.get('stalled') else ''}",
@@ -315,14 +341,24 @@ class TelegramBot:
                 lines.append("⚠️ " + t(L, "bot_pairs_missing") + ": " + esc(", ".join(st["missing_pairs"])))
         await self.send(chat_id, "\n".join(lines), user.id)
 
-    async def _bot_ctl(self, chat_id: str, user: User, cmd: str) -> None:
+    async def _bot_ctl(self, chat_id: str, user: User, text: str) -> None:
+        from .db import Bot
         from .engine.botmonitor import monitor
+        cmd, _, arg = text.partition(" ")
         action = {"/botstart": "start", "/botstop": "stop", "/botpause": "pause", "/botreload": "reload_config"}[cmd]
+        with SessionLocal() as s:
+            bots = s.scalars(select(Bot).order_by(Bot.id)).all()
+        arg = arg.strip().lstrip("#")
+        target = next((b for b in bots if arg and (str(b.id) == arg or b.name.lower() == arg.lower())), None)
+        if target is None and len(bots) == 1:
+            target = bots[0]
+        if target is None:
+            return await self.send(chat_id, t(user.lang, "tg_bot_usage", cmd=cmd), user.id)
         try:
-            msg = await monitor.control(action)
+            msg = await monitor.control(target.id, action)
         except Exception as e:
             msg = f"{type(e).__name__}: {str(e)[:200]}"
-        await self.send(chat_id, f"🤖 Freqtrade: {esc(msg)}", user.id)
+        await self.send(chat_id, f"🤖 [{esc(target.name)}] {esc(msg)}", user.id)
 
     # ------------------------------------------------------------ scheduled jobs
     async def daily_jobs(self) -> None:

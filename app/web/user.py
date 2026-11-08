@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy import func, select
 
-from ..db import (ADMIN_NOTIFY, DEFAULT_NOTIFY, SIZING_MODES, ExchangeAccount, ExecutionLog, NotificationLog, SessionLocal, Trade,
+from ..db import (ADMIN_NOTIFY, DEFAULT_NOTIFY, SIZING_MODES, Bot, ExchangeAccount, ExecutionLog, NotificationLog, SessionLocal, Trade,
                   User, get_global)
 from ..engine import performance as perf
 from ..engine.exchange import NEEDS_PASSWORD, pool, test_connection
@@ -60,7 +60,9 @@ async def accounts(request: Request):
     with SessionLocal() as s:
         gs = get_global(s)
         accs = s.scalars(select(ExchangeAccount).where(ExchangeAccount.user_id == user.id)).all()
+        bot_names = {b.id: b.name for b in s.scalars(select(Bot))}
         rows = [{"acc": a, "key": "" if a.is_signal else mask(a.api_key_enc), "alloc": allocation_table(gs, a),
+                 "bots": [bot_names.get(i, f"#{i}") for i in (a.bots or [])],
                  "mode": effective_mode(gs, a), "capital": effective_capital(gs, a),
                  "tradable": tradable_capital(gs, a), "mot": max_open_trades(gs, a),
                  "open": s.scalar(select(func.count(Trade.id)).where(Trade.account_id == a.id, Trade.status == "open"))}
@@ -68,9 +70,18 @@ async def accounts(request: Request):
     return render(request, "accounts.html", gs=gs, rows=rows)
 
 
+def _public_bots() -> list[Bot]:
+    with SessionLocal() as s:
+        return list(s.scalars(select(Bot).where(Bot.enabled.is_(True), Bot.public.is_(True)).order_by(Bot.sort, Bot.id)))
+
+
 def _form_ctx(gs, acc, kind):
+    bots = _public_bots()
+    ids = [b.id for b in bots]
     return dict(gs=gs, acc=acc, kind=kind, key_mask=mask(acc.api_key_enc) if acc and not acc.is_signal else "",
-                stats_json=perf.stats_json(90), modes=[m for m in SIZING_MODES if m in (gs.sizing_modes or [])])
+                stats_json=perf.stats_json(ids, 90), modes=[m for m in SIZING_MODES if m in (gs.sizing_modes or [])],
+                bots=bots, cards={m: perf.bot_summaries(ids, m, 90) for m in ("futures", "spot")},
+                followed=(acc.bots or []) if acc else (ids if len(ids) == 1 else []))
 
 
 @router.get("/accounts/new")
@@ -121,6 +132,11 @@ async def _save_account(request: Request, acc_id: int | None):
                 pairs[p] = v if v > 0 else 1.0
         if not pairs:
             errors.append(tr(request, "err_pairs"))
+        public_ids = {b.id for b in _public_bots()}
+        bots = sorted({int(k.split("__", 1)[1]) for k in f.keys()
+                       if k.startswith("bot__") and k.split("__", 1)[1].isdigit()} & public_ids)
+        if not bots:
+            errors.append(tr(request, "err_bots"))
         capital = sum(pairs.values()) if sizing == "custom_amounts" else _num(f.get("capital"))
         if capital < gs.min_capital:
             errors.append(tr(request, "err_min_capital", min=f"{gs.min_capital:,.0f}", cur=gs.stake_currency))
@@ -154,6 +170,7 @@ async def _save_account(request: Request, acc_id: int | None):
         acc.exchange, acc.trading_mode, acc.leverage = exchange, mode, leverage
         acc.margin_mode = "cross" if f.get("margin_mode") == "cross" else "isolated"
         acc.sizing_mode, acc.pairs, acc.capital, acc.max_open_trades = sizing, pairs, capital, mot
+        acc.bots = bots
         acc.stoploss_pct, acc.daily_loss_limit_pct = sl, dll
         if kind == "exchange":
             acc.sandbox = bool(f.get("sandbox"))
@@ -235,7 +252,8 @@ async def trades(request: Request):
         names = {a.id: a.label or a.exchange or "Signals" for a in s.scalars(
             select(ExchangeAccount).where(ExchangeAccount.user_id == user.id))}
         cur = get_global(s).stake_currency
-    return render(request, "trades.html", trades=rows, acc_names=names, cur=cur)
+        bot_names = {b.id: b.name for b in s.scalars(select(Bot))}
+    return render(request, "trades.html", trades=rows, acc_names=names, cur=cur, bot_names=bot_names)
 
 
 @router.post("/trades/{trade_id}/close")

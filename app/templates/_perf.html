@@ -1,9 +1,9 @@
 {# expects: data, pairs, market, period, periods, base_url #}
 <div class="pills">
-  <a href="?market=futures&days={{ period }}" class="{{ 'on' if market == 'futures' }}">{{ _('mkt_futures') }}</a>
-  <a href="?market=spot&days={{ period }}" class="{{ 'on' if market == 'spot' }}">{{ _('mkt_spot') }}</a>
+  <a href="?bot={{ bot_sel }}&market=futures&days={{ period }}" class="{{ 'on' if market == 'futures' }}">{{ _('mkt_futures') }}</a>
+  <a href="?bot={{ bot_sel }}&market=spot&days={{ period }}" class="{{ 'on' if market == 'spot' }}">{{ _('mkt_spot') }}</a>
   <span style="width:12px"></span>
-  {% for pr in periods %}<a href="?market={{ market }}&days={{ pr }}" class="{{ 'on' if pr == period }}">{{ _('period_' ~ pr) }}</a>{% endfor %}
+  {% for pr in periods %}<a href="?bot={{ bot_sel }}&market={{ market }}&days={{ pr }}" class="{{ 'on' if pr == period }}">{{ _('period_' ~ pr) }}</a>{% endfor %}
 </div>
 {% if not data or not data.trades %}
 <div class="card muted">{{ _('perf_no_data') }}</div>

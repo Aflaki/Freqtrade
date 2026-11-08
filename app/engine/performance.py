@@ -12,7 +12,6 @@ import httpx
 from sqlalchemy import select
 
 from ..db import BotTrade, SessionLocal, utcnow
-from ..signal import Signal
 
 log = logging.getLogger("relay.performance")
 
@@ -39,7 +38,7 @@ def _f(v: Any) -> float | None:
 
 
 # ------------------------------------------------------------------ ingestion
-def record_from_webhook(payload: dict, sig: Signal | None) -> None:
+def record_from_webhook(payload: dict, bot_id: int | None) -> None:
     """Every Freqtrade entry/exit message updates the bot's own trade record (independent of users)."""
     msg_type = str(payload.get("type", "")).lower()
     tid = _f(payload.get("trade_id"))
@@ -48,11 +47,11 @@ def record_from_webhook(payload: dict, sig: Signal | None) -> None:
     pair = str(payload.get("pair", "")).split(":")[0].upper()
     side = "short" if str(payload.get("direction", "")).lower() == "short" else "long"
     with SessionLocal() as s:
-        bt = s.scalars(select(BotTrade).where(BotTrade.ft_trade_id == int(tid))).first()
+        bt = s.scalars(select(BotTrade).where(BotTrade.bot_id == bot_id, BotTrade.ft_trade_id == int(tid))).first()
         if bt is None:
             if msg_type == "exit_fill":
                 return
-            bt = BotTrade(ft_trade_id=int(tid), pair=pair, side=side)
+            bt = BotTrade(bot_id=bot_id, ft_trade_id=int(tid), pair=pair, side=side)
             s.add(bt)
         bt.leverage = _f(payload.get("leverage")) or bt.leverage or 1.0
         bt.open_rate = _f(payload.get("open_rate")) or bt.open_rate
@@ -69,14 +68,15 @@ def record_from_webhook(payload: dict, sig: Signal | None) -> None:
         s.commit()
 
 
-def _upsert(s, rows: list[dict], source: str) -> int:
+def _upsert(s, rows: list[dict], source: str, bot_id: int) -> int:
     n = 0
     for r in rows:
         if r.get("trade_id") is None:
             continue
-        bt = s.scalars(select(BotTrade).where(BotTrade.ft_trade_id == int(r["trade_id"]))).first()
+        bt = s.scalars(select(BotTrade).where(BotTrade.bot_id == bot_id,
+                                              BotTrade.ft_trade_id == int(r["trade_id"]))).first()
         if bt is None:
-            bt = BotTrade(ft_trade_id=int(r["trade_id"]), pair="", side="long")
+            bt = BotTrade(bot_id=bot_id, ft_trade_id=int(r["trade_id"]), pair="", side="long")
             s.add(bt)
         bt.pair = str(r["pair"]).split(":")[0].upper()
         bt.side = "short" if r.get("is_short") in (True, 1, "1", "true") else "long"
@@ -95,7 +95,7 @@ def _upsert(s, rows: list[dict], source: str) -> int:
     return n
 
 
-async def import_from_api(url: str, user: str, password: str) -> int:
+async def import_from_api(bot_id: int, url: str, user: str, password: str) -> int:
     """Freqtrade REST API: GET /api/v1/trades (paginated)."""
     rows: list[dict] = []
     async with httpx.AsyncClient(timeout=30, auth=(user, password)) as c:
@@ -109,10 +109,10 @@ async def import_from_api(url: str, user: str, password: str) -> int:
                 break
             offset += 500
     with SessionLocal() as s:
-        return _upsert(s, rows, "api")
+        return _upsert(s, rows, "api", bot_id)
 
 
-def import_from_sqlite(path: str) -> int:
+def import_from_sqlite(bot_id: int, path: str) -> int:
     """Read Freqtrade's own tradesv3.sqlite (read-only)."""
     con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
@@ -123,13 +123,15 @@ def import_from_sqlite(path: str) -> int:
     finally:
         con.close()
     with SessionLocal() as s:
-        return _upsert(s, rows, "sqlite")
+        return _upsert(s, rows, "sqlite", bot_id)
 
 
 # ------------------------------------------------------------------ statistics
-def _closed(market: str, days: int | None) -> list[BotTrade]:
+def _closed(market: str, days: int | None, bots: list[int] | None = None) -> list[BotTrade]:
     with SessionLocal() as s:
         q = select(BotTrade).where(BotTrade.is_open.is_(False), BotTrade.profit_ratio.is_not(None))
+        if bots is not None:
+            q = q.where(BotTrade.bot_id.in_(bots or [-1]))
         if days:
             q = q.where(BotTrade.close_date >= utcnow() - dt.timedelta(days=days))
         if market == "spot":
@@ -154,15 +156,16 @@ def _stats(trades: list[BotTrade]) -> dict:
             "avg_hours": sum(hours) / len(hours) if hours else 0, "last": trades[-1].close_date}
 
 
-def pair_stats(market: str = "futures", days: int | None = None) -> dict[str, dict]:
+def pair_stats(market: str = "futures", days: int | None = None, bots: list[int] | None = None) -> dict[str, dict]:
     by_pair: dict[str, list[BotTrade]] = defaultdict(list)
-    for t in _closed(market, days):
+    for t in _closed(market, days, bots):
         by_pair[t.pair].append(t)
     return {p: _stats(ts) for p, ts in sorted(by_pair.items())}
 
 
-def summary(market: str = "futures", days: int | None = None, pairs: list[str] | None = None) -> dict:
-    trades = [t for t in _closed(market, days) if not pairs or t.pair in pairs]
+def summary(market: str = "futures", days: int | None = None, pairs: list[str] | None = None,
+            bots: list[int] | None = None) -> dict:
+    trades = [t for t in _closed(market, days, bots) if not pairs or t.pair in pairs]
     st = _stats(trades)
     # equity curve (sum of 1x returns, %), downsampled for the SVG
     pts, eq = [], 0.0
@@ -189,8 +192,23 @@ def svg_path(points: list[tuple[Any, float]], w: int = 600, h: int = 160) -> dic
     return {"line": line, "area": f"{line} L{w},{zero:.1f} L0,{zero:.1f} Z", "zero": zero, "min": lo, "max": hi}
 
 
-def stats_json(days: int | None = 90) -> str:
-    """Per-pair stats for both markets, embedded in the portfolio builder."""
-    out = {m: {p: {k: (round(v, 2) if isinstance(v, float) else v) for k, v in st.items() if k != "last"}
-               for p, st in pair_stats(m, days).items()} for m in ("spot", "futures")}
+def bot_summaries(bot_ids: list[int], market: str = "futures", days: int | None = 90) -> dict[int, dict]:
+    """Headline numbers per bot (cards on the home page and in the portfolio form)."""
+    by_bot: dict[int, list[BotTrade]] = defaultdict(list)
+    for t in _closed(market, days, bot_ids):
+        by_bot[t.bot_id].append(t)
+    return {b: {k: v for k, v in _stats(by_bot.get(b, [])).items() if k != "last"} for b in bot_ids}
+
+
+def stats_json(bot_ids: list[int], days: int | None = 90) -> str:
+    """Per-bot, per-market, per-pair stats for the portfolio builder (combined in the browser)."""
+    out: dict[str, Any] = {}
+    for b in bot_ids:
+        out[str(b)] = {}
+        for m in ("spot", "futures"):
+            by_pair: dict[str, list[BotTrade]] = defaultdict(list)
+            for t in _closed(m, days, [b]):
+                by_pair[t.pair].append(t)
+            out[str(b)][m] = {p: {k: (round(v, 4) if isinstance(v, float) else v) for k, v in _stats(ts).items()
+                                  if k != "last"} for p, ts in by_pair.items()}
     return json.dumps(out)

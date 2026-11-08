@@ -4,7 +4,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 
-from ..db import SessionLocal, User, get_global
+from sqlalchemy import select
+
+from ..db import Bot, SessionLocal, User, get_global
 from ..engine import performance as perf
 from ..i18n import LANGS
 from ..security import current_user
@@ -21,12 +23,17 @@ async def landing(request: Request):
     days = PERIODS.get(period, 90)
     with SessionLocal() as s:
         gs = get_global(s)
+        bots = s.scalars(select(Bot).where(Bot.enabled.is_(True), Bot.public.is_(True)).order_by(Bot.sort, Bot.id)).all()
+    ids = [b.id for b in bots]
+    sel = request.query_params.get("bot", "all")
+    chosen = [int(sel)] if sel.isdigit() and int(sel) in ids else ids
+    sel = str(chosen[0]) if len(chosen) == 1 and sel.isdigit() else "all"
     show = gs.public_performance or (current_user(request) or User(is_admin=False)).is_admin
-    data = perf.summary(market, days) if show else None
-    pairs = perf.pair_stats(market, days) if show else {}
-    pairs = {p: st for p, st in pairs.items() if p in gs.allowed_pairs} or pairs
+    data = perf.summary(market, days, bots=chosen) if show else None
+    pairs = perf.pair_stats(market, days, chosen) if show else {}
+    cards = perf.bot_summaries(ids, market, days) if show else {}
     return render(request, "landing.html", market=market, period=period, periods=list(PERIODS), data=data,
-                  pairs=pairs, show=show)
+                  pairs=pairs, show=show, bots=bots, cards=cards, bot_sel=sel)
 
 
 @router.get("/lang/{code}")
