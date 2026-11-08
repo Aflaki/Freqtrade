@@ -1,4 +1,4 @@
 <div class="pills">
-{% for k, url in [('users','/admin'),('settings','/admin/settings'),('performance','/admin/performance'),('logs','/admin/logs'),('trades','/admin/trades')] %}
+{% for k, url in [('bot','/admin/bot'),('users','/admin'),('settings','/admin/settings'),('performance','/admin/performance'),('logs','/admin/logs'),('trades','/admin/trades')] %}
 <a href="{{ url }}" class="{{ 'on' if tab == k }}">{{ _('adm_' ~ k) }}</a>{% endfor %}
 </div>

@@ -44,7 +44,9 @@ class Base(DeclarativeBase):
 DEFAULT_NOTIFY: dict[str, bool] = {
     "entry_fill": True, "exit_fill": True, "partial_exit": True,
     "skipped": True, "errors": True, "daily_report": True,
+    "bot_status": True, "bot_trades": True,  # admins only: Freqtrade events / bot trades + copy summary
 }
+ADMIN_NOTIFY = ("bot_status", "bot_trades")
 SIZING_MODES = ("equal_split", "pair_weights", "custom_amounts")
 
 
@@ -299,6 +301,7 @@ class GlobalSettings(Base):
     ft_api_user: Mapped[str] = mapped_column(String(80), default="")
     ft_api_pass_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
     ft_db_path: Mapped[str] = mapped_column(String(300), default="")
+    bot_state: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)  # last bot monitor result
     # telegram
     telegram_token_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
     updated_at: Mapped[dt.datetime] = mapped_column(default=utcnow, onupdate=utcnow)

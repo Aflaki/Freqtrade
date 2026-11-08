@@ -10,6 +10,7 @@ from sqlalchemy import select
 
 from ..db import ExchangeAccount, SessionLocal, Trade, User, WebhookEvent, get_global, utcnow
 from ..signal import Signal, canonical_pair
+from .botmonitor import monitor
 from .trader import Outcome, run_for_account
 
 log = logging.getLogger("relay.dispatch")
@@ -60,6 +61,10 @@ async def dispatch(sig: Signal, event_id: int | None = None) -> list[Outcome]:
         results = list(await asyncio.gather(*(run_for_account(i, sig, pair, event_id) for i in ids)))
         c = Counter(r.status for r in results)
         summary = ", ".join(f"{k}: {v}" for k, v in c.items()) or "no eligible accounts"
+    try:
+        monitor.report_trade(sig, pair, results)
+    except Exception:
+        log.exception("could not report bot trade to admins")
     if event_id:
         with SessionLocal() as s:
             e = s.get(WebhookEvent, event_id)

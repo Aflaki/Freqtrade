@@ -154,10 +154,14 @@ class TelegramBot:
         handlers = {"/status": self._status, "/profit": self._profit, "/daily": self._daily,
                     "/performance": self._performance, "/balance": self._balance, "/pause": self._pause,
                     "/stop": self._pause, "/resume": self._resume, "/forceexit": self._forceexit, "/lang": self._lang}
+        if user.is_admin:
+            handlers.update({"/bot": self._bot_status, "/botstart": self._bot_ctl, "/botstop": self._bot_ctl,
+                             "/botpause": self._bot_ctl, "/botreload": self._bot_ctl})
         h = handlers.get(cmd)
         if h is None:
-            return await self.send(chat_id, t(user.lang, "tg_help"), user.id)
-        await h(chat_id, user, arg.strip())
+            extra = "\n\n" + t(user.lang, "tg_help_admin") if user.is_admin else ""
+            return await self.send(chat_id, t(user.lang, "tg_help") + extra, user.id)
+        await h(chat_id, user, cmd if h == self._bot_ctl else arg.strip())
 
     async def _link(self, chat_id: str, token: str, username: str) -> None:
         with SessionLocal() as s:
@@ -291,6 +295,34 @@ class TelegramBot:
             s.get(User, user.id).lang = code
             s.commit()
         await self.send(chat_id, t(code, "tg_lang_set"), user.id)
+
+    # ------------------------------------------------------------ admin: Freqtrade bot
+    async def _bot_status(self, chat_id: str, user: User, arg: str) -> None:
+        from .engine.botmonitor import monitor
+        st = await monitor.poll(alert=False)
+        L = user.lang
+        lines = [f"<b>{t(L, 'bot_title')}</b>",
+                 f"{t(L, 'bot_webhook_last')}: {esc(st.get('last_webhook') or t(L, 'bot_never'))} ({esc(st.get('last_webhook_type', ''))})"]
+        if st.get("webhook_state"):
+            lines.append(f"{t(L, 'bot_webhook_state')}: <b>{esc(st['webhook_state'])}</b> ({esc(st.get('webhook_state_at', ''))})")
+        lines.append(f"API: <b>{t(L, 'bot_api_' + str(st.get('api', 'not_configured')))}</b> {esc(st.get('error', ''))}")
+        if st.get("api") == "ok":
+            lines += [f"{t(L, 'bot_state')}: <b>{esc(st.get('state'))}</b>{' ⏳ ' + t(L, 'bot_stalled') if st.get('stalled') else ''}",
+                      f"{t(L, 'bot_strategy')}: {esc(st.get('strategy'))} · {esc(st.get('exchange'))} · "
+                      f"{esc(st.get('trading_mode'))} · {t(L, 'bot_dry_run') if st.get('dry_run') else t(L, 'bot_live')}",
+                      f"{t(L, 'bot_open_trades')}: {esc(st.get('open_trades'))}/{esc(st.get('max_open_trades'))}"]
+            if st.get("missing_pairs"):
+                lines.append("⚠️ " + t(L, "bot_pairs_missing") + ": " + esc(", ".join(st["missing_pairs"])))
+        await self.send(chat_id, "\n".join(lines), user.id)
+
+    async def _bot_ctl(self, chat_id: str, user: User, cmd: str) -> None:
+        from .engine.botmonitor import monitor
+        action = {"/botstart": "start", "/botstop": "stop", "/botpause": "pause", "/botreload": "reload_config"}[cmd]
+        try:
+            msg = await monitor.control(action)
+        except Exception as e:
+            msg = f"{type(e).__name__}: {str(e)[:200]}"
+        await self.send(chat_id, f"🤖 Freqtrade: {esc(msg)}", user.id)
 
     # ------------------------------------------------------------ scheduled jobs
     async def daily_jobs(self) -> None:

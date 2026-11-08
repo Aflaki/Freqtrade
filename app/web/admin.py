@@ -10,6 +10,7 @@ from sqlalchemy import delete, func, select
 from ..db import (SIZING_MODES, BotTrade, ExchangeAccount, ExecutionLog, NotificationLog, SessionLocal, Trade, User,
                   WebhookEvent, get_global)
 from ..engine import performance as perf
+from ..engine.botmonitor import CONTROL_ACTIONS, monitor
 from ..engine.exchange import EXCHANGES
 from ..engine.sizing import effective_capital
 from ..i18n import LANGS
@@ -19,6 +20,35 @@ from .common import render, tr
 
 router = APIRouter(prefix="/admin")
 PAGE = 50
+
+
+# ------------------------------------------------------------------ bot status & control
+@router.get("/bot")
+async def admin_bot(request: Request):
+    require_admin(request)
+    st = monitor.load()
+    with SessionLocal() as s:
+        gs = get_global(s)
+        events = s.scalars(select(WebhookEvent).order_by(WebhookEvent.id.desc()).limit(40)).all()
+    return render(request, "admin/bot.html", st=st, gs=gs, events=events, tab="bot",
+                  webhook_url=f"{gs.base_url.rstrip('/')}/webhook/{gs.webhook_secret}")
+
+
+@router.post("/bot")
+async def admin_bot_action(request: Request):
+    require_admin(request)
+    f = await form_with_csrf(request)
+    action = str(f.get("action", ""))
+    try:
+        if action == "refresh":
+            st = await monitor.poll(alert=False)
+            flash(request, tr(request, "msg_done") if st.get("api") in ("ok", "not_configured") else st.get("error", ""),
+                  "ok" if st.get("api") in ("ok", "not_configured") else "error")
+        elif action in CONTROL_ACTIONS:
+            flash(request, f"Freqtrade: {await monitor.control(action)}")
+    except Exception as e:
+        flash(request, f"{type(e).__name__}: {str(e)[:200]}", "error")
+    return RedirectResponse("/admin/bot", 303)
 
 
 # ------------------------------------------------------------------ users

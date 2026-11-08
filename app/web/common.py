@@ -50,6 +50,13 @@ def _signed(v, digits: int = 2) -> str:
         return "-"
 
 
+def _plain(v) -> str:
+    """Strip Telegram markdown that Freqtrade puts in its messages."""
+    import re
+    return re.sub(r"```\w*\n?|[*`]", "", "" if v is None else str(v))
+
+
+templates.env.filters["plain"] = _plain
 templates.env.filters.update(money=_num(_money), price=_num(_price), pct=_num(_pct), signed=_num(_signed))
 
 

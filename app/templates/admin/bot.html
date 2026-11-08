@@ -1,0 +1,55 @@
+{% extends "base.html" %}{% block content %}
+<h1>{{ _('nav_admin') }}</h1>{% include "admin/_nav.html" %}
+{% set api = st.get('api', 'not_configured') %}
+
+<div class="grid">
+  <div class="card stat"><div class="k">{{ _('bot_webhook_last') }}</div>
+    <div class="v" style="font-size:15px">{% if st.last_webhook %}<span class="num">{{ st.last_webhook.replace('T', ' ') }}</span> UTC<br><span class="muted">{{ st.last_webhook_type }}</span>{% else %}<span class="neg">{{ _('bot_never') }}</span>{% endif %}</div></div>
+  <div class="card stat"><div class="k">API</div>
+    <div class="v" style="font-size:15px"><span class="badge {{ 'ok' if api == 'ok' else 'warn' if api == 'not_configured' else 'err' }}">{{ _('bot_api_' ~ api) }}</span>
+    {% if st.error %}<br><span class="small neg">{{ st.error }}</span>{% endif %}</div></div>
+  <div class="card stat"><div class="k">{{ _('bot_state') }}</div>
+    <div class="v">{% if api == 'ok' %}<span class="{{ 'pos' if st.state == 'running' and not st.stalled else 'neg' }}">{{ st.state }}</span>{% if st.stalled %} <span class="badge err">{{ _('bot_stalled') }}</span>{% endif %}
+    {% elif st.webhook_state %}<span class="small">{{ st.webhook_state }} <span class="muted">({{ _('bot_webhook_state') }})</span></span>{% else %}—{% endif %}</div></div>
+  <div class="card stat"><div class="k">{{ _('bot_open_trades') }}</div><div class="v">{{ st.open_trades if api == 'ok' else '—' }}{% if api == 'ok' %}<span class="small muted"> / {{ st.max_open_trades }}</span>{% endif %}</div></div>
+</div>
+
+{% if not st.last_webhook %}
+<div class="flash warn">{{ _('bot_no_webhook_help') }} <code>{{ webhook_url }}</code></div>
+{% endif %}
+{% if api == 'not_configured' %}<div class="flash warn">{{ _('bot_api_help') }} <a href="/admin/settings#freqtrade">{{ _('sec_freqtrade') }}</a></div>{% endif %}
+{% if api == 'ok' and st.missing_pairs %}<div class="flash error">⚠️ {{ _('bot_pairs_missing') }}: <span class="mono">{{ st.missing_pairs|join(', ') }}</span> — <a href="/admin/settings#trading">{{ _('adm_settings') }}</a></div>{% endif %}
+
+{% if api == 'ok' %}
+<div class="card"><h2>{{ _('bot_title') }}</h2><div class="table-wrap"><table class="small">
+<tr><th>{{ _('bot_strategy') }}</th><td>{{ st.strategy }}</td><th>{{ _('f_exchange') }}</th><td>{{ st.exchange }}</td></tr>
+<tr><th>{{ _('f_market') }}</th><td>{{ st.trading_mode }} {{ st.margin_mode or '' }}</td><th>{{ _('col_status') }}</th><td>{{ _('bot_dry_run') if st.dry_run else _('bot_live') }}</td></tr>
+<tr><th>Timeframe</th><td>{{ st.timeframe }}</td><th>{{ _('f_stake_currency') }}</th><td>{{ st.stake_currency }}</td></tr>
+<tr><th>{{ _('bot_last_process') }}</th><td class="mono">{{ st.last_process }}</td><th>Version</th><td>{{ st.version }}</td></tr>
+<tr><th>Whitelist</th><td colspan="3" class="mono" style="white-space:normal">{{ (st.whitelist or [])|join(', ') }}</td></tr>
+{% if st.extra_pairs %}<tr><th>{{ _('bot_pairs_extra') }}</th><td colspan="3" class="mono" style="white-space:normal">{{ st.extra_pairs|join(', ') }}</td></tr>{% endif %}
+</table></div><p class="small muted">{{ _('bot_checked_at') }}: {{ st.checked_at }} UTC</p></div>
+{% endif %}
+
+<form method="post" class="card"><input type="hidden" name="csrf" value="{{ csrf }}">
+<h2>{{ _('bot_controls') }}</h2>
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+<button name="action" value="refresh" class="ghost">{{ _('btn_bot_refresh') }}</button>
+{% if api == 'ok' %}
+<button name="action" value="start">{{ _('btn_bot_start') }}</button>
+<button name="action" value="stopentry" class="ghost" onclick="return confirm('{{ _('confirm_bot_stopentry') }}')">{{ _('btn_bot_stopentry') }}</button>
+<button name="action" value="reload_config" class="ghost">{{ _('btn_bot_reload') }}</button>
+<button name="action" value="stop" class="danger" onclick="return confirm('{{ _('confirm_bot_stop') }}')">{{ _('btn_bot_stop') }}</button>
+{% endif %}</div>
+{% if api != 'ok' %}<p class="small muted">{{ _('bot_control_needs_api') }}</p>{% endif %}
+<p class="small muted">{{ _('bot_tg_hint') }} <span class="num mono">/bot /botstart /botstop /botpause /botreload</span></p></form>
+
+<div class="card"><h2>{{ _('bot_events') }}</h2><div class="table-wrap"><table class="small">
+<tr><th>{{ _('col_time') }}</th><th>{{ _('col_type') }}</th><th>{{ _('col_status') }}</th><th>{{ _('col_pair') }}</th><th>{{ _('col_message') }}</th></tr>
+{% for e in events %}<tr><td class="muted">{{ e.received_at.strftime('%m-%d %H:%M:%S') }}</td><td>{{ e.msg_type }}</td>
+<td><span class="badge {{ 'ok' if e.status=='accepted' else 'err' if e.status=='rejected' else 'brand' if e.status=='event' else '' }}">{{ e.status }}</span></td>
+<td class="mono">{{ e.pair }}</td>
+<td dir="auto" style="white-space:pre-wrap;min-width:280px">{{ (e.payload.get('status') or e.payload.get('msg') or e.payload.get('reason') or e.summary or e.error or '')|plain|truncate(400) }}</td></tr>
+{% else %}<tr><td colspan="5" class="muted">{{ _('bot_never') }}</td></tr>{% endfor %}</table></div>
+<p><a href="/admin/logs">{{ _('adm_logs') }} →</a></p></div>
+{% endblock %}

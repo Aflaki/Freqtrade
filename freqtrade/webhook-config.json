@@ -75,6 +75,65 @@
       "close_rate": "{close_rate}",
       "final_profit_ratio": "{final_profit_ratio}",
       "open_date": "{open_date}"
+    },
+    "status": {
+      "type": "status",
+      "status": "{status}"
+    },
+    "startup": {
+      "type": "startup",
+      "status": "{status}"
+    },
+    "warning": {
+      "type": "warning",
+      "status": "{status}"
+    },
+    "exception": {
+      "type": "exception",
+      "status": "{status}"
+    },
+    "entry_cancel": {
+      "type": "entry_cancel",
+      "pair": "{pair}",
+      "direction": "{direction}",
+      "trade_id": "{trade_id}",
+      "reason": "{reason}"
+    },
+    "exit_cancel": {
+      "type": "exit_cancel",
+      "pair": "{pair}",
+      "direction": "{direction}",
+      "trade_id": "{trade_id}",
+      "reason": "{reason}",
+      "exit_reason": "{exit_reason}"
+    },
+    "protection_trigger": {
+      "type": "protection_trigger",
+      "pair": "{pair}",
+      "reason": "{reason}",
+      "lock_end_time": "{lock_end_time}",
+      "side": "{side}"
+    },
+    "protection_trigger_global": {
+      "type": "protection_trigger_global",
+      "pair": "{pair}",
+      "reason": "{reason}",
+      "lock_end_time": "{lock_end_time}",
+      "side": "{side}"
+    },
+    "strategy_msg": {
+      "type": "strategy_msg",
+      "msg": "{msg}"
+    },
+    "liquidation_warning": {
+      "type": "liquidation_warning",
+      "pair": "{pair}",
+      "direction": "{direction}",
+      "leverage": "{leverage}",
+      "current_rate": "{current_rate}",
+      "liquidation_price": "{liquidation_price}",
+      "remaining_ratio": "{remaining_ratio}",
+      "trade_id": "{trade_id}"
     }
   }
 }

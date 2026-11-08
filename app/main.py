@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from .db import SessionLocal, get_global, init_db
+from .engine.botmonitor import monitor
 from .engine.exchange import pool
 from .security import LoginRequired, decrypt
 from .settings import SECRET_KEY
@@ -28,9 +29,10 @@ async def lifespan(app: FastAPI):
     with SessionLocal() as s:
         token = decrypt(get_global(s).telegram_token_enc) or os.getenv("TELEGRAM_BOT_TOKEN", "")
     await bot.configure(token)
-    jobs = asyncio.create_task(bot.daily_jobs())
+    jobs = [asyncio.create_task(bot.daily_jobs()), asyncio.create_task(monitor.loop())]
     yield
-    jobs.cancel()
+    for j in jobs:
+        j.cancel()
     await bot.stop()
     await pool.close_all()
 

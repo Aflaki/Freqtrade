@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 
 from ..db import SessionLocal, WebhookEvent, get_global, utcnow
 from ..engine import performance as perf
+from ..engine.botmonitor import EVENT_TYPES, monitor
 from ..engine.dispatcher import dispatch, is_duplicate
 from ..signal import SignalError, parse_freqtrade, parse_signal
 
@@ -61,6 +62,12 @@ async def _handle(request: Request, background: BackgroundTasks, token: str | No
     try:
         if source == "freqtrade":
             perf.record_from_webhook(payload, None)  # public track record, independent of users
+            monitor.on_webhook(payload)
+            if msg_type in EVENT_TYPES:  # bot status / warnings / errors: log + tell admins, never trade
+                _store(ip=ip, raw=raw, payload=payload, msg_type=msg_type, status="event",
+                       pair=str(payload.get("pair") or "")[:40], finished_at=utcnow())
+                monitor.forward_event(payload)
+                return {"status": "event", "type": msg_type}
             sig = parse_freqtrade(payload, relay_on)
             if sig is None:
                 _store(ip=ip, raw=raw, payload=payload, msg_type=msg_type, status="ignored", finished_at=utcnow())

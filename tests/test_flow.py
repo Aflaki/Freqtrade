@@ -68,6 +68,9 @@ def test_full_flow(sent):
     with admin, ali, sara:
         # ---------------- admin sets the formula from the panel
         assert register(admin, "admin@x.com", "Admin").status_code == 303
+        with SessionLocal() as s:
+            s.query(User).filter_by(email="admin@x.com").update({"telegram_chat_id": "999", "lang": "en"})
+            s.commit()
         tok = csrf(admin, "/admin/settings")
         r = admin.post("/admin/settings", data={
             "csrf": tok, "section": "trading", "entries_enabled": "on", "tradable_pct": "90",
@@ -185,9 +188,11 @@ def test_full_flow(sent):
         res = ft(ali, type="entry_fill", amount="1.0", stake_amount="600.0", sub_trade="False", trade_id="13")
         assert [r["status"] for r in res["results"]] == ["opened"]  # only sara
 
+        with SessionLocal() as s:
+            trades_before = s.query(Trade).count()
         # ---------------- rejected / ignored webhooks are logged too
         assert TestClient(app).post("/webhook/wrong", json={"type": "entry"}).status_code == 401
-        assert TestClient(app).post(f"/webhook/{secret()}", json={"type": "status", "status": "running"}).json()["status"] == "ignored"
+        assert TestClient(app).post(f"/webhook/{secret()}", json={"type": "new_candle", "data": "x"}).json()["status"] == "ignored"
         with SessionLocal() as s:
             assert s.query(WebhookEvent).filter_by(status="rejected").count() == 1
             assert s.query(WebhookEvent).filter_by(status="ignored").count() == 1
@@ -206,6 +211,57 @@ def test_full_flow(sent):
                     assert "nav_" not in r.text and "col_" not in r.text, (lang, u)  # no untranslated keys
         assert ali.get("/admin").status_code == 403
 
+        # ---------------- Freqtrade status / warnings / errors: logged + sent to admins, never traded
+        admin.get("/lang/en")
+        for p in ({"type": "startup", "status": "*Exchange:* `binance`\n*Strategy:* `MyStrat`"},
+                  {"type": "status", "status": "running"},
+                  {"type": "exception", "status": "*OperationalException:*\n```\nboom\n```"},
+                  {"type": "protection_trigger", "pair": "ETH/USDT:USDT", "reason": "StoplossGuard",
+                   "lock_end_time": "2026-11-08 12:00:00", "side": "*"}):
+            r = TestClient(app).post(f"/webhook/{secret()}", json=p).json()
+            assert r["status"] == "event", r
+        from app.engine.botmonitor import monitor
+        assert monitor.load()["webhook_state"] == "running"
+        with SessionLocal() as s:
+            assert s.query(WebhookEvent).filter_by(status="event").count() == 4
+            assert s.query(Trade).count() == trades_before  # nothing traded
+
+        # ---------------- Freqtrade REST API monitor (fake API) + admin bot page
+        import httpx
+        calls = []
+
+        def fake_api(request):
+            calls.append(request.url.path)
+            assert request.headers["authorization"].startswith("Basic ")
+            data = {"/api/v1/show_config": {"state": "running", "strategy": "MyStrat", "exchange": "binance",
+                                            "dry_run": True, "trading_mode": "futures", "max_open_trades": -1,
+                                            "stake_currency": "USDT", "bot_name": "ft"},
+                    "/api/v1/health": {"last_process": "2020-01-01T00:00:00+00:00"},
+                    "/api/v1/count": {"current": 2, "max": 5, "total_stake": 100},
+                    "/api/v1/whitelist": {"whitelist": ["BTC/USDT:USDT", "DOGE/USDT:USDT"]},
+                    "/api/v1/stop": {"status": "stopping trader ..."}}.get(request.url.path)
+            return httpx.Response(200, json=data) if data else httpx.Response(404)
+
+        real_client = httpx.AsyncClient
+        import app.engine.botmonitor as bm
+        bm.httpx.AsyncClient = lambda **kw: real_client(transport=httpx.MockTransport(fake_api), **kw)
+        try:
+            admin.post("/admin/settings", data={"csrf": csrf(admin, "/admin/settings"), "section": "freqtrade",
+                                                "relay_on": "fill", "signal_source": "freqtrade", "dedupe_seconds": "30",
+                                                "ft_api_url": "http://127.0.0.1:8080", "ft_api_user": "u", "ft_api_pass": "p"})
+            st = asyncio.run(monitor.poll())
+            assert st["api"] == "ok" and st["state"] == "running" and st["stalled"] is True, st
+            assert st["missing_pairs"] == ["DOGE/USDT"] and st["max_open_trades"] == -1
+            page = admin.get("/admin/bot").text
+            assert "MyStrat" in page and "DOGE/USDT" in page
+            r = admin.post("/admin/bot", data={"csrf": csrf(admin, "/admin/bot"), "action": "stop"}, follow_redirects=False)
+            assert r.status_code == 303 and "/api/v1/stop" in calls
+        finally:
+            bm.httpx.AsyncClient = real_client
+        for lang in ("fa", "en", "de", "es"):
+            admin.get(f"/lang/{lang}")
+            assert admin.get("/admin/bot").status_code == 200
+
         # ---------------- telegram commands in the user's language
         asyncio.run(bot.handle("222", "/profit"))
         asyncio.run(bot.handle("111", "/lang de"))
@@ -213,6 +269,13 @@ def test_full_flow(sent):
         with SessionLocal() as s:
             assert s.get(User, ali_id).lang == "de"
 
+    admin_msgs = [t for c, t in sent if c == "999"]
+    assert any("🚀" in t and "<code>binance</code>" in t for t in admin_msgs)      # startup forwarded, markdown converted
+    assert any("🛑" in t and "<pre>boom</pre>" in t for t in admin_msgs)          # exception
+    assert any("Protection lock" in t for t in admin_msgs)
+    assert any("Bot entry" in t and "Copied to portfolios" in t for t in admin_msgs)  # trade + copy summary
+    assert any("not allowed on the site" in t and "DOGE/USDT" in t for t in admin_msgs)
+    assert any("has not processed" in t for t in admin_msgs)                     # stalled heartbeat alert
     ali_msgs = [t for c, t in sent if c == "111"]
     sara_msgs = [t for c, t in sent if c == "222"]
     assert any("Position opened" in t for t in ali_msgs) and any("Stop loss" in t for t in ali_msgs)

@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy import func, select
 
-from ..db import (DEFAULT_NOTIFY, SIZING_MODES, ExchangeAccount, ExecutionLog, NotificationLog, SessionLocal, Trade,
+from ..db import (ADMIN_NOTIFY, DEFAULT_NOTIFY, SIZING_MODES, ExchangeAccount, ExecutionLog, NotificationLog, SessionLocal, Trade,
                   User, get_global)
 from ..engine import performance as perf
 from ..engine.exchange import NEEDS_PASSWORD, pool, test_connection
@@ -283,8 +283,9 @@ NOTIFY_KEYS = list(DEFAULT_NOTIFY)
 @router.get("/settings")
 async def settings_page(request: Request):
     user = require_user(request)
+    keys = [k for k in NOTIFY_KEYS if user.is_admin or k not in ADMIN_NOTIFY]
     return render(request, "settings.html", notify={**DEFAULT_NOTIFY, **(user.notify or {})},
-                  notify_keys=NOTIFY_KEYS, bot_username=bot.username)
+                  notify_keys=keys, bot_username=bot.username)
 
 
 @router.post("/settings")
@@ -295,7 +296,7 @@ async def settings_save(request: Request):
         u = s.get(User, user.id)
         action = f.get("action")
         if action == "profile":
-            u.notify = {k: bool(f.get(f"n__{k}")) for k in NOTIFY_KEYS}
+            u.notify = {k: bool(f.get(f"n__{k}")) for k in NOTIFY_KEYS if u.is_admin or k not in ADMIN_NOTIFY}
             u.trading_enabled = bool(f.get("trading_enabled"))
             u.name = str(f.get("name", u.name)).strip()[:120]
             u.phone = str(f.get("phone", u.phone)).strip()[:32]
