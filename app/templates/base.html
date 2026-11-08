@@ -13,6 +13,7 @@
   <a class="brand" href="/">{{ site.site_name }}</a>
   {% set p = request.url.path %}
   <a href="/" class="{{ 'on' if p == '/' }}">{{ _('nav_performance') }}</a>
+  <a href="/compare" class="{{ 'on' if p == '/compare' }}">{{ _('nav_compare') }}</a>
   {% if user %}
   <a href="/dashboard" class="{{ 'on' if p == '/dashboard' }}">{{ _('nav_dashboard') }}</a>
   <a href="/accounts" class="{{ 'on' if p.startswith('/accounts') }}">{{ _('nav_portfolios') }}</a>

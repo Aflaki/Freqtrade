@@ -78,10 +78,18 @@ def _public_bots() -> list[Bot]:
 def _form_ctx(gs, acc, kind):
     bots = _public_bots()
     ids = [b.id for b in bots]
+    _, groups = perf.visible_bots()
+    gids = {g.id for g in groups}
+    sections = [(g, [b for b in bots if b.group_id == g.id]) for g in groups]
+    sections = [(g, bs) for g, bs in sections if bs]
+    rest = [b for b in bots if b.group_id not in gids]
+    if rest:
+        sections.append((None, rest))
     return dict(gs=gs, acc=acc, kind=kind, key_mask=mask(acc.api_key_enc) if acc and not acc.is_signal else "",
                 stats_json=perf.stats_json(ids, 90), modes=[m for m in SIZING_MODES if m in (gs.sizing_modes or [])],
                 bots=bots, cards={m: perf.bot_summaries(ids, m, 90) for m in ("all", "long")},
-                followed=(acc.bots or []) if acc else (ids if len(ids) == 1 else []))
+                followed=(acc.bots or []) if acc else (ids if len(ids) == 1 else []), sections=sections,
+                pair_bot=(acc.pair_bot or {}) if acc else {})
 
 
 @router.get("/accounts/new")
@@ -170,7 +178,16 @@ async def _save_account(request: Request, acc_id: int | None):
         acc.exchange, acc.trading_mode, acc.leverage = exchange, mode, leverage
         acc.margin_mode = "cross" if f.get("margin_mode") == "cross" else "isolated"
         acc.sizing_mode, acc.pairs, acc.capital, acc.max_open_trades = sizing, pairs, capital, mot
-        acc.bots = bots
+        # per pair: take signals only from one chosen bot (it is followed automatically)
+        pair_bot = {}
+        for p in pairs:
+            v = str(f.get(f"pbot__{p}", ""))
+            if v.isdigit() and int(v) in public_ids:
+                pair_bot[p] = int(v)
+                if int(v) not in bots:
+                    bots.append(int(v))
+        acc.bots = sorted(bots)
+        acc.pair_bot = pair_bot or None
         acc.stoploss_pct, acc.daily_loss_limit_pct = sl, dll
         if kind == "exchange":
             acc.sandbox = bool(f.get("sandbox"))

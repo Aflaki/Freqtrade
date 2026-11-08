@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy import func, select
 
-from ..db import Bot, BotTrade, ExchangeAccount, SessionLocal, Trade, WebhookEvent, get_global
+from ..db import Bot, BotGroup, BotTrade, ExchangeAccount, SessionLocal, Trade, WebhookEvent, canon_pair, get_global
 from ..engine import performance as perf
 from ..engine.botmonitor import CONTROL_ACTIONS, _error_state, diagnose, fetch_info, monitor, normalize_api_url
 from ..security import decrypt, encrypt, flash, form_with_csrf, require_admin
@@ -53,8 +53,9 @@ async def bots_list(request: Request):
                     followers[bid] += 1
         open_user = dict(s.execute(select(Trade.bot_id, func.count(Trade.id)).where(Trade.status == "open")
                                    .group_by(Trade.bot_id)).all())
+        groups = s.scalars(select(BotGroup).order_by(BotGroup.sort, BotGroup.id)).all()
     return render(request, "admin/bots.html", gs=gs, bots=bots, followers=followers, open_user=open_user, tab="bot",
-                  base=gs.base_url)
+                  base=gs.base_url, groups=groups, group_names={g.id: g.name for g in groups})
 
 
 @router.post("/bot")
@@ -82,6 +83,42 @@ async def bots_action(request: Request):
         flash(request, tr(request, "msg_bots_bulk", n=added))
         for x in failed[:10]:
             flash(request, x, "error")
+    elif action == "group_add":
+        name = str(f.get("group_name", "")).strip()[:80]
+        if name:
+            with SessionLocal() as s:
+                n = s.scalar(select(func.count(BotGroup.id))) or 0
+                s.add(BotGroup(name=name, description=str(f.get("group_desc", "")).strip()[:500], sort=n + 1))
+                s.commit()
+            flash(request, tr(request, "msg_saved"))
+    elif action == "group_save":
+        with SessionLocal() as s:
+            g = s.get(BotGroup, int(f.get("group_id") or 0))
+            if g:
+                g.name = str(f.get("group_name", g.name)).strip()[:80] or g.name
+                g.description = str(f.get("group_desc", "")).strip()[:500]
+                g.public = bool(f.get("group_public"))
+                g.sort = int(f.get("group_sort") or g.sort or 0)
+                s.commit()
+        flash(request, tr(request, "msg_saved"))
+    elif action == "group_delete":
+        with SessionLocal() as s:
+            g = s.get(BotGroup, int(f.get("group_id") or 0))
+            if g:
+                for b in s.scalars(select(Bot).where(Bot.group_id == g.id)):
+                    b.group_id = None
+                s.delete(g)
+                s.commit()
+        flash(request, tr(request, "msg_deleted"))
+    elif action == "move":  # bulk: selected bots -> group
+        target = str(f.get("target_group", ""))
+        gid = int(target) if target.isdigit() and int(target) > 0 else None
+        ids = [int(k.split("__", 1)[1]) for k in f.keys() if k.startswith("sel__") and k.split("__", 1)[1].isdigit()]
+        with SessionLocal() as s:
+            for b in s.scalars(select(Bot).where(Bot.id.in_(ids or [-1]))):
+                b.group_id = gid
+            s.commit()
+        flash(request, tr(request, "msg_moved", n=len(ids)))
     elif action == "refresh_all":
         await monitor.poll_all(alert=False)
         flash(request, tr(request, "msg_done"))
@@ -104,9 +141,12 @@ async def bot_detail(bot_id: int, request: Request):
         events = s.scalars(select(WebhookEvent).where(WebhookEvent.bot_id == bot_id)
                            .order_by(WebhookEvent.id.desc()).limit(40)).all()
         n_trades = s.scalar(select(func.count(BotTrade.id)).where(BotTrade.bot_id == bot_id)) or 0
+        groups = s.scalars(select(BotGroup).order_by(BotGroup.sort, BotGroup.id)).all()
+        traded = sorted(set(s.scalars(select(BotTrade.pair).where(BotTrade.bot_id == bot_id).distinct())))
     diag = request.session.pop("diag", None)
     diag = diag["steps"] if diag and diag.get("bot") == bot_id else None
     return render(request, "admin/bot.html", b=b, st=b.st, gs=gs, events=events, tab="bot", n_trades=n_trades, diag=diag,
+                  groups=groups, traded=traded,
                   webhook_url=webhook_url(gs.base_url, b), has_pass=bool(b.api_pass_enc))
 
 
@@ -128,6 +168,12 @@ async def bot_action(bot_id: int, request: Request):
                     b.api_pass_enc = encrypt(str(f["api_pass"]).strip())
                 b.enabled, b.copy_enabled, b.public = bool(f.get("enabled")), bool(f.get("copy_enabled")), bool(f.get("public"))
                 b.sort = int(f.get("sort") or b.sort or 0)
+                g = str(f.get("group_id", ""))
+                b.group_id = int(g) if g.isdigit() and int(g) > 0 and s.get(BotGroup, int(g)) else None
+                mode = str(f.get("pair_filter_mode", "none"))
+                b.pair_filter_mode = mode if mode in ("whitelist", "blacklist") else "none"
+                raw = str(f.get("pair_filter", "")).replace(",", "\n").replace(" ", "\n")
+                b.pair_filter = sorted({canon_pair(x) for x in raw.splitlines() if x.strip()})
                 s.commit()
             st = await monitor.poll_bot(bot_id, alert=False)
             flash(request, tr(request, "msg_saved") + (f" — API: {st.get('error')}" if st.get("error") else ""),

@@ -11,7 +11,7 @@ from typing import Any
 import httpx
 from sqlalchemy import select
 
-from ..db import BotTrade, SessionLocal, utcnow
+from ..db import Bot, BotGroup, BotTrade, SessionLocal, utcnow
 
 log = logging.getLogger("relay.performance")
 
@@ -155,7 +155,10 @@ def _closed(market: str, days: int | None, bots: list[int] | None = None) -> lis
             q = q.where(BotTrade.side == "long")
         elif market == "short":
             q = q.where(BotTrade.side == "short")
-        return list(s.scalars(q.order_by(BotTrade.close_date)))
+        rows = list(s.scalars(q.order_by(BotTrade.close_date)))
+        bots = {b.id: b for b in s.scalars(select(Bot))}
+    # each bot's whitelist / blacklist hides pairs from its results (data is kept)
+    return [t for t in rows if t.bot_id not in bots or bots[t.bot_id].allows(t.pair)]
 
 
 def _stats(trades: list[BotTrade]) -> dict:
@@ -235,3 +238,94 @@ def stats_json(bot_ids: list[int], days: int | None = 90) -> str:
             out[str(b)][m] = {p: {k: (round(v, 4) if isinstance(v, float) else v) for k, v in _stats(ts).items()
                                   if k != "last"} for p, ts in by_pair.items()}
     return json.dumps(out)
+
+
+# ------------------------------------------------------------------ groups & comparison
+PALETTE = ["#7c5cff", "#00c2ff", "#f0b90b", "#0ecb81", "#ff6b9a", "#ff8a3d", "#a3e635", "#38bdf8", "#e879f9", "#94a3b8"]
+
+
+def visible_bots(group_id: int | None = None) -> tuple[list[Bot], list[BotGroup]]:
+    """Public, enabled bots (optionally of one group; 0 = ungrouped) and the public groups."""
+    with SessionLocal() as s:
+        groups = list(s.scalars(select(BotGroup).where(BotGroup.public.is_(True)).order_by(BotGroup.sort, BotGroup.id)))
+        q = select(Bot).where(Bot.enabled.is_(True), Bot.public.is_(True))
+        if group_id == 0:
+            q = q.where(Bot.group_id.is_(None))
+        elif group_id is not None:
+            q = q.where(Bot.group_id == group_id)
+        bots = list(s.scalars(q.order_by(Bot.sort, Bot.id)))
+    return bots, groups
+
+
+def group_summaries(groups: list[BotGroup], bots_by_group: dict[int, list[int]], market: str = "all",
+                    days: int | None = 90) -> dict[int, dict]:
+    """Combined numbers of all bots in each group."""
+    out = {}
+    for g in groups:
+        ids = bots_by_group.get(g.id, [])
+        st = _stats(_closed(market, days, ids)) if ids else _stats([])
+        out[g.id] = {k: v for k, v in st.items() if k != "last"} | {"bots": len(ids)}
+    return out
+
+
+def multi_svg(series: list[list[tuple[Any, float]]], w: int = 600, h: int = 200) -> dict:
+    """Several cumulative curves on one time axis (one path per series)."""
+    pts = [p for ser in series for p in ser]
+    if len(pts) < 2:
+        return {"paths": [], "zero": h / 2}
+    t0 = min(p[0] for p in pts).timestamp()
+    t1 = max(p[0] for p in pts).timestamp()
+    tspan = (t1 - t0) or 1.0
+    lo = min(0.0, min(p[1] for p in pts))
+    hi = max(0.0, max(p[1] for p in pts))
+    span = (hi - lo) or 1.0
+    paths = []
+    for i, ser in enumerate(series):
+        if not ser:
+            paths.append("")
+            continue
+        xy = [((d.timestamp() - t0) / tspan * w, h - (y - lo) / span * h) for d, y in ser]
+        if len(xy) == 1:
+            xy = [(0.0, h - (0 - lo) / span * h)] + xy
+        paths.append("M" + " L".join(f"{x:.1f},{y:.1f}" for x, y in xy))
+    return {"paths": paths, "zero": h - (0 - lo) / span * h, "lo": lo, "hi": hi}
+
+
+def _curve(trades: list[BotTrade]) -> list[tuple[Any, float]]:
+    pts, eq = [], 0.0
+    for t in trades:
+        eq += (t.profit_ratio or 0) * 100
+        pts.append((t.close_date, eq))
+    return pts
+
+
+def pair_compare(pair: str, market: str, days: int | None, bots: list[Bot], groups: list[BotGroup]) -> dict:
+    """One pair across bots (and groups): stats + overlaid cumulative-% curves."""
+    trades = [t for t in _closed(market, days, [b.id for b in bots]) if t.pair == pair]
+    rows = []
+    for b in bots:
+        ts = [t for t in trades if t.bot_id == b.id]
+        if ts:
+            rows.append({"kind": "bot", "id": b.id, "name": b.name, "group_id": b.group_id, "stats": _stats(ts),
+                         "curve": _curve(ts)})
+    grows = []
+    for g in groups:
+        ids = {b.id for b in bots if b.group_id == g.id}
+        ts = [t for t in trades if t.bot_id in ids]
+        if ts:
+            grows.append({"kind": "group", "id": g.id, "name": g.name, "stats": _stats(ts), "curve": _curve(ts)})
+    rows.sort(key=lambda r: -r["stats"]["total"])
+    shown = rows[: len(PALETTE)]
+    chart = multi_svg([r["curve"] for r in shown])
+    for i, r in enumerate(shown):
+        r["color"] = PALETTE[i]
+        r["path"] = chart["paths"][i]
+    return {"rows": rows, "groups": grows, "chart": chart}
+
+
+def pair_matrix(market: str, days: int | None, bots: list[Bot]) -> dict[str, dict[int, dict]]:
+    """{pair: {bot_id: stats}} for the pairs x bots table."""
+    cell: dict[str, dict[int, list[BotTrade]]] = defaultdict(lambda: defaultdict(list))
+    for t in _closed(market, days, [b.id for b in bots]):
+        cell[t.pair][t.bot_id].append(t)
+    return {p: {b: _stats(ts) for b, ts in byb.items()} for p, byb in sorted(cell.items())}

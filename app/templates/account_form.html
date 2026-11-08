@@ -35,14 +35,19 @@
 
 <h2 style="margin-top:22px">{{ _('sec_bots') }}</h2>
 <p class="small muted">{{ _('bots_pick_intro') }}</p>
-<div class="choice">
-{% for b in bots %}{% set cf = cards.all.get(b.id, {}) %}{% set cs = cards.long.get(b.id, {}) %}
-<label class="card check" style="margin:0;cursor:pointer"><input type="checkbox" class="bc" name="bot__{{ b.id }}" value="{{ b.id }}" {{ 'checked' if b.id in followed }}>
+{% for g, gbots in sections %}
+{% if g or sections|length > 1 %}<h3 style="display:flex;gap:10px;align-items:center">{{ ('📦 ' ~ g.name) if g else _('ungrouped') }}
+<label class="check small" style="margin:0;font-weight:400"><input type="checkbox" class="gsel" data-g="{{ g.id if g else 0 }}"> {{ _('select_group') }}</label></h3>{% endif %}
+<div class="choice" style="margin-bottom:10px">
+{% for b in gbots %}{% set cf = cards.all.get(b.id, {}) %}{% set cs = cards.long.get(b.id, {}) %}
+<label class="card check" style="margin:0;cursor:pointer"><input type="checkbox" class="bc" data-g="{{ b.group_id or 0 }}" name="bot__{{ b.id }}" value="{{ b.id }}" {{ 'checked' if b.id in followed }}>
 <span><b>{{ b.name }}</b>{% if b.description %}<br><span class="small muted">{{ b.description }}</span>{% endif %}<br>
 <span class="small">{{ _('mkt_all') }}: {{ cf.trades or 0 }} · <span class="num">{{ '%.0f'|format(cf.win_rate or 0) }}%</span> · <span class="{{ 'pos' if (cf.total or 0) >= 0 else 'neg' }}">{{ (cf.total or 0)|pct(1) }}</span></span><br>
 <span class="small">{{ _('mkt_long') }}: {{ cs.trades or 0 }} · <span class="num">{{ '%.0f'|format(cs.win_rate or 0) }}%</span> · <span class="{{ 'pos' if (cs.total or 0) >= 0 else 'neg' }}">{{ (cs.total or 0)|pct(1) }}</span></span><br><span class="small muted">{{ _('perf_avg_lev') }}: {{ '%.1f'|format(cf.avg_lev or 0) }}x</span></span></label>
-{% else %}<div class="flash warn">{{ _('no_bots') }}</div>{% endfor %}
+{% endfor %}
 </div>
+{% else %}<div class="flash warn">{{ _('no_bots') }}</div>{% endfor %}
+<p class="small"><a href="/compare" target="_blank">⚖️ {{ _('compare_title') }} →</a></p>
 
 <h2 style="margin-top:22px">{{ _('sec_basket') }}</h2>
 <p class="small muted">{{ _('basket_intro') }}</p>
@@ -58,13 +63,15 @@
 <div class="pills" style="margin-top:12px"><span class="small muted">{{ _('stats_window') }}</span></div>
 <div class="table-wrap"><table class="pairs">
 <tr><th><input type="checkbox" id="all" title="all"></th><th>{{ _('col_pair') }}</th><th>{{ _('perf_trades') }}</th><th>{{ _('perf_win_rate') }}</th><th>{{ _('perf_total') }}</th><th>{{ _('perf_max_dd') }}</th>
-<th id="valhead">{{ _('col_weight') }}</th><th>{{ _('col_margin_trade') }}</th><th>{{ _('col_position_value') }}</th></tr>
+<th>{{ _('pair_from_bot') }}</th><th id="valhead">{{ _('col_weight') }}</th><th>{{ _('col_margin_trade') }}</th><th>{{ _('col_position_value') }}</th></tr>
 {% for p in gs.allowed_pairs %}{% set sel = acc and p in acc.pairs %}
 <tr><td><input type="checkbox" class="pc" name="pair__{{ p }}" data-p="{{ p }}" {{ 'checked' if sel }}></td><td class="mono">{{ p }}</td>
 <td class="s-trades" data-p="{{ p }}">-</td><td class="s-wr" data-p="{{ p }}">-</td><td class="s-total" data-p="{{ p }}">-</td><td class="s-dd" data-p="{{ p }}">-</td>
+<td><select class="pb" name="pbot__{{ p }}" data-p="{{ p }}" style="width:auto;padding:4px 6px">
+<option value="">{{ _('pair_from_all') }}</option>{% for b in bots %}<option value="{{ b.id }}" {{ 'selected' if pair_bot.get(p) == b.id }}>{{ b.name }}</option>{% endfor %}</select></td>
 <td><input type="number" class="pv" step="any" min="0" name="value__{{ p }}" data-p="{{ p }}" value="{{ acc.pairs[p] if sel else '' }}" style="width:100px"></td>
 <td class="st" data-p="{{ p }}">-</td><td class="nt" data-p="{{ p }}">-</td></tr>{% endfor %}
-<tr><td></td><td><b>{{ _('total') }}</b></td><td colspan="5"></td><td id="tot_st"><b>-</b></td><td id="tot_nt"><b>-</b></td></tr>
+<tr><td></td><td><b>{{ _('total') }}</b></td><td colspan="6"></td><td id="tot_st"><b>-</b></td><td id="tot_nt"><b>-</b></td></tr>
 </table></div>
 
 <h2 style="margin-top:22px">{{ _('sec_risk') }}</h2>
@@ -99,7 +106,10 @@
     $('#valhead').textContent=heads[mode]||''; $$('.pv').forEach(i=>{i.style.display=mode==='equal_split'?'none':''; if(mode==='pair_weights'&&!i.value) i.value=1;});
     $('#modehelp').textContent=help[mode]||'';
     const mk=spot?'long':'all', bsel=$$('.bc').filter(c=>c.checked).map(c=>c.value), st={};
-    bsel.forEach(b=>{const per=((stats[b]||{})[mk])||{}; Object.entries(per).forEach(([p,x])=>{
+    const only={}; $$('.pb').forEach(s=>{ if(s.value) only[s.dataset.p]=s.value; });
+    const srcs=new Set([...bsel, ...Object.values(only)]);
+    srcs.forEach(b=>{const per=((stats[b]||{})[mk])||{}; Object.entries(per).forEach(([p,x])=>{
+      if(only[p] ? only[p]!==b : !bsel.includes(b)) return;  // pair taken from one chosen bot only
       const a=st[p]||(st[p]={trades:0,wins:0,total:0,max_dd:0});
       a.trades+=x.trades; a.wins+=x.wins; a.total+=x.total; a.max_dd=Math.min(a.max_dd,x.max_dd);});});
     Object.values(st).forEach(a=>a.win_rate=a.trades?a.wins/a.trades*100:0);
@@ -118,6 +128,7 @@
       td.textContent=on?fmt(s):'-'; $(`.nt[data-p="${p}"]`).textContent=on?fmt(s*lev):'-';});
     $('#tot_st').innerHTML='<b>'+fmt(mode==='equal_split'?cap*ratio:ts)+'</b>'; $('#tot_nt').innerHTML='<b>'+fmt((mode==='equal_split'?cap*ratio:ts)*lev)+'</b>';
   }
+  $$('.gsel').forEach(g=>g.addEventListener('change',e=>{$$(`.bc[data-g="${g.dataset.g}"]`).forEach(c=>c.checked=g.checked); upd();}));
   $('#all').addEventListener('change',e=>{$$('.pc').forEach(c=>c.checked=e.target.checked); upd();});
   $('#f').addEventListener('input',upd); $('#f').addEventListener('change',upd); upd();
 })();

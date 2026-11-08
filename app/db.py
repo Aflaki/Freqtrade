@@ -114,6 +114,7 @@ class ExchangeAccount(Base):
     # {"BTC/USDT": value}: value = weight (pair_weights) or margin per trade (custom_amounts)
     pairs: Mapped[dict[str, float]] = mapped_column(JSON, default=dict)
     bots: Mapped[list[int] | None] = mapped_column(JSON, nullable=True)  # Freqtrade bots this portfolio follows
+    pair_bot: Mapped[dict[str, int] | None] = mapped_column(JSON, nullable=True)  # {"BTC/USDT": bot_id}: take pair only from that bot
     # risk
     stoploss_pct: Mapped[float | None] = mapped_column(Float, nullable=True)  # max loss % of margin
     daily_loss_limit_pct: Mapped[float | None] = mapped_column(Float, nullable=True)  # % of capital
@@ -271,6 +272,27 @@ class NotificationLog(Base):
 
 
 # ============================================================================ freqtrade bots
+class BotGroup(Base):
+    """A set of bots whose results are shown combined (e.g. 'Version 1', 'Version 2')."""
+    __tablename__ = "bot_groups"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(80))
+    description: Mapped[str] = mapped_column(String(500), default="")
+    public: Mapped[bool] = mapped_column(default=True)
+    sort: Mapped[int] = mapped_column(default=0)
+
+
+def canon_pair(p: str) -> str:
+    """'btcusdt', 'BTC/USDT:USDT', 'BTC-USDT' -> 'BTC/USDT' (USDT/USDC/BUSD/FDUSD/USD/BTC/ETH quotes)."""
+    s = str(p).strip().upper().split(":")[0].replace("-", "/").replace("_", "/")
+    if "/" in s:
+        return s
+    for q in ("FDUSD", "USDT", "USDC", "BUSD", "TUSD", "USD", "BTC", "ETH", "EUR"):
+        if s.endswith(q) and len(s) > len(q):
+            return s[: -len(q)] + "/" + q
+    return s
+
+
 class Bot(Base):
     """One Freqtrade instance. It has its own webhook URL, so every message is attributed to it."""
     __tablename__ = "bots"
@@ -286,12 +308,25 @@ class Bot(Base):
     copy_enabled: Mapped[bool] = mapped_column(default=True)  # copy its signals to users
     public: Mapped[bool] = mapped_column(default=True)        # show on the website / selectable by users
     sort: Mapped[int] = mapped_column(default=0)
+    group_id: Mapped[int | None] = mapped_column(ForeignKey("bot_groups.id", ondelete="SET NULL"), nullable=True, index=True)
+    # pair filter: "none" | "whitelist" (only these pairs) | "blacklist" (all except these)
+    pair_filter_mode: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    pair_filter: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     state: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)  # monitor result
     created_at: Mapped[dt.datetime] = mapped_column(default=utcnow)
 
     @property
     def st(self) -> dict[str, Any]:
         return self.state or {}
+
+    def allows(self, pair: str) -> bool:
+        """Is this pair part of the bot's results / signals (per its whitelist or blacklist)?"""
+        mode, lst = self.pair_filter_mode or "none", {canon_pair(p) for p in (self.pair_filter or [])}
+        if mode == "whitelist":
+            return canon_pair(pair) in lst
+        if mode == "blacklist":
+            return canon_pair(pair) not in lst
+        return True
 
 
 # ============================================================================ settings (admin panel)

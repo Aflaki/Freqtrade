@@ -8,7 +8,7 @@ from collections import Counter
 
 from sqlalchemy import select
 
-from ..db import ExchangeAccount, SessionLocal, Trade, User, WebhookEvent, get_global, utcnow
+from ..db import Bot, ExchangeAccount, SessionLocal, Trade, User, WebhookEvent, get_global, utcnow
 from ..signal import Signal, canonical_pair
 from .botmonitor import monitor
 from .trader import Outcome, run_for_account
@@ -33,11 +33,16 @@ def eligible_accounts(sig: Signal, pair: str, bot_id: int) -> list[int]:
         if sig.action in ("long", "short"):
             if not gs.entries_enabled or pair not in gs.allowed_pairs:
                 return []
+            b = s.get(Bot, bot_id)
+            if b is not None and not b.allows(pair):  # pair filtered out for this bot
+                return []
             rows = s.execute(select(ExchangeAccount, User).join(User, User.id == ExchangeAccount.user_id).where(
                 User.status == "active", User.trading_enabled.is_(True), ExchangeAccount.enabled.is_(True))).all()
             out = []
             for a, u in rows:
                 if not u.subscription_active or pair not in (a.pairs or {}) or bot_id not in (a.bots or []):
+                    continue
+                if (a.pair_bot or {}).get(pair) not in (None, bot_id):  # user takes this pair from another bot
                     continue
                 if a.is_signal and not gs.signal_only_enabled:
                     continue

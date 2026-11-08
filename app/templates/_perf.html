@@ -1,10 +1,10 @@
 {# expects: data, pairs, market, period, periods, base_url #}
 <div class="pills">
-  <a href="?bot={{ bot_sel }}&market=all&days={{ period }}" class="{{ 'on' if market == 'all' }}">{{ _('mkt_all') }}</a>
-  <a href="?bot={{ bot_sel }}&market=long&days={{ period }}" class="{{ 'on' if market == 'long' }}">{{ _('mkt_long') }}</a>
-  <a href="?bot={{ bot_sel }}&market=short&days={{ period }}" class="{{ 'on' if market == 'short' }}">{{ _('mkt_short') }}</a>
+  <a href="?{{ scope_qs }}{{ '&' if scope_qs }}market=all&days={{ period }}" class="{{ 'on' if market == 'all' }}">{{ _('mkt_all') }}</a>
+  <a href="?{{ scope_qs }}{{ '&' if scope_qs }}market=long&days={{ period }}" class="{{ 'on' if market == 'long' }}">{{ _('mkt_long') }}</a>
+  <a href="?{{ scope_qs }}{{ '&' if scope_qs }}market=short&days={{ period }}" class="{{ 'on' if market == 'short' }}">{{ _('mkt_short') }}</a>
   <span style="width:12px"></span>
-  {% for pr in periods %}<a href="?bot={{ bot_sel }}&market={{ market }}&days={{ pr }}" class="{{ 'on' if pr == period }}">{{ _('period_' ~ pr) }}</a>{% endfor %}
+  {% for pr in periods %}<a href="?{{ scope_qs }}{{ '&' if scope_qs }}market={{ market }}&days={{ pr }}" class="{{ 'on' if pr == period }}">{{ _('period_' ~ pr) }}</a>{% endfor %}
 </div>
 {% if not data or not data.trades %}
 <div class="card muted">{{ _('perf_no_data') }}</div>
@@ -28,7 +28,7 @@
 <div class="card"><h2>{{ _('perf_by_pair') }}</h2><div class="table-wrap"><table>
 <tr><th>{{ _('col_pair') }}</th><th>{{ _('perf_trades') }}</th><th>{{ _('perf_win_rate') }}</th><th>{{ _('perf_total') }}</th><th>{{ _('perf_total_abs') }}</th><th>{{ _('perf_avg') }}</th>
 <th>{{ _('perf_best') }}</th><th>{{ _('perf_worst') }}</th><th>{{ _('perf_max_dd') }}</th><th>{{ _('perf_avg_lev') }}</th><th>{{ _('perf_avg_hours') }}</th></tr>
-{% for p, st in pairs.items() %}<tr><td class="mono">{{ p }}</td><td>{{ st.trades }}</td><td>{{ '%.0f'|format(st.win_rate) }}%</td>
+{% for p, st in pairs.items() %}<tr><td class="mono"><a href="/compare?{{ 'group=' ~ group_sel ~ '&' if group_sel is not none }}pair={{ p|urlencode }}&market={{ market }}&days={{ period }}" title="{{ _('compare_title') }}">{{ p }} ⚖️</a></td><td>{{ st.trades }}</td><td>{{ '%.0f'|format(st.win_rate) }}%</td>
 <td class="{{ 'pos' if st.total >= 0 else 'neg' }}">{{ st.total|pct(1) }}</td><td class="{{ 'pos' if st.profit_abs >= 0 else 'neg' }}">{{ st.profit_abs|signed }}</td><td>{{ st.avg|pct }}</td><td class="pos">{{ st.best|pct(1) }}</td>
 <td class="neg">{{ st.worst|pct(1) }}</td><td class="neg">{{ st.max_dd|pct(1) }}</td><td><span class="num">{{ '%.1f'|format(st.avg_lev) }}x</span></td><td>{{ '%.1f'|format(st.avg_hours) }}</td></tr>{% endfor %}
 </table></div></div>

@@ -1,12 +1,14 @@
 {% extends "base.html" %}{% block content %}
 <h1>{{ _('nav_admin') }}</h1>{% include "admin/_nav.html" %}
+<form method="post" id="botsform"><input type="hidden" name="csrf" value="{{ csrf }}">
 <div class="card"><h2>{{ _('bots_title') }} <span class="badge">{{ bots|length }}</span></h2>
 <p class="small muted">{{ _('bots_intro') }}</p>
 <div class="table-wrap"><table>
-<tr><th>#</th><th>{{ _('col_name') }}</th><th>{{ _('bot_webhook_last') }}</th><th>API</th><th>{{ _('bot_state') }}</th><th>{{ _('bot_strategy') }}</th>
+<tr><th><input type="checkbox" onclick="document.querySelectorAll('.selb').forEach(c=>c.checked=this.checked)"></th><th>#</th><th>{{ _('col_name') }}</th><th>{{ _('adm_group') }}</th><th>{{ _('bot_webhook_last') }}</th><th>API</th><th>{{ _('bot_state') }}</th><th>{{ _('bot_strategy') }}</th>
 <th>{{ _('f_market') }}</th><th>{{ _('bot_open_trades') }}</th><th>{{ _('col_followers') }}</th><th>{{ _('col_flags') }}</th><th></th></tr>
 {% for b in bots %}{% set st = b.st %}{% set api = st.get('api', 'not_configured') %}
-<tr><td>{{ b.id }}</td><td><a href="/admin/bots/{{ b.id }}"><b>{{ b.name }}</b></a><br><span class="small muted mono">{{ b.api_url }}</span></td>
+<tr><td><input type="checkbox" class="selb" name="sel__{{ b.id }}"></td><td>{{ b.id }}</td><td><a href="/admin/bots/{{ b.id }}"><b>{{ b.name }}</b></a><br><span class="small muted mono">{{ b.api_url }}</span></td>
+<td class="small">{{ group_names.get(b.group_id, '—') }}{% if b.pair_filter_mode in ('whitelist','blacklist') %}<br><span class="badge" title="{{ (b.pair_filter or [])|join(', ') }}">{{ _('pf_' ~ b.pair_filter_mode) }} {{ (b.pair_filter or [])|length }}</span>{% endif %}</td>
 <td class="small">{% if st.last_webhook %}<span class="num">{{ st.last_webhook.replace('T', ' ') }}</span><br><span class="muted">{{ st.last_webhook_type }}</span>{% else %}<span class="neg">{{ _('bot_never') }}</span>{% endif %}</td>
 <td><span class="badge {{ 'ok' if api == 'ok' else 'warn' if api == 'not_configured' else 'err' }}">{{ _('bot_api_' ~ api) }}</span></td>
 <td>{% if api == 'ok' %}<span class="{{ 'pos' if st.state == 'running' and not st.stalled else 'neg' }}">{{ st.state }}</span>{% if st.stalled %} <span class="badge err">{{ _('bot_stalled') }}</span>{% endif %}
@@ -20,10 +22,31 @@
   {% if not b.public %}<span class="badge">{{ _('flag_hidden') }}</span>{% endif %}
   {% if st.missing_pairs %}<span class="badge err" title="{{ st.missing_pairs|join(', ') }}">⚠ {{ st.missing_pairs|length }} {{ _('col_pairs') }}</span>{% endif %}</td>
 <td><a class="btn ghost sm" href="/admin/bots/{{ b.id }}">{{ _('btn_details') }}</a></td></tr>
-{% else %}<tr><td colspan="11" class="muted">—</td></tr>{% endfor %}
+{% else %}<tr><td colspan="13" class="muted">—</td></tr>{% endfor %}
 </table></div>
 <p class="small muted">* {{ _('bot_webhook_state') }}</p>
-<form method="post" style="margin-top:8px"><input type="hidden" name="csrf" value="{{ csrf }}"><button name="action" value="refresh_all" class="ghost sm">{{ _('btn_bot_refresh') }}</button></form>
+<div class="sum" style="margin-top:8px">
+<button name="action" value="refresh_all" class="ghost sm">{{ _('btn_bot_refresh') }}</button>
+<span class="small muted">{{ _('move_selected') }}</span>
+<select name="target_group" style="width:auto"><option value="0">— {{ _('ungrouped') }} —</option>{% for g in groups %}<option value="{{ g.id }}">{{ g.name }}</option>{% endfor %}</select>
+<button name="action" value="move" class="sm">{{ _('btn_move') }}</button></div>
+</div></form>
+
+<div class="card" id="groups"><h2>📦 {{ _('groups_title') }}</h2>
+<p class="small muted">{{ _('groups_intro') }}</p>
+{% for g in groups %}
+<form method="post" class="row" style="align-items:end;margin-bottom:8px"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="group_id" value="{{ g.id }}">
+<div><label>{{ _('col_name') }}</label><input type="text" name="group_name" value="{{ g.name }}"></div>
+<div><label>{{ _('col_description') }}</label><input type="text" name="group_desc" value="{{ g.description }}"></div>
+<div style="max-width:110px"><label>{{ _('col_order') }}</label><input type="number" name="group_sort" value="{{ g.sort }}"></div>
+<div><label class="check"><input type="checkbox" name="group_public" {{ 'checked' if g.public }}> {{ _('bot_f_public') }}</label>
+<button name="action" value="group_save" class="sm">{{ _('btn_save') }}</button>
+<button name="action" value="group_delete" class="danger sm" onclick="return confirm('{{ _('confirm_delete_group') }}')">{{ _('btn_delete') }}</button></div>
+</form>{% endfor %}
+<form method="post" class="row" style="align-items:end"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="group_add">
+<div><label>{{ _('group_new') }}</label><input type="text" name="group_name" placeholder="Version 1" required></div>
+<div><label>{{ _('col_description') }}</label><input type="text" name="group_desc"></div>
+<div><button>+ {{ _('group_new') }}</button></div></form>
 </div>
 
 <form method="post" class="card"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="add">

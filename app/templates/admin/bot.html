@@ -66,7 +66,18 @@
 <div><label>API username</label><input class="ltr" type="text" name="api_user" value="{{ b.api_user }}"></div>
 <div><label>API password</label><input class="ltr" type="password" name="api_pass" placeholder="{{ '•••• ' ~ _('keep_blank') if has_pass else '' }}" autocomplete="new-password"></div>
 <div><label>{{ _('col_order') }}</label><input type="number" name="sort" value="{{ b.sort }}"></div>
+<div><label>{{ _('adm_group') }}</label><select name="group_id"><option value="0">— {{ _('ungrouped') }} —</option>
+{% for g in groups %}<option value="{{ g.id }}" {{ 'selected' if b.group_id == g.id }}>{{ g.name }}</option>{% endfor %}</select></div>
 </div>
+<h3>{{ _('pf_title') }}</h3>
+<p class="small muted">{{ _('pf_help') }}</p>
+{% set pm = b.pair_filter_mode or 'none' %}
+<label class="check"><input type="radio" name="pair_filter_mode" value="none" {{ 'checked' if pm == 'none' }}> {{ _('pf_none') }}</label>
+<label class="check"><input type="radio" name="pair_filter_mode" value="whitelist" {{ 'checked' if pm == 'whitelist' }}> <b>{{ _('pf_whitelist') }}</b> — {{ _('pf_whitelist_help') }}</label>
+<label class="check"><input type="radio" name="pair_filter_mode" value="blacklist" {{ 'checked' if pm == 'blacklist' }}> <b>{{ _('pf_blacklist') }}</b> — {{ _('pf_blacklist_help') }}</label>
+<textarea class="ltr" name="pair_filter" id="pflist" rows="4" placeholder="BTC/USDT&#10;ETH/USDT">{{ (b.pair_filter or [])|join('\n') }}</textarea>
+{% if traded %}<p class="small muted">{{ _('pf_traded') }}:
+{% for p in traded %}<a href="#" class="badge" onclick="var t=document.getElementById('pflist');if(!t.value.split('\n').includes('{{ p }}'))t.value=(t.value.trim()?t.value.trim()+'\n':'')+'{{ p }}';return false;">+ {{ p }}</a> {% endfor %}</p>{% endif %}
 <label>{{ _('col_description') }}</label><input type="text" name="description" value="{{ b.description }}">
 <label class="check"><input type="checkbox" name="enabled" {{ 'checked' if b.enabled }}> {{ _('bot_f_enabled') }}</label>
 <label class="check"><input type="checkbox" name="copy_enabled" {{ 'checked' if b.copy_enabled }}> {{ _('bot_f_copy') }}</label>

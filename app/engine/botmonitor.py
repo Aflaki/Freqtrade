@@ -249,6 +249,7 @@ class BotMonitor:
             url, user, pw, name = b.api_url, b.api_user, decrypt(b.api_pass_enc) or "", b.name
             old = dict(b.state or {})
             allowed = list(get_global(s).allowed_pairs)
+            bot_allows = b.allows
         st = dict(old)
         st["checked_at"] = utcnow().isoformat(timespec="seconds")
         if not url:
@@ -256,7 +257,7 @@ class BotMonitor:
         else:
             try:
                 st.update(await fetch_info(url, user, pw))
-                st["missing_pairs"] = [p for p in st["whitelist"] if p not in allowed]
+                st["missing_pairs"] = [p for p in st["whitelist"] if p not in allowed and bot_allows(p)]
                 st.update(await self._sync_trades(bot_id, url, user, pw, full=not old.get("history_synced")))
             except Exception as e:
                 st.update(_error_state(e))

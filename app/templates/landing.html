@@ -13,17 +13,7 @@
 </div>
 <h1 id="performance" style="margin-top:20px">{{ _('perf_title') }}</h1>
 <p class="muted">{{ _('perf_intro') }}</p>
-{% if show and bots|length > 1 %}
-<div class="choice" style="margin-bottom:14px">
-  <a class="card" href="?bot=all&market={{ market }}&days={{ period }}" style="color:inherit;{{ 'outline:2px solid var(--brand)' if bot_sel == 'all' }}">
-    <h2>{{ _('all_bots') }}</h2><p class="small muted">{{ bots|length }} {{ _('bots_word') }}</p></a>
-  {% for b in bots %}{% set c = cards.get(b.id, {}) %}
-  <a class="card" href="?bot={{ b.id }}&market={{ market }}&days={{ period }}" style="color:inherit;{{ 'outline:2px solid var(--brand)' if bot_sel == b.id|string }}">
-    <h2>{{ b.name }}</h2>{% if b.description %}<p class="small muted">{{ b.description }}</p>{% endif %}
-    <p class="small">{{ c.trades or 0 }} {{ _('perf_trades') }} · <span class="num">{{ '%.0f'|format(c.win_rate or 0) }}%</span> {{ _('perf_win_rate') }} ·
-    <span class="{{ 'pos' if (c.total or 0) >= 0 else 'neg' }}">{{ (c.total or 0)|pct(1) }}</span></p></a>
-  {% endfor %}
-</div>
-{% endif %}
+{% if show %}{% include "_scope.html" %}
+<p><a class="btn ghost sm" href="/compare?{{ scope_qs }}{{ '&' if scope_qs }}market={{ market }}&days={{ period }}">⚖️ {{ _('compare_title') }}</a></p>{% endif %}
 {% if show %}{% include "_perf.html" %}{% else %}<div class="card muted">{{ _('perf_hidden') }}</div>{% endif %}
 {% endblock %}

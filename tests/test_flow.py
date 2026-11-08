@@ -202,7 +202,7 @@ def test_full_flow(sent):
 
         # ---------------- every page renders in every language
         for lang in ("fa", "en", "de", "es"):
-            for c, urls in ((ali, ("/dashboard", "/accounts", "/accounts/new", "/accounts/new?kind=signal", "/trades",
+            for c, urls in ((ali, ("/dashboard", "/accounts", "/accounts/new", "/accounts/new?kind=signal", "/trades", "/compare",
                                    "/activity", "/settings")),
                             (admin, ("/admin", f"/admin/users/{ali_id}", "/admin/settings", "/admin/performance",
                                      "/admin/logs", "/admin/logs?kind=executions", "/admin/logs?kind=notifications",
@@ -303,6 +303,51 @@ def test_full_flow(sent):
             assert ev.bot_id == bot2
         assert "Scalper" in TestClient(app).get("/?lang=en").text  # bot cards on the home page
         assert TestClient(app).get(f"/?lang=en&bot={bot2}").status_code == 200
+
+        # ---------------- groups: create "V1", move both bots into it (bulk)
+        admin.post("/admin/bot", data={"csrf": csrf(admin, "/admin/bot"), "action": "group_add", "group_name": "V1"})
+        from app.db import BotGroup
+        with SessionLocal() as s:
+            gid = s.query(BotGroup).filter_by(name="V1").one().id
+        admin.post("/admin/bot", data={"csrf": csrf(admin, "/admin/bot"), "action": "move", "target_group": str(gid),
+                                       "sel__1": "on", f"sel__{bot2}": "on"})
+        with SessionLocal() as s:
+            assert {b.group_id for b in s.query(Bot)} == {gid}
+        page = TestClient(app).get(f"/?lang=en&group={gid}&days=all").text
+        assert "📦 V1" in page and "ETH/USDT" in page
+
+        # ---------------- blacklist ETH on bot 1: hidden from its results, new ETH entries not copied
+        tok = csrf(admin, "/admin/bots/1")
+        admin.post("/admin/bots/1", data={"csrf": tok, "action": "save", "name": "Main", "api_url": "", "enabled": "on",
+                                          "copy_enabled": "on", "public": "on", "sort": "1", "group_id": str(gid),
+                                          "pair_filter_mode": "blacklist", "pair_filter": "ethusdt"})
+        with SessionLocal() as s:
+            b1 = s.get(Bot, 1)
+            assert (b1.pair_filter_mode, b1.pair_filter) == ("blacklist", ["ETH/USDT"])
+        from app.engine import performance as perf
+        assert "ETH/USDT" not in perf.pair_stats("all", None, [1])
+        res = ft(admin, type="entry_fill", amount="1.0", stake_amount="600.0", sub_trade="False", trade_id="20")
+        assert res["results"] == []  # filtered: sara follows ETH from bot 1 but gets nothing
+
+        # ---------------- per-pair bot choice: sara takes SOL only from bot 2
+        with SessionLocal() as s:
+            acc = s.query(ExchangeAccount).filter_by(user_id=sara_id).one()
+            acc.bots, acc.pair_bot = [1, bot2], {"SOL/USDT": bot2}
+            s.commit()
+        sol = dict(pair="SOL/USDT:USDT", direction="Long", order_rate="150", open_rate="150", amount="1",
+                   stake_amount="50", sub_trade="False")
+        assert ft(admin, bot_id=1, type="entry_fill", trade_id="21", **sol)["results"] == []
+        res = ft(admin, bot_id=bot2, type="entry_fill", trade_id="22", **sol)
+        assert [r["status"] for r in res["results"]] == ["opened"]
+        with SessionLocal() as s:
+            assert s.query(Trade).filter_by(user_id=sara_id, pair="SOL/USDT", status="open").one().bot_id == bot2
+
+        # ---------------- comparison page + matrix, every language
+        for lang in ("fa", "en", "de", "es"):
+            r = TestClient(app).get(f"/compare?lang={lang}&days=all")
+            assert r.status_code == 200 and "nav_" not in r.text and "compare_" not in r.text
+            r = TestClient(app).get(f"/compare?lang={lang}&group={gid}&pair=ETH/USDT&days=all")
+            assert r.status_code == 200 and "Scalper" in r.text
 
         # ---------------- telegram commands in the user's language
         asyncio.run(bot.handle("222", "/profit"))
