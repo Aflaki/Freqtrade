@@ -118,6 +118,9 @@ async def admin_settings_save(request: Request):
         gs = get_global(s)
         if section == "general":
             gs.site_name = str(f.get("site_name", gs.site_name)).strip()[:80] or "Signal Relay"
+            from .common import THEMES
+            if f.get("theme") in THEMES:
+                gs.theme = str(f["theme"])
             gs.default_lang = f.get("default_lang") if f.get("default_lang") in LANGS else "fa"
             gs.base_url = str(f.get("base_url", "")).strip().rstrip("/")[:200] or gs.base_url
             gs.public_performance = bool(f.get("public_performance"))

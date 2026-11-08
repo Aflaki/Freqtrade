@@ -1,4 +1,4 @@
-{% extends "base.html" %}{% block content %}
+{% extends "base.html" %}{% from "_themes.html" import theme_picker with context %}{% block content %}
 <h1>{{ _('nav_settings') }}</h1>
 <div class="card"><h2>Telegram</h2>
 {% if not bot_username %}<p class="muted">{{ _('tg_not_configured') }}</p>
@@ -13,6 +13,8 @@
 <h2>{{ _('sec_profile') }}</h2>
 <div class="row"><div><label>{{ _('f_name') }}</label><input type="text" name="name" value="{{ user.name }}"></div>
 <div><label>{{ _('f_phone') }}</label><input class="ltr" type="text" name="phone" value="{{ user.phone }}"></div></div>
+<label>{{ _('f_theme_my') }}</label>
+{{ theme_picker('theme', user.theme, true) }}
 <label>{{ _('f_notify') }}</label>
 {% for k in notify_keys %}<label class="check"><input type="checkbox" name="n__{{ k }}" {{ 'checked' if notify.get(k) }}> {{ _('notify_' ~ k) }}</label>{% endfor %}
 <label>{{ _('f_trading_state') }}</label>

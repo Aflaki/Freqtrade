@@ -317,6 +317,8 @@ async def settings_save(request: Request):
             u.notify = {k: bool(f.get(f"n__{k}")) for k in NOTIFY_KEYS if u.is_admin or k not in ADMIN_NOTIFY}
             u.trading_enabled = bool(f.get("trading_enabled"))
             u.name = str(f.get("name", u.name)).strip()[:120]
+            from .common import THEMES
+            u.theme = str(f.get("theme")) if f.get("theme") in THEMES else None
             u.phone = str(f.get("phone", u.phone)).strip()[:32]
             flash(request, tr(request, "msg_saved"))
         elif action == "password":

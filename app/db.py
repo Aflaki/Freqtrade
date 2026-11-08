@@ -59,6 +59,7 @@ class User(Base):
     phone: Mapped[str] = mapped_column(String(32), default="")
     password_hash: Mapped[str] = mapped_column(String(255))
     lang: Mapped[str] = mapped_column(String(5), default="fa")
+    theme: Mapped[str | None] = mapped_column(String(20), nullable=True)  # None = site default
     is_admin: Mapped[bool] = mapped_column(default=False)
     status: Mapped[str] = mapped_column(String(20), default="pending")  # pending | active | suspended
     trading_enabled: Mapped[bool] = mapped_column(default=True)  # /pause /resume
@@ -297,6 +298,7 @@ class GlobalSettings(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     # general
     site_name: Mapped[str] = mapped_column(String(80), default="Signal Relay")
+    theme: Mapped[str] = mapped_column(String(20), default="aurora")
     default_lang: Mapped[str] = mapped_column(String(5), default="fa")
     base_url: Mapped[str] = mapped_column(String(200), default="http://localhost:8000")
     hero: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)  # {"fa": {"title":..,"subtitle":..}, ...}

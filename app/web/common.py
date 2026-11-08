@@ -12,7 +12,17 @@ from ..i18n import LANGS, t
 from ..security import csrf_token, current_user, pop_flashes
 
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
-templates.env.globals.update(EXCHANGES=EXCHANGES, NEEDS_PASSWORD=NEEDS_PASSWORD, LANGS=LANGS)
+# name -> swatch colours (background, card, accent, accent 2) for the theme picker
+THEMES = {
+    "aurora": ("#0d0b1f", "#2a2450", "#7c5cff", "#00c2ff"),
+    "midnight": ("#0b0e11", "#161a1e", "#f0b90b", "#0ecb81"),
+    "terminal": ("#050805", "#0a110a", "#22c55e", "#4ade80"),
+    "classic": ("#f6f7f9", "#ffffff", "#2f6fed", "#0f1218"),
+    "emerald": ("#f3f7f5", "#ffffff", "#0f9d6b", "#10231a"),
+    "ocean": ("#e9f1ff", "#ffffff", "#2563eb", "#06b6d4"),
+    "desert": ("#f7f1e6", "#fffaf2", "#0d9488", "#7c2d12"),
+}
+templates.env.globals.update(EXCHANGES=EXCHANGES, NEEDS_PASSWORD=NEEDS_PASSWORD, LANGS=LANGS, THEMES=THEMES)
 
 
 def _money(v, digits: int = 2) -> str:
@@ -83,7 +93,11 @@ def render(request: Request, name: str, status_code: int = 200, **ctx):
     lang = get_lang(request, user)
     with SessionLocal() as s:
         ctx.setdefault("site", get_global(s))
-    ctx.update(lang=lang, dir=LANGS[lang]["dir"], csrf=csrf_token(request), flashes=pop_flashes(request),
+    site = ctx["site"]
+    theme = (user.theme if user and user.theme in THEMES else None) or request.query_params.get("theme")
+    if theme not in THEMES:
+        theme = site.theme if site.theme in THEMES else "aurora"
+    ctx.update(lang=lang, dir=LANGS[lang]["dir"], theme=theme, csrf=csrf_token(request), flashes=pop_flashes(request),
                _=lambda key, **kw: t(lang, key, **kw))
     return templates.TemplateResponse(request, name, ctx, status_code=status_code)
 

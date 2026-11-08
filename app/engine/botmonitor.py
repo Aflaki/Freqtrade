@@ -75,14 +75,35 @@ def _clean(v: Any) -> Any:
     return v
 
 
+def normalize_api_url(url: str) -> str:
+    """Accept '65.1.2.3:8015', 'http://host:8015/', '.../api/v1' or a FreqUI link; return 'http://host:port'."""
+    url = (url or "").strip().rstrip("/")
+    if not url:
+        return ""
+    if not re.match(r"^https?://", url):
+        url = "http://" + url
+    url = re.sub(r"/api/v1.*$", "", url)
+    url = re.sub(r"/(trade|dashboard|graph|logs|login|settings)(/.*)?$", "", url)
+    return url.rstrip("/")
+
+
 async def fetch_info(url: str, user: str, pw: str) -> dict[str, Any]:
-    """Read a Freqtrade instance through its REST API. Raises on connection/auth errors."""
-    async with httpx.AsyncClient(base_url=url.rstrip("/") + "/api/v1", auth=(user, pw), timeout=10) as c:
-        async def get(path: str) -> Any:
-            r = await c.get(path)
-            r.raise_for_status()
-            return r.json()
-        cfg = await get("/show_config")
+    """Read a Freqtrade instance through its REST API.
+
+    Only /show_config is required (it proves address + login are right). /health, /count and
+    /whitelist are optional, so older Freqtrade versions still work.
+    """
+    async with httpx.AsyncClient(base_url=normalize_api_url(url) + "/api/v1", auth=(user, pw), timeout=10) as c:
+        async def get(path: str, required: bool = False) -> Any:
+            try:
+                r = await c.get(path)
+                r.raise_for_status()
+                return r.json()
+            except Exception:
+                if required:
+                    raise
+                return {}
+        cfg = await get("/show_config", required=True)
         health = await get("/health")
         count = await get("/count")
         wl = (await get("/whitelist")).get("whitelist", [])
@@ -102,6 +123,45 @@ async def fetch_info(url: str, user: str, pw: str) -> dict[str, Any]:
                 max_open_trades=_clean(cfg.get("max_open_trades")), version=cfg.get("version"),
                 open_trades=count.get("current"), last_process=last, stalled=stalled,
                 whitelist=sorted({p.split(":")[0].upper() for p in wl}))
+
+
+async def diagnose(url: str, user: str, pw: str) -> list[dict[str, Any]]:
+    """Step-by-step connection test shown on the bot page: which step fails and why."""
+    base = normalize_api_url(url)
+    steps: list[dict[str, Any]] = [{"step": "url", "ok": bool(base), "detail": base or "empty"}]
+    if not base:
+        return steps
+    async with httpx.AsyncClient(base_url=base + "/api/v1", timeout=8) as c:
+        try:
+            r = await c.get("/ping")
+            ok = r.status_code == 200 and "pong" in r.text
+            steps.append({"step": "reach", "ok": ok, "detail": f"HTTP {r.status_code} {r.text[:80]}",
+                          "hint": "" if ok else "not_freqtrade"})
+        except httpx.ConnectError as e:
+            steps.append({"step": "reach", "ok": False, "detail": str(e)[:150], "hint": "refused"})
+            return steps
+        except httpx.TimeoutException:
+            steps.append({"step": "reach", "ok": False, "detail": "timeout", "hint": "timeout"})
+            return steps
+        except Exception as e:
+            steps.append({"step": "reach", "ok": False, "detail": f"{type(e).__name__}: {str(e)[:150]}", "hint": "refused"})
+            return steps
+        for path in ("/show_config", "/health", "/count", "/whitelist"):
+            try:
+                r = await c.get(path, auth=(user, pw))
+                ok = r.status_code == 200
+                hint = "" if ok else ("auth" if r.status_code in (401, 403) else "old_version" if path != "/show_config" else "not_freqtrade")
+                detail = f"HTTP {r.status_code}"
+                if ok and path == "/show_config":
+                    j = r.json()
+                    detail += f" — {j.get('strategy')} · {j.get('exchange')} · {j.get('state')}"
+                steps.append({"step": path, "ok": ok, "detail": detail, "hint": hint, "optional": path != "/show_config"})
+                if not ok and path == "/show_config":
+                    break
+            except Exception as e:
+                steps.append({"step": path, "ok": False, "detail": f"{type(e).__name__}: {str(e)[:150]}"})
+                break
+    return steps
 
 
 def _error_state(e: Exception) -> dict[str, Any]:
@@ -244,7 +304,7 @@ class BotMonitor:
             b = s.get(Bot, bot_id)
             if b is None or not b.api_url:
                 raise ValueError("this bot has no Freqtrade API configured")
-            url, user, pw = b.api_url.rstrip("/"), b.api_user, decrypt(b.api_pass_enc) or ""
+            url, user, pw = normalize_api_url(b.api_url), b.api_user, decrypt(b.api_pass_enc) or ""
         async with httpx.AsyncClient(base_url=url + "/api/v1", auth=(user, pw), timeout=15) as c:
             r = await c.post("/" + action)
             r.raise_for_status()

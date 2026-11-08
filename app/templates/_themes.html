@@ -1,0 +1,11 @@
+{% macro theme_picker(name, current, with_default=false) %}
+<div class="themes">
+{% if with_default %}<label><input type="radio" name="{{ name }}" value="" {{ 'checked' if not current }}>
+<span class="swatch"><span class="sw"><i style="background:repeating-linear-gradient(45deg,var(--line) 0 6px,transparent 6px 12px)"></i></span>
+<span class="nm">{{ _('theme_default') }}</span></span></label>{% endif %}
+{% for key, c in THEMES.items() %}
+<label><input type="radio" name="{{ name }}" value="{{ key }}" {{ 'checked' if current == key }}>
+<span class="swatch"><span class="sw"><i style="background:{{ c[0] }}"></i><i style="background:{{ c[1] }}"></i><i style="background:{{ c[2] }}"></i><i style="background:{{ c[3] }}"></i></span>
+<span class="nm">{{ _('theme_' ~ key) }}</span></span></label>{% endfor %}
+</div>
+{% endmacro %}

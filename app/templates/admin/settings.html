@@ -1,4 +1,4 @@
-{% extends "base.html" %}{% block content %}
+{% extends "base.html" %}{% from "_themes.html" import theme_picker with context %}{% block content %}
 <h1>{{ _('nav_admin') }}</h1>{% include "admin/_nav.html" %}
 
 <form method="post" class="card" id="general"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="section" value="general">
@@ -10,6 +10,9 @@
 <div><label>{{ _('f_trial_days') }}</label><input type="number" min="0" name="trial_days" value="{{ gs.trial_days }}"></div>
 <div><label>{{ _('f_report_hour') }}</label><input type="number" min="0" max="23" name="daily_report_hour_utc" value="{{ gs.daily_report_hour_utc }}"></div>
 </div>
+<label>{{ _('f_theme_site') }}</label>
+{{ theme_picker('theme', gs.theme) }}
+<p class="small muted">{{ _('f_theme_help') }}</p>
 <label class="check"><input type="checkbox" name="public_performance" {{ 'checked' if gs.public_performance }}> {{ _('f_public_perf') }}</label>
 <label class="check"><input type="checkbox" name="signal_only_enabled" {{ 'checked' if gs.signal_only_enabled }}> {{ _('f_signal_only') }}</label>
 <label class="check"><input type="checkbox" name="require_approval" {{ 'checked' if gs.require_approval }}> {{ _('f_require_approval') }}</label>

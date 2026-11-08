@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 
 from ..db import Bot, BotTrade, ExchangeAccount, SessionLocal, Trade, WebhookEvent, get_global
 from ..engine import performance as perf
-from ..engine.botmonitor import CONTROL_ACTIONS, _error_state, fetch_info, monitor
+from ..engine.botmonitor import CONTROL_ACTIONS, _error_state, diagnose, fetch_info, monitor, normalize_api_url
 from ..security import decrypt, encrypt, flash, form_with_csrf, require_admin
 from .common import render, tr
 
@@ -24,9 +24,7 @@ def webhook_url(base: str, bot: Bot) -> str:
 async def _create_bot(name: str, url: str, user: str, pw: str) -> tuple[Bot, str]:
     """Create a bot; if an API is given, read strategy/whitelist from it right away."""
     state, err = {}, ""
-    url = url.strip().rstrip("/")
-    if url and not re.match(r"^https?://", url):
-        url = "http://" + url
+    url = normalize_api_url(url)
     if url:
         try:
             state = await fetch_info(url, user, pw)
@@ -106,7 +104,9 @@ async def bot_detail(bot_id: int, request: Request):
         events = s.scalars(select(WebhookEvent).where(WebhookEvent.bot_id == bot_id)
                            .order_by(WebhookEvent.id.desc()).limit(40)).all()
         n_trades = s.scalar(select(func.count(BotTrade.id)).where(BotTrade.bot_id == bot_id)) or 0
-    return render(request, "admin/bot.html", b=b, st=b.st, gs=gs, events=events, tab="bot", n_trades=n_trades,
+    diag = request.session.pop("diag", None)
+    diag = diag["steps"] if diag and diag.get("bot") == bot_id else None
+    return render(request, "admin/bot.html", b=b, st=b.st, gs=gs, events=events, tab="bot", n_trades=n_trades, diag=diag,
                   webhook_url=webhook_url(gs.base_url, b), has_pass=bool(b.api_pass_enc))
 
 
@@ -122,8 +122,7 @@ async def bot_action(bot_id: int, request: Request):
                 b = _get(s, bot_id)
                 b.name = str(f.get("name", b.name)).strip()[:80] or b.name
                 b.description = str(f.get("description", "")).strip()[:500]
-                url = str(f.get("api_url", "")).strip().rstrip("/")
-                b.api_url = ("http://" + url) if url and not re.match(r"^https?://", url) else url
+                b.api_url = normalize_api_url(str(f.get("api_url", "")))
                 b.api_user = str(f.get("api_user", "")).strip()[:80]
                 if str(f.get("api_pass", "")).strip():
                     b.api_pass_enc = encrypt(str(f["api_pass"]).strip())
@@ -133,6 +132,12 @@ async def bot_action(bot_id: int, request: Request):
             st = await monitor.poll_bot(bot_id, alert=False)
             flash(request, tr(request, "msg_saved") + (f" — API: {st.get('error')}" if st.get("error") else ""),
                   "error" if st.get("error") else "ok")
+        elif action == "diagnose":
+            with SessionLocal() as s:
+                b = _get(s, bot_id)
+                url, user, pw = b.api_url, b.api_user, decrypt(b.api_pass_enc) or ""
+            request.session["diag"] = {"bot": bot_id, "steps": await diagnose(url, user, pw)}
+            await monitor.poll_bot(bot_id, alert=False)
         elif action == "refresh":
             st = await monitor.poll_bot(bot_id, alert=False)
             flash(request, st.get("error") or tr(request, "msg_done"), "error" if st.get("error") else "ok")

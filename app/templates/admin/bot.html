@@ -34,10 +34,20 @@
 </table></div><p class="small muted">{{ _('bot_checked_at') }}: {{ st.checked_at }} UTC</p></div>
 {% endif %}
 
+{% if diag %}
+<div class="card"><h2>🩺 {{ _('btn_diagnose') }}</h2><div class="table-wrap"><table class="small">
+{% for d in diag %}<tr><td>{{ '✅' if d.ok else ('⚪' if d.optional else '❌') }}</td><td class="mono">{{ d.step }}</td><td class="mono" style="white-space:normal">{{ d.detail }}</td>
+<td style="white-space:normal">{% if not d.ok and d.hint %}{{ _('diag_' ~ d.hint) }}{% endif %}</td></tr>{% endfor %}
+</table></div>
+<p class="small muted">{{ _('diag_curl') }}</p>
+<pre>curl -u USERNAME:PASSWORD {{ (b.api_url or 'http://IP:PORT') }}/api/v1/show_config</pre></div>
+{% endif %}
+
 <form method="post" class="card"><input type="hidden" name="csrf" value="{{ csrf }}">
 <h2>{{ _('bot_controls') }}</h2>
 <div style="display:flex;gap:8px;flex-wrap:wrap">
 <button name="action" value="refresh" class="ghost">{{ _('btn_bot_refresh') }}</button>
+<button name="action" value="diagnose" class="ghost">🩺 {{ _('btn_diagnose') }}</button>
 {% if api == 'ok' %}
 <button name="action" value="start">{{ _('btn_bot_start') }}</button>
 <button name="action" value="stopentry" class="ghost" onclick="return confirm('{{ _('confirm_bot_stopentry') }}')">{{ _('btn_bot_stopentry') }}</button>
@@ -51,7 +61,8 @@
 <h2>{{ _('btn_edit') }}</h2>
 <div class="row">
 <div><label>{{ _('col_name') }}</label><input type="text" name="name" value="{{ b.name }}" required></div>
-<div><label>Freqtrade API URL</label><input class="ltr" type="text" name="api_url" value="{{ b.api_url }}" placeholder="http://65.109.188.248:8015"></div>
+<div><label>Freqtrade API URL</label><input class="ltr" type="text" name="api_url" value="{{ b.api_url }}" placeholder="http://65.109.188.248:8015">
+<div class="small muted">{{ _('api_url_help') }}</div></div>
 <div><label>API username</label><input class="ltr" type="text" name="api_user" value="{{ b.api_user }}"></div>
 <div><label>API password</label><input class="ltr" type="password" name="api_pass" placeholder="{{ '•••• ' ~ _('keep_blank') if has_pass else '' }}" autocomplete="new-password"></div>
 <div><label>{{ _('col_order') }}</label><input type="number" name="sort" value="{{ b.sort }}"></div>
