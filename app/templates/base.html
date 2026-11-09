@@ -77,7 +77,22 @@ setNavH(); window.addEventListener('resize', setNavH);
 // when scrolled past the filters, keep only the applied-filter chips and tabs visible
 (() => {
   const fb = document.getElementById('fb'), anchor = document.getElementById('fb-anchor'); if (!fb || !anchor) return;
-  const upd = () => fb.classList.toggle('compact', anchor.getBoundingClientRect().top < -40);
+  // the page height must not change when the bar shrinks: near the bottom of a page the browser would move the
+  // scroll position, the bar would grow back and flicker in a loop. A spacer below takes the freed height.
+  const spacer = document.createElement('div'); spacer.className = 'fb-spacer'; fb.after(spacer);
+  let busy = false;
+  const upd = () => {
+    if (busy) return;
+    if (!fb.classList.contains('compact')) spacer.style.height = '0px';  // "change filters" expanded it
+    const top = anchor.getBoundingClientRect().top, on = fb.classList.contains('compact');
+    const want = on ? top < -10 : top < -40;  // hysteresis: no toggling back and forth at the edge
+    if (want === on) return;
+    busy = true;
+    const before = fb.offsetHeight + spacer.offsetHeight;
+    fb.classList.toggle('compact', want);
+    spacer.style.height = want ? Math.max(0, before - fb.offsetHeight) + 'px' : '0px';
+    requestAnimationFrame(() => { busy = false; });
+  };
   window.addEventListener('scroll', upd, { passive: true }); upd();
 })();
 document.querySelectorAll('tr.rowlink').forEach(r => r.addEventListener('click', e => {
