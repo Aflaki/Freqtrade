@@ -481,6 +481,11 @@ def _auto_migrate() -> None:
                 if col.name not in have:
                     conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" '
                                       f'{col.type.compile(engine.dialect)}'))
+                # existing rows get the model default (a new column would otherwise be NULL there)
+                default = col.default.arg if col.default is not None and col.default.is_scalar else None
+                if default is not None and not col.nullable and not col.primary_key:
+                    conn.execute(text(f'UPDATE "{table.name}" SET "{col.name}" = :v WHERE "{col.name}" IS NULL'),
+                                 {"v": default})
 
 
 def _migrate_multi_bot() -> None:

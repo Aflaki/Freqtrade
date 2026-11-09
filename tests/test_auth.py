@@ -400,3 +400,33 @@ def test_recovery_code_helpers():
     rest = twofa.use_recovery_code(hashes, codes[3].lower().replace("-", ""))
     assert rest is not None and len(rest) == 7
     assert twofa.use_recovery_code(rest, codes[3]) is None
+
+
+def test_upgrade_fills_new_columns_then_reset_works(clean):
+    """Databases from older versions got the new columns as NULL; a password reset then crashed (500)."""
+    from sqlalchemy import text
+
+    from app.db import engine
+    with TestClient(app) as c:
+        register(c)
+        c.post("/logout", data=fields(c, "/dashboard"))
+    old_style = {"global_settings": {"password_min_length": "INTEGER", "check_breached_passwords": "BOOLEAN",
+                                     "login_alerts": "BOOLEAN", "smtp_port": "INTEGER"},
+                 "users": {"session_version": "INTEGER", "totp_enabled": "BOOLEAN", "anti_phishing": "VARCHAR(32)"}}
+    with engine.begin() as conn:  # what the previous migration did: plain ADD COLUMN -> NULL in existing rows
+        for table, cols in old_style.items():
+            for col, typ in cols.items():
+                conn.execute(text(f'ALTER TABLE "{table}" DROP COLUMN "{col}"'))
+                conn.execute(text(f'ALTER TABLE "{table}" ADD COLUMN "{col}" {typ}'))
+    init_db()
+    with SessionLocal() as s:
+        gs = get_global(s)
+        assert gs.password_min_length == 10 and gs.check_breached_passwords is True and gs.smtp_port == 587
+    u = user()
+    assert u.session_version == 1 and u.totp_enabled is False and u.anti_phishing == ""
+    with TestClient(app) as c:
+        c.post("/forgot", data={**fields(c, "/forgot"), "email": "neo@x.com"})
+        link = clean[-1]["button"][1].split("testserver", 1)[-1]
+        new = "Quiet-Mountain-River-3"
+        r = c.post(link, data={**fields(c, link), "password": new, "password2": new}, follow_redirects=False)
+        assert r.status_code == 303
