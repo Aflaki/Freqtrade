@@ -97,8 +97,8 @@ def _event_text(lang: str, ev: dict, bot_name: str, host: str) -> tuple[str, str
                 + (f"\n<pre>{esc(detail[-700:])}</pre>" if detail else ""))
     if action == "gave_up":
         return (t(lang, "push_wd_gave_up", bot=bot_name), f"⛔ {where} " + t(lang, "wd_gave_up", detail=esc(detail)))
-    if action == "recovered":
-        return None
+    if action == "stopped":
+        return (t(lang, "push_wd_stopped", bot=bot_name), f"⏸ {where} " + t(lang, "wd_stopped", detail=esc(detail)))
     return None
 
 
@@ -139,7 +139,8 @@ async def report(request: Request):
         name = names.get(port) or (f"port {port}" if port else str(ev.get("key", "?")))
         if _event_text("en", ev, name, host) is None:
             continue
-        monitor.notify_admins("bot_status", lambda L, ev=ev, name=name: _event_text(L, ev, name, host)[1], critical=True,
+        monitor.notify_admins("bot_status", lambda L, ev=ev, name=name: _event_text(L, ev, name, host)[1],
+                              critical=ev.get("action") != "stopped",  # stopped by hand: Telegram only, no phone push
                               title=lambda L, ev=ev, name=name: _event_text(L, ev, name, host)[0], tag=f"bot-{name}")
     return JSONResponse({"ok": True, "interval": 60, "disabled_ports": disabled})
 

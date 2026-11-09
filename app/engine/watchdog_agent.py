@@ -4,16 +4,21 @@ The agent source is AGENT below; the site fills in its address and token when it
 """
 from __future__ import annotations
 
-AGENT_VERSION = "1.0"
+AGENT_VERSION = "1.1"
 
 AGENT = r'''#!/usr/bin/env python3
 """
 Signal Relay watchdog — keeps the Freqtrade bots on this server running.
 
-Every minute it looks at the running Freqtrade bots (processes and Docker containers) and remembers how each one
-was started (command line, folder, environment, user). When a bot's process disappears (killed, crashed,
-out of memory, server reboot) it starts it again exactly the same way and reports to __SITE__,
+Every minute it looks at the running Freqtrade bots (processes, tmux sessions and Docker containers) and remembers
+how each one was started (command line, folder, environment, user, tmux session). When a bot's process disappears
+(killed, crashed, out of memory, server reboot) it starts it again exactly the same way and reports to __SITE__,
 which alerts the admins (Telegram, alert bot, phone push).
+
+tmux: a bot that ran in a tmux session is started again in the same pane (attach and you see it as before).
+After a reboot (tmux server gone) the sessions are created again with the same names.
+Stopping a bot yourself with Ctrl+C, or closing its tmux session/window, is respected: it is not restarted
+(until you start it again yourself, then it is watched again).
 
   python3 agent.py status          what is watched right now
   python3 agent.py pause PORT      don't restart this bot (e.g. you stop it on purpose); resume PORT undoes it
@@ -162,6 +167,51 @@ def bot_key(port, argv, cwd):
     return "cmd:" + hashlib.sha1((cwd + "\0" + "\0".join(argv)).encode()).hexdigest()[:12]
 
 
+TMUX_SHELLS = {"bash", "zsh", "sh", "dash", "fish", "ksh"}
+STOP_MARKS = re.compile(r"SIGINT received|KeyboardInterrupt|^\^C\s*$", re.M)
+
+
+def tmux(sock, *args, uid=0, env=None, timeout=15):
+    cmd = ["tmux"] + (["-S", sock] if sock else []) + list(args)
+    if uid:
+        try:
+            cmd = ["runuser", "-u", pwd.getpwuid(uid).pw_name, "--"] + cmd
+        except KeyError:
+            pass
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return subprocess.CompletedProcess(cmd, 1, "", str(e))
+
+
+def tmux_info(env, uid):
+    """tmux socket, pane, session and server pid of a process started inside tmux (from its TMUX variables)."""
+    if not env.get("TMUX") or not env.get("TMUX_PANE") or not shutil.which("tmux"):
+        return None
+    sock, pane = env["TMUX"].split(",")[0], env["TMUX_PANE"]
+    r = tmux(sock, "display-message", "-p", "-t", pane, "#{session_name}\t#{pid}", uid=uid)
+    parts = r.stdout.strip().split("\t")
+    if r.returncode or len(parts) < 2:
+        return None
+    return {"socket": sock, "pane": pane, "session": parts[0], "server_pid": parts[1]}
+
+
+def tmux_state(b):
+    """Why is a tmux bot not running?  crashed | user_stopped | pane_gone | server_gone  (+ last screen lines)."""
+    t, uid = b.get("tmux") or {}, b.get("uid", 0)
+    r = tmux(t.get("socket"), "list-sessions", "-F", "#{pid}", uid=uid)
+    if r.returncode or not r.stdout.strip() or r.stdout.split()[0] != str(t.get("server_pid")):
+        return "server_gone", ""  # reboot, or the tmux server itself was killed
+    r = tmux(t.get("socket"), "display-message", "-p", "-t", t.get("pane"), "#{pane_id}", uid=uid)
+    if r.returncode or r.stdout.strip() != t.get("pane"):
+        return "pane_gone", ""  # session/window closed by hand
+    screen = tmux(t.get("socket"), "capture-pane", "-p", "-J", "-t", t["pane"], "-S", "-80", uid=uid).stdout
+    last = tail(screen, 25)
+    if STOP_MARKS.search(last):
+        return "user_stopped", tail(last, 8)
+    return "crashed", tail(last, 15)
+
+
 def from_processes():
     found = {}
     for pid in os.listdir("/proc"):
@@ -183,6 +233,9 @@ def from_processes():
                           _shell=shell)
     for v in found.values():
         v.pop("_shell", None)
+        t = tmux_info(v["env"], v["uid"])
+        if t:
+            v["kind"], v["tmux"] = "tmux", t
     return found
 
 
@@ -271,9 +324,50 @@ def tail(text, n=12):
     return "\n".join([x for x in (text or "").splitlines() if x.strip()][-n:])[-1500:]
 
 
+def restart_tmux(b):
+    """Type the bot's command again in its tmux pane, or recreate the session (same name) after a reboot."""
+    t, uid = b["tmux"], b.get("uid", 0)
+    sock, session = t.get("socket"), t.get("session") or b["key"].split(":", 1)[-1]
+    line = "cd -- %s && %s" % (shlex.quote(b["cwd"]), " ".join(shlex.quote(a) for a in b["argv"]))
+    state, _ = tmux_state(b)
+    target = None
+    if state == "crashed":
+        r = tmux(sock, "display-message", "-p", "-t", t["pane"], "#{pane_current_command}\t#{pane_in_mode}", uid=uid)
+        cur = (r.stdout.strip().split("\t") + ["", ""])[:2]
+        if cur[0] in TMUX_SHELLS:
+            if cur[1] == "1":
+                tmux(sock, "send-keys", "-t", t["pane"], "-X", "cancel", uid=uid)  # leave copy mode
+            target = t["pane"]
+        else:  # something else runs in the pane: use a new window of the same session
+            r = tmux(sock, "new-window", "-P", "-F", "#{pane_id}", "-t", session + ":", "-c", b["cwd"], uid=uid)
+            target = r.stdout.strip() if not r.returncode else None
+    elif state == "server_gone":
+        env = {k: v for k, v in (b.get("env") or {}).items() if not k.startswith("TMUX")}
+        env.setdefault("TERM", "xterm-256color")
+        exists = tmux(sock, "has-session", "-t", "=" + session, uid=uid).returncode == 0
+        args = (["new-window", "-P", "-F", "#{pane_id}", "-t", session + ":"] if exists else
+                ["new-session", "-d", "-P", "-F", "#{pane_id}", "-s", session])
+        r = tmux(sock, *args, "-c", b["cwd"], uid=uid, env=env)
+        target = r.stdout.strip() if not r.returncode else None
+        if target is None:
+            return False, tail(r.stderr) or "tmux could not start"
+    else:
+        return False, "stopped by hand (%s) - not restarted" % state
+    if not target:
+        return False, "no tmux pane to use"
+    tmux(sock, "send-keys", "-t", target, "-l", line, uid=uid)
+    tmux(sock, "send-keys", "-t", target, "Enter", uid=uid)
+    time.sleep(START_GRACE)
+    if b["key"] in from_processes():
+        return True, "tmux session %s" % session
+    return False, tail(tmux(sock, "capture-pane", "-p", "-J", "-t", target, "-S", "-40", uid=uid).stdout, 15)
+
+
 def restart(b):
     """Start the bot again the way it was started. Returns (ok, detail)."""
     kind = b.get("kind")
+    if kind == "tmux" and b.get("tmux"):
+        return restart_tmux(b)
     if kind == "docker":
         r = docker("start", b["container"])
         if r.returncode:
@@ -408,11 +502,24 @@ def check(st, cfg, verbose=False):
         if b.get("kind") == "docker" and key not in dock_stopped:
             b["status"] = "removed"  # container deleted: nothing to start
             continue
+        if b.get("status") == "stopped":
+            continue  # stopped by hand: watched again once it runs
         b["missing"] = b.get("missing", 0) + 1
         if b["missing"] == 1:
-            b["status"], b["gone_at"] = "down", now
+            b["gone_at"] = now
             b["cause"] = "oom" if oom_killed(b.get("pid")) else ""
-            events.append({"key": key, "port": b.get("port"), "action": "gone", "at": now, "detail": b["cause"]})
+            screen = ""
+            if b.get("kind") == "tmux" and b.get("tmux") and b["cause"] != "oom":
+                why, screen = tmux_state(b)
+                if why in ("user_stopped", "pane_gone"):
+                    b["status"] = "stopped"
+                    events.append({"key": key, "port": b.get("port"), "action": "stopped", "at": now,
+                                   "detail": ("Ctrl+C" if why == "user_stopped" else "tmux window/session closed")
+                                   + " - tmux %s" % b["tmux"].get("session", "")})
+                    continue
+            b["status"] = "down"
+            events.append({"key": key, "port": b.get("port"), "action": "gone", "at": now,
+                           "detail": b["cause"] or screen})
             continue
         if b.get("status") == "gave_up":
             if now - max(b.get("restarts") or [0]) < WINDOW:
@@ -469,8 +576,9 @@ def main():
         return
     if cmd == "status":
         for k, b in sorted(st["bots"].items()):
-            print("%-14s %-9s %-8s pid=%-8s %s" % (k, b.get("status"), b.get("kind"), b.get("pid"),
-                                                    " ".join(b.get("argv", [])[:6]) or b.get("container", "")))
+            where = ("tmux:" + (b.get("tmux") or {}).get("session", "")) if b.get("kind") == "tmux" else b.get("kind")
+            print("%-12s %-9s %-14s pid=%-8s %s" % (k, b.get("status"), where, b.get("pid"),
+                                                     " ".join(b.get("argv", [])[1:6]) or b.get("container", "")))
         print("%d bot(s) watched; state: %s" % (len(st["bots"]), STATE_FILE))
         return
     cfg = {}

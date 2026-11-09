@@ -321,3 +321,86 @@ def test_still_down_reminder_every_two_hours(monkeypatch):
     up = {"api": "ok", "state": "running"}
     monitor._alert_changes("V1_8015", dict(new), up)
     assert "down_since" not in up and len(sent) == 2 and sent[-1][1]  # "back up" alert, also to the phone
+
+
+@pytest.mark.skipif(not __import__("shutil").which("tmux"), reason="tmux not installed")
+def test_agent_with_tmux_sessions_like_tmux_sh(tmp_path):
+    """Bots started like the user's tmux.sh: session per bot, `cd freqtrade`, venv activated, `freqtrade trade -c`."""
+    a = load_agent(tmp_path)
+    a["START_GRACE"] = 2
+    a["oom_killed"] = lambda pid: False
+    a["from_docker"] = lambda: ({}, set())
+    home = tmp_path / "root"
+    ft = home / "freqtrade"
+    (ft / ".venv" / "bin").mkdir(parents=True)
+    (ft / "user_data" / "strategies").mkdir(parents=True)
+    (ft / ".venv" / "bin" / "activate").write_text(f'export VIRTUAL_ENV="{ft}/.venv"\nexport PATH="{ft}/.venv/bin:$PATH"\n')
+    fake = ft / ".venv" / "bin" / "freqtrade"
+    fake.write_text(f"#!{sys.executable}\nimport time\ntry:\n    while True:\n        time.sleep(1)\n"
+                    "except KeyboardInterrupt:\n    print('freqtrade - INFO - SIGINT received, aborting ...')\n")
+    fake.chmod(0o755)
+    (ft / "user_data" / "strategies" / "New_Daily_Config_45_20.json").write_text(
+        '{"api_server": {"enabled": true, "listen_port": 18820}}')
+    sock = str(tmp_path / "tmux.sock")
+    env = {**os.environ, "HOME": str(home), "SHELL": "/bin/bash"}
+    env.pop("TMUX", None)
+
+    def tm(*args):
+        return subprocess.run(["tmux", "-S", sock, *args], capture_output=True, text=True, env=env)
+
+    def start_like_tmux_sh():
+        tm("send-keys", "-t", "4520", "cd ", "C-m")
+        tm("send-keys", "-t", "4520", "cd ./freqtrade", "C-m")
+        tm("send-keys", "-t", "4520", "source ./.venv/bin/activate", "C-m")
+        tm("send-keys", "-t", "4520", "freqtrade trade --config ./user_data/strategies/New_Daily_Config_45_20.json", "C-m")
+
+    def wait_running(present=True):
+        for _ in range(50):
+            if ("port:18820" in a["from_processes"]()) == present:
+                return True
+            time.sleep(0.2)
+        return False
+
+    tm("new-session", "-d", "-s", "4520", "-x", "200", "-y", "50", "bash", "--norc", "--noprofile")
+    try:
+        start_like_tmux_sh()
+        assert wait_running()
+        st = {"bots": {}, "pending": []}
+        a["check"](st, {})
+        b = st["bots"]["port:18820"]
+        assert b["kind"] == "tmux" and b["tmux"]["session"] == "4520" and b["cwd"] == str(ft)
+        pane = b["tmux"]["pane"]
+
+        # 1) killed (like the OOM killer / kill -9): restarted in the same pane
+        os.kill(b["pid"], signal.SIGKILL)
+        assert wait_running(False)
+        assert [e["action"] for e in a["check"](st, {})] == ["gone"]
+        ev = a["check"](st, {})
+        assert [e["action"] for e in ev] == ["restarted"] and "4520" in ev[0]["detail"], ev
+        now = a["from_processes"]()["port:18820"]
+        assert now["tmux"]["pane"] == pane and now["tmux"]["session"] == "4520" and now["cwd"] == str(ft)
+        a["check"](st, {})
+
+        # 2) stopped by hand with Ctrl+C: respected, not restarted
+        tm("send-keys", "-t", "4520", "C-c")
+        assert wait_running(False)
+        ev = a["check"](st, {})
+        assert [e["action"] for e in ev] == ["stopped"] and "Ctrl+C" in ev[0]["detail"], ev
+        for _ in range(3):
+            assert a["check"](st, {}) == []
+        assert "port:18820" not in a["from_processes"]()
+        # started again by hand: watched again
+        tm("send-keys", "-t", "4520", "freqtrade trade --config ./user_data/strategies/New_Daily_Config_45_20.json", "C-m")
+        assert wait_running()
+        assert a["check"](st, {}) == [] and st["bots"]["port:18820"]["status"] == "running"
+
+        # 3) tmux server gone (as after a reboot): the session is created again with the same name
+        tm("kill-server")
+        assert wait_running(False)
+        assert [e["action"] for e in a["check"](st, {})] == ["gone"]
+        ev = a["check"](st, {})
+        assert [e["action"] for e in ev] == ["restarted"], ev
+        assert "4520" in tm("list-sessions", "-F", "#{session_name}").stdout.split()
+        assert a["from_processes"]()["port:18820"]["tmux"]["session"] == "4520"
+    finally:
+        tm("kill-server")
