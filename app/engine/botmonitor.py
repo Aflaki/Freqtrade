@@ -223,8 +223,10 @@ class BotMonitor:
     # ------------------------------------------------------------ open trades (live)
     async def poll_live(self) -> None:
         with SessionLocal() as s:
+            all_bots = list(s.scalars(select(Bot).where(Bot.enabled.is_(True))))
             bots = [(b.id, b.api_url, b.api_user, decrypt(b.api_pass_enc) or "")
-                    for b in s.scalars(select(Bot).where(Bot.enabled.is_(True)))]
+                    for b in all_bots if not (b.state or {}).get("ban_paused")]
+            keep = {b.id for b in all_bots}
         sem = asyncio.Semaphore(10)
 
         async def one(bot_id: int, url: str, user: str, pw: str) -> None:
@@ -241,8 +243,7 @@ class BotMonitor:
                     prev = self.live.get(bot_id) or {"trades": [], "at": None}
                     self.live[bot_id] = {**prev, "error": f"{type(e).__name__}: {str(e)[:120]}"}
         await asyncio.gather(*(one(*b) for b in bots))
-        known = {b[0] for b in bots}
-        for k in [k for k in self.live if k not in known]:
+        for k in [k for k in self.live if k not in keep]:
             self.live.pop(k, None)
 
     async def live_loop(self) -> None:
@@ -371,8 +372,8 @@ class BotMonitor:
             return {"sync_error": f"{type(e).__name__}: {str(e)[:150]}"}
 
     async def poll_all(self, alert: bool = True) -> None:
-        with SessionLocal() as s:
-            ids = list(s.scalars(select(Bot.id).where(Bot.enabled.is_(True))))
+        with SessionLocal() as s:  # bots paused for a Binance IP ban are left alone: a poll calls the exchange
+            ids = [b.id for b in s.scalars(select(Bot).where(Bot.enabled.is_(True))) if not (b.state or {}).get("ban_paused")]
         sem = asyncio.Semaphore(8)
 
         async def one(i: int) -> None:
@@ -438,8 +439,9 @@ class BotMonitor:
         while True:
             try:
                 await self.poll_all()
-                from ..web.watchdog import check_silent_hosts
+                from ..web.watchdog import check_silent_hosts, resume_due_hosts
                 check_silent_hosts()
+                await resume_due_hosts()
             except asyncio.CancelledError:
                 raise
             except Exception:

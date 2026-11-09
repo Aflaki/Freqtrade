@@ -1,6 +1,7 @@
 """Watchdog agents on the bot servers: download/installer, the per-minute report, alerts on restarts."""
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import hmac
 import secrets
@@ -119,7 +120,8 @@ async def report(request: Request):
             s.add(h)
         was_silent = h.silent_alerted
         h.ips, h.version, h.last_seen, h.silent_alerted = ips, str(data.get("version", ""))[:20], utcnow(), False
-        h.report = {"mem": data.get("mem") or {}, "load": data.get("load") or [],
+        binance = {k: v for k, v in (data.get("binance") or {}).items() if isinstance(v, dict)}
+        h.report = {"mem": data.get("mem") or {}, "load": data.get("load") or [], "binance": binance,
                     "bots": [b for b in (data.get("bots") or []) if isinstance(b, dict)][:200]}
         by_port = bots_on_host(ips, s)
         names = {p: b.name for p, b in by_port.items()}
@@ -142,6 +144,7 @@ async def report(request: Request):
         monitor.notify_admins("bot_status", lambda L, ev=ev, name=name: _event_text(L, ev, name, host)[1],
                               critical=ev.get("action") != "stopped",  # stopped by hand: Telegram only, no phone push
                               title=lambda L, ev=ev, name=name: _event_text(L, ev, name, host)[0], tag=f"bot-{name}")
+    await handle_binance(host, binance, list(bot_ids.values()))
     return JSONResponse({"ok": True, "interval": 60, "disabled_ports": disabled})
 
 
@@ -160,3 +163,172 @@ def check_silent_hosts() -> None:
         monitor.notify_admins("bot_status", lambda L, n=name, w=seen: "🚨 " + t(L, "wd_host_silent", host=n,
                                                                                  since=w.strftime("%H:%M UTC")),
                               critical=True, title=lambda L, n=name: t(L, "push_wd_host", host=n), tag=f"host-{name}")
+
+
+# ------------------------------------------------------------------ Binance IP ban: pause the server's bots, resume later
+BAN_COOLDOWN = 60       # extra seconds after the ban ends before starting again
+LIMITED_REPORTS = 2     # 429 in this many reports in a row -> treat like a short ban
+WEIGHT_WARN = 0.8       # warn when 80 % of the per-minute request weight is used
+_tasks: set[asyncio.Task] = set()
+
+
+def _bg(coro) -> None:
+    task = asyncio.create_task(coro)
+    _tasks.add(task)
+    task.add_done_callback(_tasks.discard)
+
+
+async def ft_post(bot_id: int, action: str) -> str:
+    """/api/v1/stop or /start on a bot, without polling it afterwards (a poll would call Binance)."""
+    import httpx
+
+    from ..engine.botmonitor import normalize_api_url
+    from ..security import decrypt
+    with SessionLocal() as s:
+        b = s.get(Bot, bot_id)
+        url, user, pw = normalize_api_url(b.api_url), b.api_user, decrypt(b.api_pass_enc) or ""
+    async with httpx.AsyncClient(base_url=url + "/api/v1", auth=(user, pw), timeout=15) as c:
+        r = await c.post("/" + action)
+        r.raise_for_status()
+        return str(r.json().get("status", ""))[:120]
+
+
+def _mark(bot_id: int, paused: bool) -> None:
+    with SessionLocal() as s:
+        b = s.get(Bot, bot_id)
+        if b is not None:
+            st = dict(b.state or {})
+            if paused:
+                st["ban_paused"] = True
+            else:
+                st.pop("ban_paused", None)
+            b.state = st
+            s.commit()
+
+
+def ban_paused_ids() -> set[int]:
+    with SessionLocal() as s:
+        return {b.id for b in s.scalars(select(Bot)) if (b.state or {}).get("ban_paused")}
+
+
+def _fmt(when: dt.datetime) -> str:
+    return when.strftime("%H:%M UTC")
+
+
+async def handle_binance(host: str, binance: dict, host_bot_ids: list[int]) -> None:
+    from ..engine.botmonitor import monitor
+    from ..telegram import esc
+    now = utcnow()
+    banned = [v for v in binance.values() if v.get("status") == "banned"]
+    limited = [v for v in binance.values() if v.get("status") == "limited"]
+    with SessionLocal() as s:
+        h = s.scalars(select(WatchdogHost).where(WatchdogHost.hostname == host)).first()
+        gs = get_global(s)
+        auto, ban = gs.ban_auto_pause, dict(h.ban or {})
+        ban["limited_n"] = ban.get("limited_n", 0) + 1 if limited else 0
+        until, reason = None, ""
+        if banned:
+            until = dt.datetime.fromtimestamp(max(int(v.get("banned_until") or 0) for v in banned) / 1000,
+                                           dt.UTC).replace(tzinfo=None)
+            reason = "banned"
+        elif ban["limited_n"] >= LIMITED_REPORTS:
+            until = now + dt.timedelta(seconds=max(120, max(int(v.get("retry_after") or 0) for v in limited)))
+            reason = "limited"
+        warn = []
+        for kind, v in binance.items():
+            used, limit = v.get("used_weight"), v.get("limit")
+            if v.get("status") == "ok" and used and limit and used / limit >= WEIGHT_WARN:
+                warn.append(f"{kind}: {used}/{limit}")
+        last_warn = ban.get("warned_at")
+        do_warn = bool(warn) and (not last_warn or now - dt.datetime.fromisoformat(last_warn) > dt.timedelta(minutes=30))
+        if do_warn:
+            ban["warned_at"] = now.isoformat(timespec="seconds")
+        start = bool(until) and not ban.get("active")
+        if until:
+            old = ban.get("until")
+            ban["until"] = max(until, dt.datetime.fromisoformat(old)).isoformat(timespec="seconds") if old and ban.get(
+                "active") else until.isoformat(timespec="seconds")
+        if start:
+            ban.update(active=True, since=now.isoformat(timespec="seconds"), reason=reason, bots=[])
+        h.ban = ban
+        s.commit()
+        running = []
+        if start and auto:
+            for b in s.scalars(select(Bot).where(Bot.id.in_(host_bot_ids or [-1]))):
+                if b.enabled and b.api_url and (b.state or {}).get("state") == "running":
+                    running.append(b.id)
+    if do_warn:
+        monitor.notify_admins("bot_status", lambda L: "⚠️ " + t(L, "ban_weight_warn", host=esc(host), w=esc(", ".join(warn))))
+    if start:
+        until_dt = dt.datetime.fromisoformat(ban["until"])
+        resume_at = until_dt + dt.timedelta(seconds=BAN_COOLDOWN)
+        key = "ban_paused" if auto else "ban_alert_only"
+        monitor.notify_admins(
+            "bot_status", lambda L: "🚫 " + t(L, key, host=esc(host), until=_fmt(until_dt), resume=_fmt(resume_at),
+                                              n=len(running), why=t(L, "ban_why_" + reason)),
+            critical=True, title=lambda L: t(L, "push_ban", host=host), tag=f"ban-{host}")
+        if running:
+            _bg(_pause(host, running))
+
+
+async def _pause(host: str, ids: list[int]) -> None:
+    stopped = []
+    for bot_id in ids:
+        try:
+            await ft_post(bot_id, "stop")
+            _mark(bot_id, True)
+            stopped.append(bot_id)
+        except Exception as e:
+            log_err(f"stop bot {bot_id} on {host}: {e}")
+    with SessionLocal() as s:
+        h = s.scalars(select(WatchdogHost).where(WatchdogHost.hostname == host)).first()
+        ban = dict(h.ban or {})
+        ban["bots"] = sorted(set(ban.get("bots") or []) | set(stopped))
+        h.ban = ban
+        s.commit()
+
+
+def log_err(msg: str) -> None:
+    import logging
+    logging.getLogger("relay.watchdog").warning(msg)
+
+
+async def resume_due_hosts() -> None:
+    """Every minute: a server whose ban is over (and Binance answers normally again) gets its bots started again."""
+    from ..engine.botmonitor import monitor
+    from ..telegram import esc
+    now = utcnow()
+    with SessionLocal() as s:
+        gap = get_global(s).ban_resume_gap
+        gap = 30 if gap is None else gap
+        due = []
+        for h in s.scalars(select(WatchdogHost)):
+            ban = dict(h.ban or {})
+            if not ban.get("active") or not ban.get("until"):
+                continue
+            if now < dt.datetime.fromisoformat(ban["until"]) + dt.timedelta(seconds=BAN_COOLDOWN):
+                continue
+            if any(v.get("status") in ("banned", "limited") for v in ((h.report or {}).get("binance") or {}).values()):
+                continue  # the latest check still says no: wait for the next report
+            ban.update(active=False, resumed_at=now.isoformat(timespec="seconds"), limited_n=0)
+            ids, ban["bots"] = list(ban.get("bots") or []), []
+            h.ban = ban
+            due.append((h.hostname, ids))
+        s.commit()
+    for host, ids in due:
+        monitor.notify_admins("bot_status", lambda L, h=host, n=len(ids): "✅ " + t(L, "ban_resume", host=esc(h), n=n,
+                                                                                    gap=gap),
+                              critical=True, title=lambda L, h=host: t(L, "push_ban_over", host=h), tag=f"ban-{host}")
+        if ids:
+            _bg(_resume(host, ids, gap))
+
+
+async def _resume(host: str, ids: list[int], gap: int) -> None:
+    for i, bot_id in enumerate(ids):
+        if i:
+            await asyncio.sleep(gap)  # one by one, like `sleep 45` in tmux.sh: a burst could trigger the next ban
+        try:
+            await ft_post(bot_id, "start")
+        except Exception as e:
+            log_err(f"start bot {bot_id} on {host}: {e}")
+        _mark(bot_id, False)

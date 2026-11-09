@@ -4,7 +4,7 @@ The agent source is AGENT below; the site fills in its address and token when it
 """
 from __future__ import annotations
 
-AGENT_VERSION = "1.1"
+AGENT_VERSION = "1.2"
 
 AGENT = r'''#!/usr/bin/env python3
 """
@@ -39,6 +39,7 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 
 SITE = "__SITE__"
@@ -105,14 +106,27 @@ def config_args(argv, cwd):
     return [f if f.startswith("/") else os.path.normpath(os.path.join(cwd, f)) for f in files]
 
 
-def api_address(argv, cwd, env):
-    """(listen_ip, listen_port) of the bot's REST API, from env overrides or its config files."""
+def bot_config(argv, cwd):
     cfg = {}
     for p in config_args(argv, cwd):
         try:
             cfg = deep_merge(cfg, load_json(p))
         except (OSError, ValueError):
             pass
+    return cfg
+
+
+def exchange_of(argv, cwd, env):
+    """("binance", "futures") etc. of a bot, from its config (env overrides win)."""
+    cfg = bot_config(argv, cwd)
+    name = env.get("FREQTRADE__EXCHANGE__NAME") or (cfg.get("exchange") or {}).get("name") or ""
+    mode = env.get("FREQTRADE__TRADING_MODE") or cfg.get("trading_mode") or "spot"
+    return str(name).lower(), str(mode).lower()
+
+
+def api_address(argv, cwd, env):
+    """(listen_ip, listen_port) of the bot's REST API, from env overrides or its config files."""
+    cfg = bot_config(argv, cwd)
     api = cfg.get("api_server") or {}
     port = env.get("FREQTRADE__API_SERVER__LISTEN_PORT") or (api.get("listen_port") if api.get("enabled", True) else None)
     ip = env.get("FREQTRADE__API_SERVER__LISTEN_IP_ADDRESS") or api.get("listen_ip_address") or "127.0.0.1"
@@ -229,8 +243,9 @@ def from_processes():
         prev = found.get(key)
         if prev and (shell or not prev["_shell"]):  # keep the real python process, not its shell wrapper
             continue
+        ex, mode = exchange_of(info["argv"], info["cwd"], info["env"])
         found[key] = dict(info, kind="systemd" if info["unit"] else "process", pid=int(pid), port=port, ip=ip,
-                          _shell=shell)
+                          exchange=ex, mode=mode, _shell=shell)
     for v in found.values():
         v.pop("_shell", None)
         t = tmux_info(v["env"], v["uid"])
@@ -275,6 +290,48 @@ def from_docker():
         else:
             stopped.add(key)
     return running, stopped
+
+
+# ---------------------------------------------------------------- Binance: rate limit / IP ban of this server
+# All bots on one server share its IP and therefore Binance's request-weight budget. A tiny request (weight 1)
+# per minute shows how much is used; 429 = rate limited, 418 = IP banned (with the time the ban ends).
+BINANCE = {"futures": ("https://fapi.binance.com/fapi/v1/time", 2400),
+           "spot": ("https://api.binance.com/api/v3/time", 6000)}
+
+
+def binance_probe(st):
+    now_ms = int(time.time() * 1000)
+    kinds = {("futures" if b.get("mode") == "futures" else "spot") for b in st["bots"].values()
+             if str(b.get("exchange", "")).startswith("binance")}
+    prev_all, out = st.get("binance") or {}, {}
+    for kind in sorted(kinds):
+        url, limit = BINANCE[kind]
+        prev = prev_all.get(kind) or {}
+        if prev.get("status") == "banned" and prev.get("banned_until", 0) > now_ms:
+            out[kind] = prev  # never knock while banned: requests during a ban make it longer
+            continue
+        res = {"status": "ok", "limit": limit, "checked": now_ms}
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "relay-watchdog/" + VERSION})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                w = r.headers.get("X-MBX-USED-WEIGHT-1M") or r.headers.get("x-mbx-used-weight-1m")
+                res["used_weight"] = int(w) if w and w.isdigit() else None
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", "replace")[:400]
+            m = re.search(r"banned until (\d{12,14})", body)
+            if e.code == 418 or m:
+                res.update(status="banned", banned_until=int(m.group(1)) if m else now_ms + 5 * 60000)
+            elif e.code == 429:
+                ra = e.headers.get("Retry-After")
+                res.update(status="limited", retry_after=int(ra) if ra and ra.isdigit() else 60)
+            else:
+                res.update(status="error", error="HTTP %s" % e.code)
+            res["message"] = body[:200]
+        except Exception as e:
+            res.update(status="error", error="%s: %s" % (type(e).__name__, str(e)[:120]))
+        out[kind] = res
+    st["binance"] = out
+    return out
 
 
 # ---------------------------------------------------------------- why did it die?
@@ -462,7 +519,8 @@ def report(st, events):
     bots = [{"key": k, "port": b.get("port"), "kind": b.get("kind"), "status": b.get("status"), "pid": b.get("pid"),
              "since": b.get("since"), "paused": bool(b.get("paused"))} for k, b in sorted(st["bots"].items())]
     body = json.dumps({"host": platform.node(), "ips": host_ips(), "version": VERSION, "mem": mem_info(),
-                       "load": list(os.getloadavg()), "bots": bots, "events": st["pending"] + events}).encode()
+                       "load": list(os.getloadavg()), "bots": bots, "events": st["pending"] + events,
+                       "binance": st.get("binance") or {}}).encode()
     req = urllib.request.Request(SITE.rstrip("/") + "/watchdog/report", data=body, method="POST",
                                  headers={"Content-Type": "application/json", "X-Watchdog-Token": TOKEN,
                                           "User-Agent": "relay-watchdog/" + VERSION})
@@ -584,6 +642,10 @@ def main():
     cfg = {}
     while True:
         events = check(st, cfg, verbose=cmd == "once")
+        try:
+            binance_probe(st)
+        except Exception as e:
+            print("binance check failed: %s" % e, file=sys.stderr)
         save_state(st)
         ans = report(st, events)
         if ans:

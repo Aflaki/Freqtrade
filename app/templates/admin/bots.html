@@ -62,12 +62,18 @@
 <p class="small muted">{{ _('wd_install_note') }}</p>
 {% if wd.hosts %}
 <div class="table-wrap"><table class="small">
-<tr><th>{{ _('wd_server') }}</th><th>{{ _('col_status') }}</th><th>{{ _('wd_last_seen') }}</th><th>{{ _('wd_bots_seen') }}</th><th>{{ _('wd_memory') }}</th><th>{{ _('wd_load') }}</th></tr>
+<tr><th>{{ _('wd_server') }}</th><th>{{ _('col_status') }}</th><th>{{ _('wd_last_seen') }}</th><th>{{ _('wd_bots_seen') }}</th><th>{{ _('wd_memory') }}</th><th>{{ _('wd_load') }}</th><th>Binance</th></tr>
 {% for r in wd.hosts %}<tr><td><b>{{ r.h.hostname }}</b><div class="muted mono">{{ (r.h.ips or [])|join(', ') }}</div></td>
 <td>{% if r.online %}<span class="badge ok">{{ _('wd_online') }}</span>{% else %}<span class="badge err">{{ _('wd_offline') }}</span>{% endif %}</td>
 <td class="muted"><span class="num">{{ r.h.last_seen.strftime('%m-%d %H:%M:%S') if r.h.last_seen }}</span></td><td>{{ r.n }}</td>
 <td>{% if r.mem.MemTotal %}{% set pct = 100 * (1 - r.mem.MemAvailable / r.mem.MemTotal) %}<span class="{{ 'neg' if pct > 90 else '' }} num">{{ '%.0f'|format(pct) }}%</span> <span class="muted small">({{ r.mem.MemAvailable }} / {{ r.mem.MemTotal }} MB {{ _('wd_free') }})</span>{% endif %}</td>
-<td class="num">{{ r.load|map('round', 2)|join(' ') }}</td></tr>{% endfor %}
+<td class="num">{{ r.load|map('round', 2)|join(' ') }}</td>
+<td>{% for kind, v in r.binance.items() %}<div class="small">{{ kind }}:
+{% if v.status == 'banned' %}<span class="badge err">{{ _('ban_banned') }}</span>
+{% elif v.status == 'limited' %}<span class="badge warn">429</span>
+{% elif v.status == 'ok' %}{% set w = (v.used_weight or 0) / (v.limit or 1) %}<span class="num {{ 'neg' if w >= 0.8 else '' }}">{{ v.used_weight if v.used_weight is not none else '?' }}/{{ v.limit }}</span>
+{% else %}<span class="muted">{{ v.error or '—' }}</span>{% endif %}</div>{% endfor %}
+{% if r.ban.active %}<div><span class="badge err">⏸ {{ _('ban_paused_until', until=r.ban.until[11:16] ~ ' UTC', n=(r.ban.bots or [])|length) }}</span></div>{% endif %}</td></tr>{% endfor %}
 </table></div>
 {% if wd.unwatched %}<p class="small"><span class="badge warn">{{ _('wd_unwatched') }}</span> {{ wd.unwatched|map(attribute='name')|join(', ') }}</p>
 <p class="small muted">{{ _('wd_unwatched_help') }}</p>{% endif %}
@@ -78,6 +84,12 @@
 <td class="small muted" style="white-space:pre-wrap;max-width:420px">{{ e.detail[:300] }}</td></tr>{% endfor %}
 </table></div></details>{% endif %}
 {% endif %}
+<form method="post" class="card" style="margin:12px 0;background:var(--bg)"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="watchdog_settings">
+<b>🚫 {{ _('ban_title') }}</b><p class="small muted">{{ _('ban_intro') }}</p>
+<label class="check"><input type="checkbox" name="ban_auto_pause" {{ 'checked' if gs.ban_auto_pause }}><span>{{ _('ban_f_auto') }}</span></label>
+<label>{{ _('ban_f_gap') }}</label><input type="number" name="ban_resume_gap" min="5" max="300" value="{{ gs.ban_resume_gap }}" style="max-width:120px">
+<p class="small muted">{{ _('ban_note_sl') }}</p>
+<p><button class="sm">{{ _('btn_save') }}</button></p></form>
 <p class="small muted">{{ _('wd_commands') }}</p>
 <pre class="ltr small">python3 /opt/relay-watchdog/agent.py status
 python3 /opt/relay-watchdog/agent.py pause 8015    # {{ _('wd_cmd_pause') }}

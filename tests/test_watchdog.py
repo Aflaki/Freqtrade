@@ -404,3 +404,135 @@ def test_agent_with_tmux_sessions_like_tmux_sh(tmp_path):
         assert a["from_processes"]()["port:18820"]["tmux"]["session"] == "4520"
     finally:
         tm("kill-server")
+
+
+# ------------------------------------------------------------------ Binance IP ban
+def test_agent_binance_probe(tmp_path, monkeypatch):
+    import io
+    import urllib.error
+    a = load_agent(tmp_path)
+    st = {"bots": {"port:1": {"exchange": "binance", "mode": "futures"}, "port:2": {"exchange": "kucoin"}}}
+    calls = []
+
+    class Resp(io.BytesIO):
+        headers = {"X-MBX-USED-WEIGHT-1M": "1990"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *e):
+            return False
+    answers = iter(["ok", "ban"])
+
+    def urlopen(req, timeout=0):
+        calls.append(req.full_url)
+        if next(answers) == "ok":
+            return Resp(b"{}")
+        body = b'{"code":-1003,"msg":"Way too much request weight used; IP banned until 1794211200000."}'
+        raise urllib.error.HTTPError(req.full_url, 418, "I'm a teapot", {}, io.BytesIO(body))
+    monkeypatch.setattr(a["urllib"].request, "urlopen", urlopen)
+    out = a["binance_probe"](st)
+    assert list(out) == ["futures"] and out["futures"]["used_weight"] == 1990 and out["futures"]["limit"] == 2400
+    assert calls == ["https://fapi.binance.com/fapi/v1/time"]  # only futures: the kucoin bot is ignored
+    out = a["binance_probe"](st)
+    assert out["futures"]["status"] == "banned" and out["futures"]["banned_until"] == 1794211200000
+    a["time"].time = lambda: 1794211100.0  # still banned: Binance is not touched again
+    a["binance_probe"](st)
+    assert len(calls) == 2
+
+
+def test_ban_pauses_server_bots_and_resumes_one_by_one(site, monkeypatch):
+    import asyncio
+    import datetime as dt
+
+    from app.web import watchdog as wd
+    sent, (on_id, off_id, other_id) = site
+    with SessionLocal() as s:
+        for i in (on_id, off_id, other_id):
+            s.get(Bot, i).state = {"state": "running", "api": "ok"}
+        s.commit()
+    posts = []
+
+    async def fake_post(bot_id, action):
+        posts.append((bot_id, action))
+        return "ok"
+    monkeypatch.setattr(wd, "ft_post", fake_post)
+    monkeypatch.setattr(wd, "BAN_COOLDOWN", 0)
+    until_ms = int((utcnow() + dt.timedelta(minutes=5)).replace(tzinfo=dt.UTC).timestamp() * 1000)
+    rep = {"host": "ft-v1", "ips": ["65.109.188.248"], "bots": [], "events": [],
+           "binance": {"futures": {"status": "banned", "banned_until": until_ms, "limit": 2400}}}
+
+    async def run():
+        c = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t")
+        h = {"X-Watchdog-Token": "wd-token-123"}
+        await c.post("/watchdog/report", json=rep, headers=h)
+        await asyncio.sleep(0.05)
+        assert sorted(posts) == [(on_id, "stop"), (off_id, "stop")]  # both bots of that server, not the other server's
+        assert wd.ban_paused_ids() == {on_id, off_id}
+        assert sent[-1]["critical"] and "2 bots" in sent[-1]["text"] and "ft-v1" in sent[-1]["title"]
+        await c.post("/watchdog/report", json=rep, headers=h)  # still banned: nothing new
+        assert len(posts) == 2
+        await wd.resume_due_hosts()
+        assert len(posts) == 2  # ban not over yet
+        with SessionLocal() as s:  # time passes, Binance answers again
+            hh = s.query(WatchdogHost).one()
+            hh.ban = {**hh.ban, "until": (utcnow() - dt.timedelta(seconds=1)).isoformat()}
+            s.commit()
+        ok = {**rep, "binance": {"futures": {"status": "ok", "used_weight": 40, "limit": 2400}}}
+        await c.post("/watchdog/report", json=ok, headers=h)
+        with SessionLocal() as s:
+            get_global(s).ban_resume_gap = 0
+            s.commit()
+        await wd.resume_due_hosts()
+        await asyncio.sleep(0.05)
+        assert sorted(p for p in posts if p[1] == "start") == [(on_id, "start"), (off_id, "start")]
+        assert wd.ban_paused_ids() == set() and "over" in sent[-1]["title"]
+        await c.aclose()
+    asyncio.run(run())
+
+
+def test_weight_warning_and_repeated_429(site, monkeypatch):
+    import asyncio
+
+    from app.web import watchdog as wd
+    sent, _ = site
+    monkeypatch.setattr(wd, "ft_post", lambda *a: asyncio.sleep(0))
+
+    async def run():
+        await wd.handle_binance("ft-x", {"futures": {"status": "ok", "used_weight": 2100, "limit": 2400}}, [])
+        await wd.handle_binance("ft-x", {"futures": {"status": "ok", "used_weight": 2200, "limit": 2400}}, [])
+        assert len(sent) == 1 and "2100/2400" in sent[0]["text"] and not sent[0]["critical"]  # once per 30 min
+        lim = {"futures": {"status": "limited", "retry_after": 60}}
+        await wd.handle_binance("ft-x", lim, [])
+        assert len(sent) == 1  # a single 429 is normal: Freqtrade backs off by itself
+        await wd.handle_binance("ft-x", lim, [])
+        assert len(sent) == 2 and sent[-1]["critical"]
+    with SessionLocal() as s:
+        s.add(WatchdogHost(hostname="ft-x", ips=[], last_seen=utcnow()))
+        s.commit()
+    asyncio.run(run())
+
+
+def test_paused_bots_are_not_polled(monkeypatch):
+    import asyncio
+
+    from app.engine.botmonitor import monitor
+    init_db()
+    with SessionLocal() as s:
+        a = Bot(name="P1", webhook_secret="pp-1", api_url="http://h:1", state={"ban_paused": True})
+        b = Bot(name="P2", webhook_secret="pp-2", api_url="http://h:2", state={})
+        s.add_all([a, b])
+        s.commit()
+        ids = (a.id, b.id)
+    polled = []
+
+    async def fake_poll(bot_id, alert=True):
+        polled.append(bot_id)
+    monkeypatch.setattr(monitor, "poll_bot", fake_poll)
+    try:
+        asyncio.run(monitor.poll_all())
+        assert ids[1] in polled and ids[0] not in polled
+    finally:
+        with SessionLocal() as s:
+            s.query(Bot).filter(Bot.id.in_(ids)).delete()
+            s.commit()

@@ -400,6 +400,7 @@ class WatchdogHost(Base):
     last_seen: Mapped[dt.datetime | None] = mapped_column(nullable=True)
     report: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)  # last report (bots, memory, load)
     silent_alerted: Mapped[bool] = mapped_column(default=False)
+    ban: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)  # Binance IP ban / pause state
 
 
 class WatchdogEvent(Base):
@@ -491,6 +492,8 @@ class GlobalSettings(Base):
     vapid_public: Mapped[str] = mapped_column(String(120), default="")
     # watchdog agents on the bot servers
     watchdog_token: Mapped[str] = mapped_column(String(64), default="")
+    ban_auto_pause: Mapped[bool] = mapped_column(default=True)  # Binance bans a server's IP -> /stop its bots, /start later
+    ban_resume_gap: Mapped[int] = mapped_column(default=30)  # seconds between bots when starting them again
     updated_at: Mapped[dt.datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 
 

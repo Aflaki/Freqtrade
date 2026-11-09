@@ -113,7 +113,8 @@ def _watchdog_view(request: Request, bots) -> dict:
                 if port in seen:
                     watched[bot.id] = {**seen[port], "host": h.hostname}
             rows.append({"h": h, "online": h.last_seen and utcnow() - h.last_seen < dt.timedelta(minutes=SILENT_MINUTES),
-                         "n": len(seen), "mem": (h.report or {}).get("mem") or {}, "load": (h.report or {}).get("load") or []})
+                         "n": len(seen), "mem": (h.report or {}).get("mem") or {}, "load": (h.report or {}).get("load") or [],
+                         "binance": (h.report or {}).get("binance") or {}, "ban": h.ban or {}})
     names = {b.id: b.name for b in bots}
     unwatched = [b for b in bots if b.enabled and b.api_url and b.id not in watched]
     return {"cmd": f'curl -fsSL "{site_url(request)}/watchdog/install.sh?t={token()}" | sudo sh', "hosts": rows,
@@ -125,6 +126,17 @@ async def bots_action(request: Request):
     require_admin(request)
     f = await form_with_csrf(request)
     action = f.get("action")
+    if action == "watchdog_settings":
+        with SessionLocal() as s:
+            gs = get_global(s)
+            gs.ban_auto_pause = bool(f.get("ban_auto_pause"))
+            try:
+                gs.ban_resume_gap = max(5, min(300, int(str(f.get("ban_resume_gap", "30")))))
+            except ValueError:
+                pass
+            s.commit()
+        flash(request, tr(request, "msg_saved"))
+        return RedirectResponse("/admin/bot#watchdog", 303)
     if action == "add":
         b, err = await _create_bot(str(f.get("name", "")), str(f.get("api_url", "")), str(f.get("api_user", "")),
                                    str(f.get("api_pass", "")))
