@@ -25,6 +25,7 @@ Stopping a bot yourself with Ctrl+C, or closing its tmux session/window, is resp
   python3 agent.py forget PORT     remove a bot you deleted for good
   python3 agent.py once            one check, printed (for testing)
   python3 agent.py test            can this server reach the site?
+  python3 agent.py scan            which Freqtrade bots are running right now
 Bots are identified by their API port. A bot that was never seen running is not known: start it once by hand.
 Needs only Python 3.8+.
 """
@@ -694,6 +695,14 @@ def main():
             print("Check the site address in the admin panel (Settings -> site address) and that this server can reach it.")
             sys.exit(1)
         return
+    if cmd == "scan":  # what would be watched right now (no state needed)
+        found = from_processes()
+        found.update(from_docker()[0])
+        for k, b in sorted(found.items()):
+            where = ("tmux:" + (b.get("tmux") or {}).get("session", "")) if b.get("kind") == "tmux" else b.get("kind")
+            print("%-12s %-14s pid=%-8s %s %s" % (k, where, b.get("pid"), b.get("exchange", ""), b.get("mode", "")))
+        print("%d Freqtrade bot(s) running on this server" % len(found))
+        return
     if cmd == "status":
         for k, b in sorted(st["bots"].items()):
             where = ("tmux:" + (b.get("tmux") or {}).get("session", "")) if b.get("kind") == "tmux" else b.get("kind")
@@ -761,8 +770,8 @@ UNIT
 systemctl daemon-reload
 systemctl enable relay-watchdog >/dev/null 2>&1
 systemctl restart relay-watchdog
-echo "== bots found on this server =="
-python3 /opt/relay-watchdog/agent.py status || true
+echo "== Freqtrade bots running on this server =="
+python3 /opt/relay-watchdog/agent.py scan || true
 echo
 echo "== connection to the site =="
 python3 /opt/relay-watchdog/agent.py test || true
