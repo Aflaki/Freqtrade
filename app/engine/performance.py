@@ -168,37 +168,60 @@ def _amount(t: BotTrade) -> float:
     return (t.stake_amount or 0) * (t.profit_ratio or 0)
 
 
-def capitals(bot_ids: list[int]) -> float | None:
-    """Starting capital behind a set of bots (None if unknown -> no % figures).
+def bot_pair_count(b: Bot) -> int:
+    """Pairs a bot trades: its Freqtrade whitelist (from the API), else the pairs it has traded; after its own filter."""
+    pairs = [p for p in (b.state or {}).get("whitelist") or [] if b.allows(p)]
+    if not pairs:
+        with SessionLocal() as s:
+            pairs = [p for p in s.scalars(select(BotTrade.pair).where(BotTrade.bot_id == b.id).distinct()) if b.allows(p)]
+    return max(1, len(set(pairs)))
 
-    * a group with its own capital whose shown bots are all included -> the group's capital
-    * a bot with its own capital (manual or Freqtrade starting_capital) -> that
-    * a bot without one, in a group with capital -> an equal share of the group's capital
+
+def capital_breakdown() -> dict[int, dict]:
+    """Effective starting capital of every bot and where it comes from.
+
+    In a group with a capital: bots with a manually entered capital keep it; the rest of the group's capital
+    is shared by the other bots in proportion to how many pairs each one trades.
+    Without group capital: the bot's manual capital, else Freqtrade's starting_capital.
     """
+    with SessionLocal() as s:
+        bots = list(s.scalars(select(Bot).where(Bot.enabled.is_(True))))
+        groups = {g.id: g for g in s.scalars(select(BotGroup))}
+    out: dict[int, dict] = {}
+    by_group: dict[int, list[Bot]] = defaultdict(list)
+    for b in bots:
+        g = groups.get(b.group_id)
+        if g and g.stats_capital:
+            by_group[g.id].append(b)
+        else:
+            out[b.id] = {"capital": b.capital, "how": "manual" if b.stats_capital else ("freqtrade" if b.capital else "none")}
+    for gid, members in by_group.items():
+        g = groups[gid]
+        own = {b.id: b.stats_capital for b in members if b.stats_capital}
+        rest = [b for b in members if b.id not in own]
+        remainder = max(0.0, g.stats_capital - sum(own.values()))
+        counts = {b.id: bot_pair_count(b) for b in rest}
+        total_pairs = sum(counts.values())
+        for b in members:
+            if b.id in own:
+                out[b.id] = {"capital": own[b.id], "how": "manual"}
+            else:
+                share = remainder * counts[b.id] / total_pairs if total_pairs else 0.0
+                out[b.id] = {"capital": share or None, "how": "group", "pairs": counts[b.id], "group_pairs": total_pairs,
+                             "group_capital": g.stats_capital, "remainder": remainder}
+    return out
+
+
+def capitals(bot_ids: list[int]) -> float | None:
+    """Starting capital behind a set of bots (None if any is unknown -> no % figures)."""
     ids = set(bot_ids or [])
     if not ids:
         return None
-    with SessionLocal() as s:
-        bots = {b.id: b for b in s.scalars(select(Bot).where(Bot.id.in_(ids)))}
-        gids = {b.group_id for b in bots.values() if b.group_id}
-        groups = {g.id: g for g in s.scalars(select(BotGroup).where(BotGroup.id.in_(gids or [-1])))}
-        members = {gid: set(s.scalars(select(Bot.id).where(Bot.group_id == gid, Bot.enabled.is_(True),
-                                                              Bot.public.is_(True)))) for gid in gids}
-    total, rest = 0.0, set(bots)
-    for gid, g in groups.items():
-        if g.stats_capital and members[gid] and members[gid] <= ids:
-            total += g.stats_capital
-            rest -= members[gid]
-            rest -= {b for b in bots if bots[b].group_id == gid}
-    for bid in rest:
-        b = bots[bid]
-        cap = b.capital
-        if cap is None and b.group_id in groups and groups[b.group_id].stats_capital and members.get(b.group_id):
-            cap = groups[b.group_id].stats_capital / len(members[b.group_id])
-        if cap is None:
-            return None
-        total += cap
-    return total or None
+    bd = capital_breakdown()
+    caps = [bd.get(i, {}).get("capital") for i in ids]
+    if not caps or any(not c for c in caps):
+        return None
+    return sum(caps)
 
 
 def _stats(trades: list[BotTrade], capital: float | None = None) -> dict:
@@ -254,6 +277,7 @@ def summary(market: str = "all", days: int | None = None, pairs: list[str] | Non
         step = len(pts) / 200
         pts = [pts[int(i * step)] for i in range(200)] + [pts[-1]]
     st["curve"] = svg_path(pts)
+    st["market"] = market_chart(trades, st["capital"], days)
     st["recent"] = list(reversed(trades[-15:]))
     return st
 
@@ -345,9 +369,10 @@ def multi_svg(series: list[list[tuple[Any, float]]], w: int = 600, h: int = 200)
 
 
 def _curve(trades: list[BotTrade]) -> list[tuple[Any, float]]:
+    """Cumulative profit in stake currency."""
     pts, eq = [], 0.0
     for t in trades:
-        eq += (t.profit_ratio or 0) * 100
+        eq += _amount(t)
         pts.append((t.close_date, eq))
     return pts
 
@@ -369,10 +394,10 @@ def pair_compare(pair: str, market: str, days: int | None, bots: list[Bot], grou
             grows.append({"kind": "group", "id": g.id, "name": g.name, "stats": _stats(ts), "curve": _curve(ts)})
     rows.sort(key=lambda r: -r["stats"]["profit_abs"])
     shown = rows[: len(PALETTE)]
-    chart = multi_svg([r["curve"] for r in shown])
     for i, r in enumerate(shown):
         r["color"] = PALETTE[i]
-        r["path"] = chart["paths"][i]
+    chart = build_chart([{"key": f"b{r['id']}", "name": r["name"], "color": r["color"], "points": r["curve"],
+                          "dash": False, "on": True} for r in shown], unit="USDT")
     return {"rows": rows, "groups": grows, "chart": chart}
 
 
@@ -382,3 +407,100 @@ def pair_matrix(market: str, days: int | None, bots: list[Bot]) -> dict[str, dic
     for t in _closed(market, days, [b.id for b in bots]):
         cell[t.pair][t.bot_id].append(t)
     return {p: {b: _stats(ts) for b, ts in byb.items()} for p, byb in sorted(cell.items())}
+
+
+# ------------------------------------------------------------------ charts with axes
+BENCH_COLORS = {"TOTAL": "#94a3b8", "BTC": "#f7931a", "ETH": "#627eea", "XRP": "#23a2d5", "BNB": "#f3ba2f",
+                "SOL": "#14f195", "DOGE": "#c2a633", "ADA": "#3468d1", "TRX": "#ef0027"}
+
+
+def _nice_step(span: float, n: int = 5) -> float:
+    import math
+    raw = span / max(1, n) or 1
+    mag = 10 ** math.floor(math.log10(raw))
+    for m in (1, 2, 2.5, 5, 10):
+        if raw <= m * mag:
+            return m * mag
+    return 10 * mag
+
+
+def build_chart(series: list[dict], unit: str = "%", w: int = 820, h: int = 280) -> dict | None:
+    """series: [{"key","name","color","points":[(datetime, value)], "dash": bool, "on": bool}] -> SVG geometry."""
+    import datetime as _dt
+    L, R, T, B = 62, 14, 12, 30
+    pts = [p for ser in series for p in ser["points"]]
+    if len(pts) < 2:
+        return None
+    t0 = min(p[0] for p in pts).timestamp()
+    t1 = max(p[0] for p in pts).timestamp()
+    tspan = (t1 - t0) or 1.0
+    lo, hi = min(0.0, min(p[1] for p in pts)), max(0.0, max(p[1] for p in pts))
+    step = _nice_step((hi - lo) or 1)
+    lo, hi = step * (lo // step), step * (-(-hi // step))
+    span = (hi - lo) or 1.0
+    pw, ph = w - L - R, h - T - B
+
+    def X(ts: float) -> float:
+        return L + (ts - t0) / tspan * pw
+
+    def Y(v: float) -> float:
+        return T + ph - (v - lo) / span * ph
+
+    out = []
+    for ser in series:
+        if not ser["points"]:
+            continue
+        path = "M" + " L".join(f"{X(d.timestamp()):.1f},{Y(v):.1f}" for d, v in ser["points"])
+        out.append({**{k: v for k, v in ser.items() if k != "points"}, "path": path, "last": ser["points"][-1][1]})
+    fmt = "%Y-%m-%d" if tspan < 400 * 86400 else "%Y-%m"
+    xticks = [(X(t0 + tspan * i / 4), _dt.datetime.fromtimestamp(t0 + tspan * i / 4).strftime(fmt)) for i in range(5)]
+    yticks, v = [], lo
+    while v <= hi + 1e-9:
+        label = (f"{v:+.0f}%" if step >= 1 else f"{v:+.1f}%") if unit == "%" else f"{v:,.0f}"
+        yticks.append((Y(v), label if v else "0"))
+        v += step
+    start = _dt.datetime.fromtimestamp(t0)
+    end = _dt.datetime.fromtimestamp(t1)
+    return {"w": w, "h": h, "L": L, "R": R, "T": T, "B": B, "series": out, "xticks": xticks, "yticks": yticks,
+            "zero": Y(0), "unit": unit, "start": start, "end": end, "days": max(1, round(tspan / 86400)),
+            # dates wrapped in Unicode LTR isolates so they read correctly inside Persian text
+            "start_s": "\u2066" + start.strftime("%Y-%m-%d") + "\u2069", "end_s": "\u2066" + end.strftime("%Y-%m-%d") + "\u2069"}
+
+
+def _drawdown_pct(values: list[float], base: float = 100.0) -> float:
+    """Max fall from a high, in % of the high, for a path of % returns (equity = base * (1 + v/100))."""
+    peak, dd = None, 0.0
+    for v in values:
+        eq = base * (1 + v / 100)
+        peak = eq if peak is None else max(peak, eq)
+        if peak > 0:
+            dd = max(dd, (peak - eq) / peak * 100)
+    return dd
+
+
+def market_chart(trades: list[BotTrade], capital: float | None, days: int | None, stake: str = "USDT") -> dict:
+    """The bots' cumulative result next to BTC, ETH, top coins and the whole market, same dates."""
+    import datetime as _dt
+
+    from . import benchmarks as bench
+    if not trades:
+        return {"chart": None, "rows": [], "has_capital": bool(capital)}
+    start = (utcnow() - _dt.timedelta(days=days)) if days else min(t.close_date for t in trades)
+    start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+    cum, pts = 0.0, [(start, 0.0)]
+    for t in trades:
+        cum += _amount(t)
+        pts.append((t.close_date, cum / capital * 100 if capital else cum))
+    series = [{"key": "bot", "name": "bot", "color": "var(--chart)", "points": pts, "dash": False, "on": True}]
+    rows = []
+    if capital:
+        rows.append({"key": "bot", "name": "bot", "ret": pts[-1][1], "dd": _drawdown_pct([p[1] for p in pts])})
+        for sym in bench.symbols():
+            sp = bench.series(sym, start.date())
+            if len(sp) < 2:
+                continue
+            series.append({"key": sym, "name": bench.NAMES.get(sym, sym), "color": BENCH_COLORS.get(sym, "#a3a3a3"),
+                           "points": sp, "dash": sym == bench.TOTAL, "on": sym in ("TOTAL", "BTC", "ETH")})
+            rows.append({"key": sym, "name": bench.NAMES.get(sym, sym), "ret": sp[-1][1], "dd": _drawdown_pct([p[1] for p in sp])})
+    chart = build_chart(series, "%" if capital else stake)
+    return {"chart": chart, "rows": rows, "has_capital": bool(capital), "approx_total": bench.is_approx_total()}

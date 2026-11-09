@@ -340,6 +340,18 @@ class Bot(Base):
         return True
 
 
+# ============================================================================ market benchmarks
+class BenchmarkPrice(Base):
+    """Daily close of a market benchmark (BTC, ETH, top coins, TOTAL = whole crypto market cap)."""
+    __tablename__ = "benchmark_prices"
+    __table_args__ = (Index("uq_bench_symbol_day", "symbol", "day", unique=True),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(20), index=True)
+    day: Mapped[dt.date] = mapped_column()
+    close: Mapped[float] = mapped_column(Float)
+    source: Mapped[str] = mapped_column(String(20), default="")
+
+
 # ============================================================================ settings (admin panel)
 class GlobalSettings(Base):
     __tablename__ = "global_settings"
@@ -381,6 +393,8 @@ class GlobalSettings(Base):
     ft_api_pass_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
     ft_db_path: Mapped[str] = mapped_column(String(300), default="")
     bot_state: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)  # last bot monitor result
+    bench_state: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)  # benchmark updater status
+    coingecko_key_enc: Mapped[str | None] = mapped_column(Text, nullable=True)  # optional free "demo" API key
     # telegram
     telegram_token_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
     updated_at: Mapped[dt.datetime] = mapped_column(default=utcnow, onupdate=utcnow)

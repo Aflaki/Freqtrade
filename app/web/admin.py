@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy import delete, func, select
 
-from ..db import (SIZING_MODES, Bot, BotTrade, ExchangeAccount, ExecutionLog, NotificationLog, SessionLocal, Trade, User,
+from ..db import (SIZING_MODES, BenchmarkPrice, Bot, BotTrade, ExchangeAccount, ExecutionLog, NotificationLog, SessionLocal, Trade, User,
                   WebhookEvent, get_global)
 from ..engine.exchange import EXCHANGES
 from ..engine.sizing import effective_capital
@@ -198,7 +198,13 @@ async def admin_performance(request: Request):
         bots = s.scalars(select(Bot).order_by(Bot.sort, Bot.id)).all()
         counts = dict(s.execute(select(BotTrade.bot_id, func.count(BotTrade.id)).group_by(BotTrade.bot_id)).all())
         recent = s.scalars(select(BotTrade).order_by(BotTrade.id.desc()).limit(50)).all()
+        bench_counts = dict(s.execute(select(BenchmarkPrice.symbol, func.count(BenchmarkPrice.id))
+                                      .group_by(BenchmarkPrice.symbol)).all())
+        bench_last = dict(s.execute(select(BenchmarkPrice.symbol, func.max(BenchmarkPrice.day))
+                                    .group_by(BenchmarkPrice.symbol)).all())
     return render(request, "admin/performance.html", gs=gs, bots=bots, counts=counts, recent=recent,
+                  bench=gs.bench_state or {}, bench_counts=bench_counts, bench_last=bench_last,
+                  has_cg_key=bool(gs.coingecko_key_enc),
                   names={b.id: b.name for b in bots}, tab="performance")
 
 
@@ -207,6 +213,19 @@ async def admin_performance_action(request: Request):
     require_admin(request)
     f = await form_with_csrf(request)
     bot_id = int(f.get("bot_id") or 0)
+    if f.get("action") == "bench_update":
+        from ..engine import benchmarks
+        st = await benchmarks.update_all()
+        flash(request, tr(request, "msg_done") if not st.get("errors") else "; ".join(f"{k}: {v}" for k, v in st["errors"].items())[:400],
+              "ok" if not st.get("errors") else "error")
+        return RedirectResponse("/admin/performance#bench", 303)
+    if f.get("action") == "cg_key":
+        with SessionLocal() as s:
+            key = str(f.get("cg_key", "")).strip()
+            get_global(s).coingecko_key_enc = encrypt(key) if key else None
+            s.commit()
+        flash(request, tr(request, "msg_saved"))
+        return RedirectResponse("/admin/performance#bench", 303)
     if f.get("action") == "clear":
         with SessionLocal() as s:
             q = delete(BotTrade) if not bot_id else delete(BotTrade).where(BotTrade.bot_id == bot_id)

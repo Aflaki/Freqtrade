@@ -5,7 +5,7 @@
 <p class="small muted">{{ _('bots_intro') }}</p>
 <div class="table-wrap"><table>
 <tr><th><input type="checkbox" onclick="document.querySelectorAll('.selb').forEach(c=>c.checked=this.checked)"></th><th>#</th><th>{{ _('col_name') }}</th><th>{{ _('adm_group') }}</th><th>{{ _('bot_webhook_last') }}</th><th>API</th><th>{{ _('bot_state') }}</th><th>{{ _('bot_strategy') }}</th>
-<th>{{ _('f_market') }}</th><th>{{ _('bot_open_trades') }}</th><th>{{ _('col_followers') }}</th><th>{{ _('col_flags') }}</th><th></th></tr>
+<th>{{ _('f_market') }}</th><th>{{ _('col_capital_eff') }}</th><th>{{ _('bot_open_trades') }}</th><th>{{ _('col_followers') }}</th><th>{{ _('col_flags') }}</th><th></th></tr>
 {% for b in bots %}{% set st = b.st %}{% set api = st.get('api', 'not_configured') %}
 <tr><td><input type="checkbox" class="selb" name="sel__{{ b.id }}"></td><td>{{ b.id }}</td><td><a href="/admin/bots/{{ b.id }}"><b>{{ b.name }}</b></a><br><span class="small muted mono">{{ b.api_url }}</span></td>
 <td class="small">{{ group_names.get(b.group_id, '—') }}{% if b.pair_filter_mode in ('whitelist','blacklist') %}<br><span class="badge" title="{{ (b.pair_filter or [])|join(', ') }}">{{ _('pf_' ~ b.pair_filter_mode) }} {{ (b.pair_filter or [])|length }}</span>{% endif %}</td>
@@ -15,6 +15,9 @@
     {% elif st.webhook_state %}<span class="small">{{ st.webhook_state }}*</span>{% else %}—{% endif %}</td>
 <td class="small">{{ st.strategy or '—' }}{% if st.exchange %}<br><span class="muted">{{ st.exchange }}</span>{% endif %}</td>
 <td class="small">{{ st.trading_mode or '' }}{% if api == 'ok' %} · {{ _('bot_dry_run') if st.dry_run else _('bot_live') }}{% endif %}</td>
+{% set cp = caps.get(b.id, {}) %}
+<td class="small">{% if cp.capital %}<span class="num">{{ '{:,.2f}'.format(cp.capital) }}</span>{% else %}—{% endif %}
+<br><span class="muted">{% if cp.how == 'group' %}{{ _('cap_how_group', n=cp.pairs, total=cp.group_pairs) }}{% elif cp.how == 'manual' %}{{ _('cap_how_manual') }}{% elif cp.how == 'freqtrade' %}Freqtrade{% endif %}</span></td>
 <td>{{ st.open_trades if api == 'ok' else '—' }}</td>
 <td>{{ followers[b.id] }}{% if open_user.get(b.id) %} <span class="small muted">({{ open_user[b.id] }} {{ _('st_open') }})</span>{% endif %}</td>
 <td class="small">{% if not b.enabled %}<span class="badge err">{{ _('badge_disabled') }}</span>{% endif %}
@@ -22,7 +25,7 @@
   {% if not b.public %}<span class="badge">{{ _('flag_hidden') }}</span>{% endif %}
   {% if st.missing_pairs %}<span class="badge err" title="{{ st.missing_pairs|join(', ') }}">⚠ {{ st.missing_pairs|length }} {{ _('col_pairs') }}</span>{% endif %}</td>
 <td><a class="btn ghost sm" href="/admin/bots/{{ b.id }}">{{ _('btn_details') }}</a></td></tr>
-{% else %}<tr><td colspan="13" class="muted">—</td></tr>{% endfor %}
+{% else %}<tr><td colspan="14" class="muted">—</td></tr>{% endfor %}
 </table></div>
 <p class="small muted">* {{ _('bot_webhook_state') }}</p>
 <div class="sum" style="margin-top:8px">

@@ -10,6 +10,22 @@
 <button name="action" value="clear" class="danger sm" onclick="return confirm('{{ _('confirm_clear_perf') }}')">{{ _('btn_clear_perf') }}</button></form></td></tr>{% endfor %}
 </table></div>
 <p class="small muted">{{ _('perf_import_help_bots') }}</p></div>
+<div class="card" id="bench"><h2>📈 {{ _('bench_title') }}</h2>
+<p class="small muted">{{ _('bench_admin_intro') }}</p>
+<div class="table-wrap"><table class="small">
+<tr><th>{{ _('col_name') }}</th><th>{{ _('bench_days') }}</th><th>{{ _('bench_last_day') }}</th><th>{{ _('col_source') }}</th><th>{{ _('error') }}</th></tr>
+{% for sym in ['TOTAL'] + (bench.symbols or []) %}<tr><td class="mono">{{ sym }}</td><td>{{ bench_counts.get(sym, 0) }}</td>
+<td class="muted">{{ bench_last.get(sym) or '—' }}</td><td class="small">{{ (bench.sources or {}).get(sym, '') }}</td>
+<td class="small neg">{{ (bench.errors or {}).get(sym, '') }}</td></tr>{% endfor %}
+</table></div>
+<p class="small muted">{{ _('bench_updated') }}: {{ bench.finished or '—' }}{% if (bench.errors or {}).get('top') %} · {{ bench.errors.top }}{% endif %}</p>
+<form method="post" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end"><input type="hidden" name="csrf" value="{{ csrf }}">
+<button name="action" value="bench_update">{{ _('btn_bench_update') }}</button></form>
+<form method="post" class="row" style="align-items:end;margin-top:10px"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="cg_key">
+<div><label>{{ _('f_cg_key') }}</label><input class="ltr" type="password" name="cg_key" placeholder="{{ '•••• ' ~ _('keep_blank') if has_cg_key else 'CG-…' }}"></div>
+<div><button class="ghost">{{ _('btn_save') }}</button></div></form>
+<p class="small muted">{{ _('f_cg_key_help') }}</p></div>
+
 <div class="card"><h2>{{ _('perf_recent') }}</h2><div class="table-wrap"><table class="small">
 <tr><th>{{ _('col_bot') }}</th><th>FT #</th><th>{{ _('col_pair') }}</th><th>{{ _('col_side') }}</th><th>{{ _('col_leverage') }}</th><th>{{ _('col_opened') }}</th><th>{{ _('col_closed') }}</th><th>{{ _('col_status') }}</th><th>{{ _('perf_result') }}</th><th>{{ _('perf_profit_abs') }}</th><th>{{ _('col_reason') }}</th><th>{{ _('col_source') }}</th></tr>
 {% for t in recent %}<tr><td>{{ names.get(t.bot_id, '-') }}</td><td>{{ t.ft_trade_id }}</td><td class="mono">{{ t.pair }}</td><td>{{ t.side|upper }}</td><td>{{ t.leverage }}x</td>

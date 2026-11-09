@@ -90,7 +90,8 @@ async def bots_list(request: Request):
         open_user = dict(s.execute(select(Trade.bot_id, func.count(Trade.id)).where(Trade.status == "open")
                                    .group_by(Trade.bot_id)).all())
         groups = s.scalars(select(BotGroup).order_by(BotGroup.sort, BotGroup.id)).all()
-    return render(request, "admin/bots.html", gs=gs, bots=bots, followers=followers, open_user=open_user, tab="bot",
+    caps = perf.capital_breakdown()
+    return render(request, "admin/bots.html", gs=gs, bots=bots, followers=followers, open_user=open_user, tab="bot", caps=caps,
                   base=gs.base_url, groups=groups, group_names={g.id: g.name for g in groups})
 
 

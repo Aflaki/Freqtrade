@@ -27,12 +27,24 @@
 <li><b>{{ _('perf_win_rate') }}</b> — {{ _('perf_h_win') }}</li>
 <li><b>{{ _('perf_avg_lev') }}</b> — {{ _('perf_h_lev') }}</li>
 </ul>{% if data.return_pct is none %}<p class="muted">{{ _('perf_no_capital') }}</p>{% endif %}</details>
-{% if data.curve.line %}
-<div class="card"><h2>{{ _('perf_curve') }}</h2>
-<svg class="chart" viewBox="0 0 600 160" preserveAspectRatio="none" role="img" aria-label="{{ _('perf_curve') }}">
-  <path class="area" d="{{ data.curve.area }}"/><line class="zero" x1="0" x2="600" y1="{{ data.curve.zero }}" y2="{{ data.curve.zero }}"/>
-  <path class="line" d="{{ data.curve.line }}" vector-effect="non-scaling-stroke"/></svg>
-<div class="small muted">{{ _('perf_curve_note_abs') if data.curve_abs else _('perf_curve_note') }}</div></div>
+{% from "_chart.html" import chart with context %}
+{% set mk = data.market %}
+{% if mk and mk.chart %}
+<div class="card"><h2>{{ _('chart_vs_market') if mk.has_capital else _('perf_curve') }}</h2>
+{{ chart(mk.chart, {'bot': _('bench_bot')}) }}
+{% if not mk.has_capital %}<p class="small muted">{{ _('bench_need_capital') }}</p>{% endif %}
+{% if mk.rows|length > 1 %}
+<div class="table-wrap"><table class="small">
+<tr><th></th><th>{{ _('bench_return') }}</th><th>{{ _('bench_dd') }}</th><th>{{ _('bench_vs_bot') }}</th></tr>
+{% set botret = mk.rows[0].ret %}
+{% for r in mk.rows %}<tr{% if r.key == 'bot' %} style="background:var(--brand-soft)"{% endif %}>
+<td><b>{{ _('bench_bot') if r.key == 'bot' else r.name }}</b></td>
+<td class="{{ 'pos' if r.ret >= 0 else 'neg' }}">{{ r.ret|pct(1) }}</td><td class="neg">{{ (0 - r.dd)|pct(1) }}</td>
+<td>{% if r.key != 'bot' %}<span class="{{ 'pos' if botret - r.ret >= 0 else 'neg' }}">{{ (botret - r.ret)|pct(1) }}</span>{% endif %}</td></tr>{% endfor %}
+</table></div>
+<p class="small muted">{{ _('bench_note') }}{% if mk.approx_total %} {{ _('bench_total_approx') }}{% endif %}</p>
+{% endif %}
+</div>
 {% endif %}
 <div class="card"><h2>{{ _('perf_by_pair') }} <span class="badge">{{ pairs|length }}</span></h2>
 <input type="search" class="tsearch" data-t="pairtable" placeholder="{{ _('search_pair') }}" style="max-width:260px;margin-bottom:8px">

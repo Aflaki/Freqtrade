@@ -18,11 +18,8 @@
 {% if cmp %}
 <div class="card"><h2>{{ pair }} — {{ _('compare_by_bot') }}</h2>
 {% if cmp.rows %}
-<svg class="chart" viewBox="0 0 600 200" preserveAspectRatio="none" role="img" aria-label="{{ pair }}">
-  <line class="zero" x1="0" x2="600" y1="{{ cmp.chart.zero }}" y2="{{ cmp.chart.zero }}"/>
-  {% for r in cmp.rows if r.path %}<path d="{{ r.path }}" fill="none" stroke="{{ r.color }}" stroke-width="2" vector-effect="non-scaling-stroke"/>{% endfor %}
-</svg>
-<p class="small muted">{{ _('compare_chart_note') }}</p>
+{% from "_chart.html" import chart with context %}{{ chart(cmp.chart) }}
+<p class="small muted">{{ _('compare_chart_note_abs') }}</p>
 <div class="table-wrap"><table>
 <tr><th></th><th>{{ _('col_bot') }}</th><th>{{ _('adm_group') }}</th><th>{{ _('perf_trades') }}</th><th>{{ _('perf_win_rate') }}</th><th>{{ _('perf_total_abs') }}</th>
 <th>{{ _('perf_avg') }}</th><th>{{ _('perf_max_dd_abs') }}</th><th>{{ _('perf_avg_lev') }}</th><th>{{ _('perf_avg_hours') }}</th></tr>

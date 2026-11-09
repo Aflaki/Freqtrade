@@ -81,3 +81,11 @@ background:var(--bg);padding:10px;border-radius:8px;font-size:12px;max-height:42
 [data-theme=aurora] .scroll-table thead th,[data-theme=ocean] .scroll-table thead th{background:var(--bg)}
 table.sortable th{cursor:pointer;user-select:none}table.sortable th[data-dir=asc]::after{content:" ▲"}table.sortable th[data-dir=desc]::after{content:" ▼"}
 @media (min-width:761px) and (max-width:1180px){.nav .links a:not(.on) .lbl{display:none}.nav .links a:not(.on) .ic{margin:0}}
+
+.chartbox{width:100%}.xchart{width:100%;height:auto;display:block;overflow:visible}
+.xchart .grid{stroke:var(--line);stroke-width:1}.xchart .grid.v{stroke-dasharray:2 4}
+.xchart .zero{stroke:var(--muted);stroke-width:1;stroke-dasharray:4 4;opacity:.7}
+.xchart .tick{fill:var(--muted);font-size:11px;font-family:ui-monospace,Menlo,monospace}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin:8px 0 2px;font-size:13px}
+.legend label{display:inline-flex;align-items:center;gap:6px;margin:0;font-weight:400;cursor:pointer}
+.legend i{display:inline-block;width:14px;height:3px;border-radius:2px}

@@ -35,21 +35,25 @@ def test_amount_from_stake_when_abs_missing():
 
 
 def test_group_capital():
-    """Group capital is used for the whole group; a lone bot gets an equal share unless it has its own."""
+    """Bots with own capital keep it; the rest of the group's capital is split by number of pairs."""
     from app.db import Bot, BotGroup, SessionLocal, init_db
-    from app.engine.performance import capitals
+    from app.engine.performance import capital_breakdown, capitals
     init_db()
     with SessionLocal() as s:
         g = BotGroup(name="CapTest", stats_capital=3000.0)
         s.add(g)
         s.flush()
-        bots = [Bot(name=f"cap{i}", group_id=g.id, webhook_secret=f"capsecret{i}") for i in range(3)]
-        s.add_all(bots)
+        b0 = Bot(name="cap0", group_id=g.id, webhook_secret="capsecret0", state={"whitelist": ["BTC/USDT", "ETH/USDT"]})
+        b1 = Bot(name="cap1", group_id=g.id, webhook_secret="capsecret1",
+                 state={"whitelist": ["SOL/USDT", "XRP/USDT", "BNB/USDT", "DOGE/USDT"]},
+                 pair_filter_mode="blacklist", pair_filter=["DOGE/USDT"])  # filtered pair does not count -> 3
+        b2 = Bot(name="cap2", group_id=g.id, webhook_secret="capsecret2", stats_capital=500.0,
+                 state={"starting_capital": 999})
+        s.add_all([b0, b1, b2])
         s.commit()
-        ids = [b.id for b in bots]
-        s.get(Bot, ids[2]).stats_capital = 500.0
-        s.commit()
-    assert capitals(ids) == 3000.0                 # the whole group -> group capital
-    assert capitals([ids[0]]) == 1000.0            # one bot, no own capital -> 3000 / 3
-    assert capitals([ids[2]]) == 500.0             # own capital wins
-    assert capitals([ids[0], ids[1]]) == 2000.0    # part of the group -> shares
+        ids = [b0.id, b1.id, b2.id]
+    bd = capital_breakdown()
+    assert bd[ids[2]] == {"capital": 500.0, "how": "manual"}       # own capital, subtracted from the group
+    assert bd[ids[0]]["capital"] == 1000.0 and bd[ids[0]]["pairs"] == 2   # 2500 * 2/5
+    assert bd[ids[1]]["capital"] == 1500.0 and bd[ids[1]]["group_pairs"] == 5
+    assert capitals(ids) == 3000.0 and capitals([ids[0]]) == 1000.0 and capitals(ids[:2]) == 2500.0

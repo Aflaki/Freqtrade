@@ -1,0 +1,17 @@
+{% macro chart(c, names={}) %}{% if c %}
+<div class="chartbox" dir="ltr">
+<svg class="xchart" viewBox="0 0 {{ c.w }} {{ c.h }}" role="img">
+  {% for y, label in c.yticks %}<line x1="{{ c.L }}" x2="{{ c.w - c.R }}" y1="{{ y }}" y2="{{ y }}" class="grid"/>
+  <text x="{{ c.L - 6 }}" y="{{ y + 4 }}" text-anchor="end" class="tick">{{ label }}</text>{% endfor %}
+  {% for x, label in c.xticks %}<line x1="{{ x }}" x2="{{ x }}" y1="{{ c.T }}" y2="{{ c.h - c.B }}" class="grid v"/>
+  <text x="{{ x }}" y="{{ c.h - 9 }}" text-anchor="{{ 'start' if loop.first else 'end' if loop.last else 'middle' }}" class="tick">{{ label }}</text>{% endfor %}
+  <line x1="{{ c.L }}" x2="{{ c.w - c.R }}" y1="{{ c.zero }}" y2="{{ c.zero }}" class="zero"/>
+  {% for s in c.series %}<path d="{{ s.path }}" data-k="{{ s.key }}" fill="none" style="stroke:{{ s.color }};{{ '' if s.on else 'display:none' }}"
+    stroke-width="{{ 2.6 if s.key == 'bot' else 1.6 }}" {{ 'stroke-dasharray=6,4' if s.dash }} vector-effect="non-scaling-stroke"/>{% endfor %}
+</svg></div>
+<div class="legend">
+{% for s in c.series %}<label><input type="checkbox" data-k="{{ s.key }}" {{ 'checked' if s.on }} onchange="this.closest('.card').querySelectorAll('path[data-k=\'{{ s.key }}\']').forEach(p=>p.style.display=this.checked?'':'none')">
+<i style="background:{{ s.color }}"></i>{{ names.get(s.key, s.name) }} <b class="num {{ 'pos' if s.last >= 0 else 'neg' }}">{{ ('%+.1f%%'|format(s.last)) if c.unit == '%' else ('{:+,.2f}'.format(s.last)) }}</b></label>{% endfor %}
+</div>
+<p class="small muted">{{ _('chart_period', start=c.start_s, end=c.end_s, days=c.days) }}</p>
+{% endif %}{% endmacro %}
