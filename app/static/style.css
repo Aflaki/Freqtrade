@@ -163,3 +163,5 @@ code.copy{user-select:all;word-break:break-all}
   box-shadow:0 0 0 0 var(--ok);animation:livepulse 2s infinite}
 @keyframes livepulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 60%,transparent)}70%{box-shadow:0 0 0 8px transparent}100%{box-shadow:0 0 0 0 transparent}}
 @media (prefers-reduced-motion:reduce){.live-dot{animation:none}}
+[hidden]{display:none!important}
+button:disabled,.btn[aria-disabled=true]{opacity:.45;cursor:not-allowed}

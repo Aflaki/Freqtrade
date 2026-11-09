@@ -86,6 +86,12 @@ async def security_alert(u: User, key: str, request: Request, **kw) -> None:
     text = t(u.lang, key, ip=client_ip(request), when=when, device=ua, **kw)
     if u.telegram_chat_id:
         await bot.send(u.telegram_chat_id, f"🛡 <b>{esc(site)}</b>\n{esc(text)}{esc(ap)}", u.id, "security")
+    try:  # phone push (if the user enabled it on a device)
+        from ..notify import webpush
+        await webpush.send_to_user(u.id, f"🛡 {site}", text + (f"\n🔐 {u.anti_phishing}" if u.anti_phishing else ""),
+                                   "/settings/security", tag="security")
+    except Exception:
+        pass
     if u.email_verified and not u.email.endswith(PLACEHOLDER_DOMAIN):
         await mailer.send(u.email, f"{site}: {t(u.lang, 'mail_security_subject')}",
                           [text, t(u.lang, 'mail_not_you')], anti_phishing=u.anti_phishing, dir_=LANGS[u.lang]["dir"])

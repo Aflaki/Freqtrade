@@ -65,5 +65,12 @@
 <label>{{ _('f_bot_token') }}</label><input class="ltr" type="password" name="telegram_token" placeholder="{{ '•••• ' ~ _('keep_blank') if has_token else '123456:ABC…' }}">
 <p class="small muted">{{ _('f_bot_token_help') }}</p>
 <p><button>{{ _('btn_save') }}</button> {% if has_token %}<button class="ghost" name="remove" value="1">{{ _('btn_remove') }}</button>{% endif %}</p></form>
+<form method="post" class="card" id="alertbot"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="section" value="alertbot">
+<h2>🚨 {{ _('alertbot_title') }}</h2>
+<p class="small muted">{{ _('alertbot_intro') }}</p>
+<p>{% if alert_bot_username %}<span class="badge ok">{{ _('connected') }}</span> <a href="https://t.me/{{ alert_bot_username }}" target="_blank" rel="noopener">@{{ alert_bot_username }}</a>{% elif gs.alert_bot_token_enc %}<span class="badge err">{{ _('error') }}</span>{% else %}<span class="badge">{{ _('off') }}</span>{% endif %}</p>
+<label>{{ _('f_bot_token') }}</label><input class="ltr" type="password" name="alert_bot_token" placeholder="{{ '•••• ' ~ _('keep_blank') if gs.alert_bot_token_enc else '123456:ABC…' }}">
+<p class="small muted">{{ _('alertbot_steps') }}</p>
+<p><button>{{ _('btn_save') }}</button> {% if gs.alert_bot_token_enc %}<button class="ghost" name="remove" value="1">{{ _('btn_remove') }}</button>{% endif %}</p></form>
 {% if bot_username %}<form method="post" action="/admin/telegram-test" class="card"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost sm">{{ _('btn_tg_test') }}</button></form>{% endif %}
 {% endblock %}

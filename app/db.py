@@ -45,8 +45,9 @@ DEFAULT_NOTIFY: dict[str, bool] = {
     "entry_fill": True, "exit_fill": True, "partial_exit": True,
     "skipped": True, "errors": True, "daily_report": True,
     "bot_status": True, "bot_trades": True,  # admins only: Freqtrade events / bot trades + copy summary
+    "phone_alerts": True,  # admins only: critical alerts (bot down / restarted) also to phone push + alert bot
 }
-ADMIN_NOTIFY = ("bot_status", "bot_trades")
+ADMIN_NOTIFY = ("bot_status", "bot_trades", "phone_alerts")
 SIZING_MODES = ("equal_split", "pair_weights", "custom_amounts")
 
 
@@ -347,6 +348,7 @@ class Bot(Base):
     pair_filter_mode: Mapped[str | None] = mapped_column(String(10), nullable=True)
     pair_filter: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     stats_capital: Mapped[float | None] = mapped_column(Float, nullable=True)  # override of Freqtrade's starting_capital
+    auto_restart: Mapped[bool] = mapped_column(default=True)  # watchdog may restart its process when it dies
     state: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)  # monitor result
     created_at: Mapped[dt.datetime] = mapped_column(default=utcnow)
 
@@ -374,6 +376,43 @@ class Bot(Base):
 
 
 # ============================================================================ market benchmarks
+class PushSubscription(Base):
+    """A browser / phone (installed web app) that receives Web Push notifications for a user."""
+    __tablename__ = "push_subscriptions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    endpoint: Mapped[str] = mapped_column(Text, unique=True)
+    p256dh: Mapped[str] = mapped_column(String(200))
+    auth: Mapped[str] = mapped_column(String(100))
+    device: Mapped[str] = mapped_column(String(120), default="")
+    created_at: Mapped[dt.datetime] = mapped_column(default=utcnow)
+    last_ok_at: Mapped[dt.datetime | None] = mapped_column(nullable=True)
+    last_error: Mapped[str] = mapped_column(String(200), default="")
+
+
+class WatchdogHost(Base):
+    """A bot server running the watchdog agent (it reports every minute)."""
+    __tablename__ = "watchdog_hosts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    hostname: Mapped[str] = mapped_column(String(120), unique=True)
+    ips: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    version: Mapped[str] = mapped_column(String(20), default="")
+    last_seen: Mapped[dt.datetime | None] = mapped_column(nullable=True)
+    report: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)  # last report (bots, memory, load)
+    silent_alerted: Mapped[bool] = mapped_column(default=False)
+
+
+class WatchdogEvent(Base):
+    __tablename__ = "watchdog_events"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    host: Mapped[str] = mapped_column(String(120), index=True)
+    bot_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
+    port: Mapped[int | None] = mapped_column(nullable=True)
+    action: Mapped[str] = mapped_column(String(20))  # gone | restarted | restart_failed | gave_up | recovered
+    detail: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[dt.datetime] = mapped_column(default=utcnow, index=True)
+
+
 class BenchmarkPrice(Base):
     """Daily close of a market benchmark (BTC, ETH, top coins, TOTAL = whole crypto market cap)."""
     __tablename__ = "benchmark_prices"
@@ -446,6 +485,12 @@ class GlobalSettings(Base):
     login_alerts: Mapped[bool] = mapped_column(default=True)
     # telegram
     telegram_token_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # critical alerts: a second Telegram bot (kept unmuted) + Web Push to phones
+    alert_bot_token_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    vapid_private_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    vapid_public: Mapped[str] = mapped_column(String(120), default="")
+    # watchdog agents on the bot servers
+    watchdog_token: Mapped[str] = mapped_column(String(64), default="")
     updated_at: Mapped[dt.datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 
 

@@ -11,7 +11,7 @@ from ..db import (SIZING_MODES, BenchmarkPrice, Bot, BotTrade, ExchangeAccount, 
 from ..engine.exchange import EXCHANGES
 from ..engine.sizing import effective_capital
 from ..i18n import LANGS
-from ..security import encrypt, flash, form_with_csrf, require_admin
+from ..security import decrypt, encrypt, flash, form_with_csrf, require_admin
 from ..telegram import bot, esc
 from .common import render, tr
 from .icons import custom_icon, remove_icon, save_icon
@@ -105,7 +105,10 @@ async def admin_settings(request: Request):
     require_admin(request)
     with SessionLocal() as s:
         gs = get_global(s)
+    from ..notify.alerts import alert_bot_username
+    alert_name = await alert_bot_username() if gs.alert_bot_token_enc else ""
     return render(request, "admin/settings.html", gs=gs, all_exchanges=EXCHANGES, sizing_all=SIZING_MODES,
+                  alert_bot_username=alert_name,
                   tab="settings", bot_username=bot.username, bot_error=bot.last_error, has_custom_icon=bool(custom_icon()),
                   has_token=bool(gs.telegram_token_enc))
 
@@ -173,6 +176,18 @@ async def admin_settings_save(request: Request):
             gs.signal_source = "generic" if f.get("signal_source") == "generic" else "freqtrade"
             gs.allowed_ips = [x.strip() for x in str(f.get("allowed_ips", "")).replace("\n", ",").split(",") if x.strip()]
             gs.dedupe_seconds = max(0, int(_num(f, "dedupe_seconds", 30)))
+        elif section == "alertbot":
+            token = str(f.get("alert_bot_token", "")).strip()
+            if f.get("remove"):
+                gs.alert_bot_token_enc = None
+            elif token:
+                from ..notify.alerts import alert_bot_username
+                if token == decrypt(gs.telegram_token_enc):
+                    flash(request, tr(request, "err_alertbot_same"), "error")
+                elif not await alert_bot_username(token):
+                    flash(request, tr(request, "err_alertbot_token"), "error")
+                else:
+                    gs.alert_bot_token_enc = encrypt(token)
         elif section == "telegram":
             token = str(f.get("telegram_token", "")).strip()
             if f.get("remove"):

@@ -339,8 +339,14 @@ NOTIFY_KEYS = list(DEFAULT_NOTIFY)
 async def settings_page(request: Request):
     user = require_user(request)
     keys = [k for k in NOTIFY_KEYS if user.is_admin or k not in ADMIN_NOTIFY]
+    from ..db import PushSubscription
+    from ..notify.alerts import alert_bot_username
+    with SessionLocal() as s:
+        devices = list(s.scalars(select(PushSubscription).where(PushSubscription.user_id == user.id)
+                                 .order_by(PushSubscription.id)))
     return render(request, "settings.html", notify={**DEFAULT_NOTIFY, **(user.notify or {})},
-                  notify_keys=keys, bot_username=bot.username)
+                  notify_keys=keys, bot_username=bot.username, devices=devices,
+                  alert_bot=await alert_bot_username() if user.is_admin else "")
 
 
 @router.post("/settings")

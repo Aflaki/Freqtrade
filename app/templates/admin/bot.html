@@ -84,6 +84,7 @@
 <label class="check"><input type="checkbox" name="enabled" {{ 'checked' if b.enabled }}> {{ _('bot_f_enabled') }}</label>
 <label class="check"><input type="checkbox" name="copy_enabled" {{ 'checked' if b.copy_enabled }}> {{ _('bot_f_copy') }}</label>
 <label class="check"><input type="checkbox" name="public" {{ 'checked' if b.public }}> {{ _('bot_f_public') }}</label>
+<label class="check"><input type="checkbox" name="auto_restart" {{ 'checked' if b.auto_restart }}> {{ _('bot_f_auto_restart') }}</label>
 <p><button>{{ _('btn_save') }}</button></p></form>
 
 <div class="card"><h2>{{ _('f_ft_history') }} <span class="badge">{{ n_trades }}</span></h2>

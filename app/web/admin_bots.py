@@ -92,7 +92,32 @@ async def bots_list(request: Request):
         groups = s.scalars(select(BotGroup).order_by(BotGroup.sort, BotGroup.id)).all()
     caps = perf.capital_breakdown()
     return render(request, "admin/bots.html", gs=gs, bots=bots, followers=followers, open_user=open_user, tab="bot", caps=caps,
-                  base=gs.base_url, groups=groups, group_names={g.id: g.name for g in groups})
+                  base=gs.base_url, groups=groups, group_names={g.id: g.name for g in groups}, wd=_watchdog_view(request, bots))
+
+
+def _watchdog_view(request: Request, bots) -> dict:
+    """Watchdog card: install command, servers with their last report, which bots are watched, recent events."""
+    import datetime as dt
+
+    from ..db import WatchdogEvent, WatchdogHost, utcnow
+    from .watchdog import SILENT_MINUTES, bots_on_host, site_url, token
+    with SessionLocal() as s:
+        hosts = list(s.scalars(select(WatchdogHost).order_by(WatchdogHost.hostname)))
+        events = list(s.scalars(select(WatchdogEvent).order_by(WatchdogEvent.id.desc()).limit(30)))
+        watched: dict[int, dict] = {}
+        rows = []
+        for h in hosts:
+            by_port = bots_on_host(h.ips or [], s)
+            seen = {b.get("port"): b for b in (h.report or {}).get("bots", [])}
+            for port, bot in by_port.items():
+                if port in seen:
+                    watched[bot.id] = {**seen[port], "host": h.hostname}
+            rows.append({"h": h, "online": h.last_seen and utcnow() - h.last_seen < dt.timedelta(minutes=SILENT_MINUTES),
+                         "n": len(seen), "mem": (h.report or {}).get("mem") or {}, "load": (h.report or {}).get("load") or []})
+    names = {b.id: b.name for b in bots}
+    unwatched = [b for b in bots if b.enabled and b.api_url and b.id not in watched]
+    return {"cmd": f'curl -fsSL "{site_url(request)}/watchdog/install.sh?t={token()}" | sudo sh', "hosts": rows,
+            "events": events, "watched": watched, "unwatched": unwatched if hosts else [], "names": names}
 
 
 @router.post("/bot")
@@ -227,6 +252,7 @@ async def bot_action(bot_id: int, request: Request):
                 if str(f.get("api_pass", "")).strip():
                     b.api_pass_enc = encrypt(str(f["api_pass"]).strip())
                 b.enabled, b.copy_enabled, b.public = bool(f.get("enabled")), bool(f.get("copy_enabled")), bool(f.get("public"))
+                b.auto_restart = bool(f.get("auto_restart"))
                 b.sort = int(f.get("sort") or b.sort or 0)
                 try:
                     cap = float(str(f.get("stats_capital", "")).replace(",", "") or 0)

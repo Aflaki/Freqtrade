@@ -55,6 +55,36 @@
 <p class="small muted">{{ _('f_group_capital_help') }}</p>
 </div>
 
+<div class="card" id="watchdog"><h2>🛟 {{ _('wd_title') }}</h2>
+<p class="small muted">{{ _('wd_intro') }}</p>
+<p class="small"><b>{{ _('wd_install') }}</b></p>
+<pre class="ltr copy" style="white-space:pre-wrap;word-break:break-all">{{ wd.cmd }}</pre>
+<p class="small muted">{{ _('wd_install_note') }}</p>
+{% if wd.hosts %}
+<div class="table-wrap"><table class="small">
+<tr><th>{{ _('wd_server') }}</th><th>{{ _('col_status') }}</th><th>{{ _('wd_last_seen') }}</th><th>{{ _('wd_bots_seen') }}</th><th>{{ _('wd_memory') }}</th><th>{{ _('wd_load') }}</th></tr>
+{% for r in wd.hosts %}<tr><td><b>{{ r.h.hostname }}</b><div class="muted mono">{{ (r.h.ips or [])|join(', ') }}</div></td>
+<td>{% if r.online %}<span class="badge ok">{{ _('wd_online') }}</span>{% else %}<span class="badge err">{{ _('wd_offline') }}</span>{% endif %}</td>
+<td class="muted"><span class="num">{{ r.h.last_seen.strftime('%m-%d %H:%M:%S') if r.h.last_seen }}</span></td><td>{{ r.n }}</td>
+<td>{% if r.mem.MemTotal %}{% set pct = 100 * (1 - r.mem.MemAvailable / r.mem.MemTotal) %}<span class="{{ 'neg' if pct > 90 else '' }} num">{{ '%.0f'|format(pct) }}%</span> <span class="muted small">({{ r.mem.MemAvailable }} / {{ r.mem.MemTotal }} MB {{ _('wd_free') }})</span>{% endif %}</td>
+<td class="num">{{ r.load|map('round', 2)|join(' ') }}</td></tr>{% endfor %}
+</table></div>
+{% if wd.unwatched %}<p class="small"><span class="badge warn">{{ _('wd_unwatched') }}</span> {{ wd.unwatched|map(attribute='name')|join(', ') }}</p>
+<p class="small muted">{{ _('wd_unwatched_help') }}</p>{% endif %}
+{% if wd.events %}<details class="more"><summary>{{ _('wd_events') }} ({{ wd.events|length }})</summary>
+<div class="table-wrap"><table class="small">
+{% for e in wd.events %}<tr><td class="muted num">{{ e.created_at.strftime('%m-%d %H:%M') }}</td><td>{{ e.host }}</td>
+<td>{{ wd.names.get(e.bot_id) or (e.port or '') }}</td><td><span class="badge {{ 'ok' if e.action in ('restarted','recovered') else 'err' if e.action in ('restart_failed','gave_up') else 'warn' }}">{{ _('wd_ev_' ~ e.action) }}</span></td>
+<td class="small muted" style="white-space:pre-wrap;max-width:420px">{{ e.detail[:300] }}</td></tr>{% endfor %}
+</table></div></details>{% endif %}
+{% endif %}
+<p class="small muted">{{ _('wd_commands') }}</p>
+<pre class="ltr small">python3 /opt/relay-watchdog/agent.py status
+python3 /opt/relay-watchdog/agent.py pause 8015    # {{ _('wd_cmd_pause') }}
+python3 /opt/relay-watchdog/agent.py resume 8015
+journalctl -u relay-watchdog -f</pre>
+</div>
+
 <div class="card" id="export"><h2>{{ ic('download') }}{{ _('export_title') }}</h2>
 <p class="small muted">{{ _('export_intro') }}</p>
 <p style="display:flex;gap:8px;flex-wrap:wrap">

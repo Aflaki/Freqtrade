@@ -9,6 +9,56 @@
 <p class="small muted">{{ _('tg_refresh_hint') }}</p>{% endif %}
 </div>
 
+<div class="card" id="phone"><h2>📱 {{ _('phone_title') }}</h2>
+<p class="muted">{{ _('phone_intro') }}</p>
+<h3 class="small" style="margin:14px 0 6px">1) {{ _('phone_push') }}</h3>
+<div id="push-box" data-csrf="{{ csrf }}">
+<p class="flash warn small" id="push-ios" hidden>{{ _('phone_ios_steps') }}</p>
+<p class="flash error small" id="push-unsupported" hidden>{{ _('phone_unsupported') }}</p>
+<p class="flash error small" id="push-denied" hidden>{{ _('phone_denied') }}</p>
+<p><button type="button" id="push-on">{{ _('phone_enable') }}</button>
+<span id="push-here" class="badge ok" hidden>✔ {{ _('phone_this_on') }}</span></p></div>
+{% if devices %}<table class="small"><tbody>{% for d in devices %}<tr><td>📲 {{ d.device or '—' }}</td>
+<td class="muted">{{ d.created_at.strftime('%Y-%m-%d') }}{% if d.last_ok_at %} · ✔ {{ d.last_ok_at.strftime('%m-%d %H:%M') }}{% endif %}{% if d.last_error %} · <span class="neg">{{ d.last_error }}</span>{% endif %}</td>
+<td><form method="post" action="/push/remove/{{ d.id }}" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost sm">{{ _('btn_remove') }}</button></form></td></tr>{% endfor %}</tbody></table>{% endif %}
+{% if user.is_admin %}<h3 class="small" style="margin:14px 0 6px">2) {{ _('alertbot_title') }}</h3>
+{% if alert_bot %}<p class="small">{{ _('phone_alertbot_start') }} <a class="btn sm" href="https://t.me/{{ alert_bot }}?start=alerts" target="_blank" rel="noopener">@{{ alert_bot }}</a></p>
+{% if not user.telegram_chat_id %}<p class="small neg">{{ _('phone_alertbot_need_tg') }}</p>{% endif %}
+{% else %}<p class="small muted">{{ _('phone_alertbot_off') }} <a href="/admin/settings#alertbot">{{ _('nav_admin') }} →</a></p>{% endif %}{% endif %}
+<form method="post" action="/push/test" style="margin-top:12px"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost">{{ _('phone_test') }}</button></form>
+</div>
+<script>
+(() => {
+  const $ = id => document.getElementById(id), box = $('push-box');
+  const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  if (ios && !standalone) { $('push-ios').hidden = false; $('push-on').disabled = true; return; }
+  if (!supported) { $('push-unsupported').hidden = false; $('push-on').disabled = true; return; }
+  const device = () => (ios ? 'iPhone/iPad' : /Android/.test(navigator.userAgent) ? 'Android' : 'Browser') + ' · ' +
+    (navigator.userAgent.match(/(Firefox|Edg|Chrome|Safari)\/[\d.]+/)?.[0] || '');
+  const key = s => { const b = atob((s + '='.repeat((4 - s.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/'));
+    return Uint8Array.from([...b].map(c => c.charCodeAt(0))); };
+  navigator.serviceWorker.register('/sw.js').then(async reg => {
+    const cur = await reg.pushManager.getSubscription();
+    if (cur && Notification.permission === 'granted') { $('push-here').hidden = false; $('push-on').hidden = true; }
+  });
+  $('push-on').addEventListener('click', async () => {
+    try {
+      const perm = await Notification.requestPermission();   // must run inside the tap (iOS)
+      if (perm !== 'granted') { $('push-denied').hidden = false; return; }
+      const reg = await navigator.serviceWorker.ready;
+      const {key: k} = await (await fetch('/push/key')).json();
+      const sub = await reg.pushManager.getSubscription() ||
+        await reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: key(k)});
+      const r = await fetch('/push/subscribe', {method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({csrf: box.dataset.csrf, subscription: sub.toJSON(), device: device()})});
+      if (r.ok) location.reload();
+    } catch (e) { alert(e.message || e); }
+  });
+})();
+</script>
+
 <form method="post" action="/settings" class="card"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="profile">
 <h2>{{ _('sec_profile') }}</h2>
 <div class="row"><div><label>{{ _('f_name') }}</label><input type="text" name="name" value="{{ user.name }}"></div>

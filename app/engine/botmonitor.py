@@ -256,13 +256,20 @@ class BotMonitor:
             await asyncio.sleep(LIVE_SECONDS)
 
     # ------------------------------------------------------------ admin notifications
-    def notify_admins(self, kind: str, make_text) -> None:
+    def notify_admins(self, kind: str, make_text, critical: bool = False, title=None, tag: str = "") -> None:
+        """Telegram message to the admins; critical ones also go to their phones (push + alert bot)."""
+        from ..notify import alerts
         from ..telegram import bot as tg
         with SessionLocal() as s:
-            admins = s.scalars(select(User).where(User.is_admin.is_(True), User.telegram_chat_id.is_not(None))).all()
+            admins = s.scalars(select(User).where(User.is_admin.is_(True))).all()
         for a in admins:
-            if a.wants(kind):
-                task = asyncio.create_task(tg.send(a.telegram_chat_id, make_text(a.lang), a.id, kind))
+            jobs = []
+            if a.telegram_chat_id and a.wants(kind):
+                jobs.append(tg.send(a.telegram_chat_id, make_text(a.lang), a.id, kind))
+            if critical and a.wants("phone_alerts"):
+                jobs.append(alerts.phone(a, title(a.lang) if title else "Signal Relay", make_text(a.lang), tag=tag))
+            for job in jobs:
+                task = asyncio.create_task(job)
                 self._bg.add(task)
                 task.add_done_callback(self._bg.discard)
 
@@ -341,13 +348,13 @@ class BotMonitor:
                 st.update(await self._sync_trades(bot_id, url, user, pw, full=not old.get("history_synced")))
             except Exception as e:
                 st.update(_error_state(e))
+        if alert and url:
+            self._alert_changes(name, old, st)  # may add down_since / down_reminded to st
         with SessionLocal() as s:
             b = s.get(Bot, bot_id)
             if b is not None:
                 b.state = st
                 s.commit()
-        if alert and url:
-            self._alert_changes(name, old, st)
         return st
 
     async def _sync_trades(self, bot_id: int, url: str, user: str, pw: str, full: bool) -> dict:
@@ -379,15 +386,34 @@ class BotMonitor:
     def _alert_changes(self, name: str, old: dict, new: dict) -> None:
         p = f"[{esc(name)}] "
         if old.get("api") == "ok" and new.get("api") != "ok":
-            self.notify_admins("bot_status", lambda L: p + t(L, "bot_alert_down", err=esc(new.get("error", ""))))
+            self.notify_admins("bot_status", lambda L: p + t(L, "bot_alert_down", err=esc(new.get("error", ""))),
+                               critical=True, title=lambda L: t(L, "push_bot_down", bot=name), tag=f"bot-{name}")
         elif old.get("api") not in (None, "ok", "not_configured") and new.get("api") == "ok":
-            self.notify_admins("bot_status", lambda L: p + t(L, "bot_alert_up", state=esc(new.get("state"))))
+            self.notify_admins("bot_status", lambda L: p + t(L, "bot_alert_up", state=esc(new.get("state"))),
+                               critical=True, title=lambda L: t(L, "push_bot_up", bot=name), tag=f"bot-{name}")
         if old.get("api") == "ok" and new.get("api") == "ok" and old.get("state") != new.get("state"):
             self.notify_admins("bot_status", lambda L: p + t(L, "bot_alert_state", old=esc(old.get("state")),
                                                               new=esc(new.get("state"))))
         if new.get("stalled") and not old.get("stalled"):
             self.notify_admins("bot_status", lambda L: p + t(L, "bot_alert_stalled", min=STALL_MINUTES,
-                                                              ts=esc(new.get("last_process"))))
+                                                              ts=esc(new.get("last_process"))),
+                               critical=True, title=lambda L: t(L, "push_bot_stalled", bot=name), tag=f"bot-{name}")
+        # still down: remind every 2 hours, so a dead bot is never forgotten overnight
+        if new.get("api") not in ("ok", "not_configured", None):
+            since = new.get("down_since") or old.get("down_since") or new.get("checked_at")
+            new["down_since"] = since
+            last = new.get("down_reminded") or old.get("down_reminded") or since
+            try:
+                due = utcnow() - dt.datetime.fromisoformat(last) >= dt.timedelta(hours=2)
+            except (TypeError, ValueError):
+                due = False
+            if due:
+                new["down_reminded"] = utcnow().isoformat(timespec="seconds")
+                self.notify_admins("bot_status", lambda L: p + t(L, "bot_alert_still_down", since=esc(since)),
+                                   critical=True, title=lambda L: t(L, "push_bot_down", bot=name), tag=f"bot-{name}")
+        else:
+            new.pop("down_since", None)
+            new.pop("down_reminded", None)
         if new.get("missing_pairs") and new.get("missing_pairs") != old.get("missing_pairs"):
             self.notify_admins("bot_status", lambda L: p + t(L, "bot_alert_pairs",
                                                               pairs=esc(", ".join(new["missing_pairs"]))))
@@ -412,6 +438,8 @@ class BotMonitor:
         while True:
             try:
                 await self.poll_all()
+                from ..web.watchdog import check_silent_hosts
+                check_silent_hosts()
             except asyncio.CancelledError:
                 raise
             except Exception:
