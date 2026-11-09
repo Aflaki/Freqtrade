@@ -279,6 +279,7 @@ def summary(market: str = "all", days: int | None = None, pairs: list[str] | Non
     st["curve"] = svg_path(pts)
     st["market"] = market_chart(trades, st["capital"], days)
     st["recent"] = list(reversed(trades[-15:]))
+    st["all_trades"] = list(reversed(trades))[:1000]  # newest first, for the trades tab
     return st
 
 

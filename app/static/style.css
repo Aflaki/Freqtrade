@@ -89,3 +89,37 @@ table.sortable th{cursor:pointer;user-select:none}table.sortable th[data-dir=asc
 .legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin:8px 0 2px;font-size:13px}
 .legend label{display:inline-flex;align-items:center;gap:6px;margin:0;font-weight:400;cursor:pointer}
 .legend i{display:inline-block;width:14px;height:3px;border-radius:2px}
+
+/* ---------- sticky filter bar (filters + applied chips + tabs) ---------- */
+.filterbar{position:sticky;top:var(--navh,52px);z-index:4;margin:6px -16px 14px;padding:10px 16px 0;
+  background:var(--nav);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
+.fb-row{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center}
+.fb-scope{display:inline-flex;align-items:center;gap:6px;margin:0;font-weight:400;padding:0 0 0 10px;border:1px solid var(--line);
+  border-radius:10px;background:var(--input)}
+[dir=rtl] .fb-scope{padding:0 10px 0 0}
+.fb-scope select{border:0;background:transparent;padding:7px 8px;width:auto;max-width:300px;font-weight:600}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--input)}
+.seg a{padding:6px 11px;font-size:13px;color:var(--muted);border-inline-end:1px solid var(--line)}
+.seg a:last-child{border-inline-end:0}.seg a.on{background:var(--brand);color:var(--brand-ink);font-weight:700}
+.fb-chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:13px;padding:8px 0}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:2px 4px 2px 10px;border-radius:999px;background:var(--brand-soft);color:var(--text);font-weight:600}
+[dir=rtl] .chip{padding:2px 10px 2px 4px}
+.chip.plain{padding:2px 10px}
+.chip a{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;color:var(--muted);font-size:11px}
+.chip a:hover{background:var(--line);color:var(--text)}
+.fb-count{color:var(--muted)}.fb-reset{margin-inline-start:auto;font-size:13px}
+.tabs{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none;margin-top:2px}
+.tabs::-webkit-scrollbar{display:none}
+.tabs .tab{background:transparent;color:var(--muted);border:0;border-bottom:2px solid transparent;border-radius:0;padding:8px 14px;font-weight:600;white-space:nowrap}
+.tabs .tab.on{color:var(--text);border-bottom-color:var(--brand)}
+.tabs .tab .badge{margin-inline-start:4px}
+.kpis{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));margin-bottom:14px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;box-shadow:var(--shadow)}
+.kpi .k{color:var(--muted);font-size:12px}.kpi .v{font-size:19px;font-weight:800;font-variant-numeric:tabular-nums}.kpi .sub{font-size:11px;color:var(--muted)}
+.tabpane{display:none}.tabpane.on{display:block}
+.no-js .tabpane{display:block}
+tr.rowlink{cursor:pointer}tr.rowlink:hover td{background:var(--brand-soft)}tr.rowlink.sel td{background:var(--brand-soft)}
+.scroll-table thead th{top:0}
+@media (max-width:760px){.fb-scope select{max-width:200px}.seg a{padding:6px 8px}}
+.fb-edit{display:none}.filterbar.compact .fb-row{display:none}.filterbar.compact .fb-edit{display:inline-flex}
+.filterbar.compact{padding-top:2px}.filterbar.compact .fb-chips{padding:6px 0 4px}

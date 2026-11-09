@@ -25,6 +25,15 @@ THEMES = {
 templates.env.globals.update(EXCHANGES=EXCHANGES, NEEDS_PASSWORD=NEEDS_PASSWORD, LANGS=LANGS, THEMES=THEMES)
 
 
+def _qs(**params) -> str:
+    """Query string for filter links; defaults ('all', empty) are left out so URLs stay short."""
+    from urllib.parse import urlencode
+    return urlencode({k: v for k, v in params.items() if v not in (None, "", "all")})
+
+
+templates.env.globals["qs"] = _qs
+
+
 def _money(v, digits: int = 2) -> str:
     try:
         return f"{float(v):,.{digits}f}"

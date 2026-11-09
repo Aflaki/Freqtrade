@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png?v={{ icon_v }}">
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="theme-color" content="#7c5cff">
-<link rel="stylesheet" href="/static/style.css?v=8">
+<link rel="stylesheet" href="/static/style.css?v=10">
 <link rel="stylesheet" href="/static/themes.css?v=7">
 </head>
 <body>{{ sprite() }}
@@ -51,9 +51,37 @@ document.querySelectorAll('table.sortable thead th').forEach((th, i) => th.addEv
     const r = num ? (parseFloat(x) || 0) - (parseFloat(y) || 0) : x.localeCompare(y); return asc ? r : -r; }).forEach(r => tb.appendChild(r));
 }));
 document.querySelectorAll('input.tsearch').forEach(inp => inp.addEventListener('input', () => {
-  const q = inp.value.trim().toUpperCase().replace('/', '');
+  const q = inp.value.trim().toUpperCase().replace('/', ''), cols = (inp.dataset.cols || '0').split(',').map(Number);
   document.getElementById(inp.dataset.t).tBodies[0].querySelectorAll('tr').forEach(r =>
-    r.style.display = r.cells[0].textContent.toUpperCase().replace('/', '').includes(q) ? '' : 'none');
+    r.style.display = cols.some(c => r.cells[c] && r.cells[c].textContent.toUpperCase().replace('/', '').includes(q)) ? '' : 'none');
+}));
+// sticky offsets follow the real header height
+const setNavH = () => { const n = document.querySelector('.nav'); if (n) document.documentElement.style.setProperty('--navh', n.offsetHeight + 'px'); };
+setNavH(); window.addEventListener('resize', setNavH);
+// tabs: remember the tab in the URL hash and keep it when filters change
+(() => {
+  const tabs = [...document.querySelectorAll('.tabs .tab')], panes = [...document.querySelectorAll('.tabpane')];
+  if (!tabs.length) { panes.forEach(p => p.classList.add('on')); return; }
+  const show = (key, scroll) => {
+    if (!tabs.some(t => t.dataset.tab === key)) key = tabs[0].dataset.tab;
+    tabs.forEach(t => t.classList.toggle('on', t.dataset.tab === key));
+    panes.forEach(p => p.classList.toggle('on', p.dataset.pane === key));
+    history.replaceState(null, '', '#' + key);
+    document.querySelectorAll('.filterbar a, .tabpane tr.rowlink a').forEach(a => { if (a.origin === location.origin) a.hash = key; });
+    const f = document.querySelector('.filterbar form'); if (f) f.action = f.action.split('#')[0] + '#' + key;
+    if (scroll) { const fb = document.getElementById('fb'); window.scrollTo({ top: fb.offsetTop - 60, behavior: 'smooth' }); }
+  };
+  tabs.forEach(t => t.addEventListener('click', () => show(t.dataset.tab, true)));
+  show(location.hash.slice(1), false);
+})();
+// when scrolled past the filters, keep only the applied-filter chips and tabs visible
+(() => {
+  const fb = document.getElementById('fb'), anchor = document.getElementById('fb-anchor'); if (!fb || !anchor) return;
+  const upd = () => fb.classList.toggle('compact', anchor.getBoundingClientRect().top < -40);
+  window.addEventListener('scroll', upd, { passive: true }); upd();
+})();
+document.querySelectorAll('tr.rowlink').forEach(r => r.addEventListener('click', e => {
+  if (e.target.closest('a')) return; location.href = r.dataset.href + (location.hash || '');
 }));
 </script>
 </body></html>

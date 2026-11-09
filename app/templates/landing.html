@@ -1,18 +1,23 @@
-{% extends "base.html" %}{% block content %}
+{% extends "base.html" %}{% from "_filterbar.html" import filterbar with context %}{% block content %}
 {% set h = (site.hero or {}).get(lang) or {} %}
+{% if not user %}
 <section class="hero">
   <h1>{{ h.title or _('hero_title') }}</h1>
   <p>{{ h.subtitle or _('hero_subtitle') }}</p>
-  {% if not user %}<div class="cta"><a class="btn" href="/register">{{ _('cta_start') }}</a><a class="btn ghost" href="#performance">{{ _('cta_see_perf') }}</a></div>{% endif %}
+  <div class="cta"><a class="btn" href="/register">{{ _('cta_start') }}</a><a class="btn ghost" href="#performance">{{ _('cta_see_perf') }}</a></div>
 </section>
 <div class="choice">
   <div class="card"><h2>🤖 {{ _('plan_auto_title') }}</h2><p class="muted">{{ _('plan_auto_desc') }}</p></div>
   {% if site.signal_only_enabled %}<div class="card"><h2>📢 {{ _('plan_signal_title') }}</h2><p class="muted">{{ _('plan_signal_desc') }}</p></div>{% endif %}
   <div class="card"><h2>🧺 {{ _('plan_basket_title') }}</h2><p class="muted">{{ _('plan_basket_desc') }}</p></div>
 </div>
-<h1 id="performance" style="margin-top:20px">{{ _('perf_title') }}</h1>
-<p class="muted">{{ _('perf_intro') }}</p>
-{% if show %}{% include "_scope.html" %}
-<p><a class="btn ghost sm" href="/compare?{{ scope_qs }}{{ '&' if scope_qs }}market={{ market }}&days={{ period }}">⚖️ {{ _('compare_title') }}</a></p>{% endif %}
-{% if show %}{% include "_perf.html" %}{% else %}<div class="card muted">{{ _('perf_hidden') }}</div>{% endif %}
+{% endif %}
+<h1 id="performance" style="margin-top:{{ '24px' if not user else '0' }}">{{ _('perf_title') }}</h1>
+<p class="muted small" style="margin-top:-8px">{{ _('perf_intro') }}</p>
+{% if show %}
+{{ filterbar('/', tabs=[('overview', _('tab_overview'), none), ('pairs', _('tab_pairs'), pairs|length),
+                         ('trades', _('nav_trades'), data.trades if data else 0), ('bots', _('tab_bots'), peers|length)],
+             count=(data.trades if data else 0)) }}
+{% include "_perf.html" %}
+{% else %}<div class="card muted">{{ _('perf_hidden') }}</div>{% endif %}
 {% endblock %}

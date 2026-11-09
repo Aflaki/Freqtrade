@@ -15,21 +15,38 @@ PERIODS = {"30": 30, "90": 90, "365": 365, "all": None}
 
 
 def _scope(request: Request) -> dict:
-    """Shared filters of the public pages: market, period, group, bot."""
+    """Shared filters of the public pages: scope (all / group / bot), market side, period."""
     qp = request.query_params
     market = {"long": "long", "short": "short", "spot": "long"}.get(qp.get("market", ""), "all")
     period = qp.get("days", "all") if qp.get("days", "all") in PERIODS else "all"
     all_bots, groups = perf.visible_bots()
     group_ids = {g.id for g in groups}
-    group = int(qp["group"]) if qp.get("group", "").isdigit() and (int(qp["group"]) in group_ids or qp["group"] == "0") else None
-    scope_bots = [b for b in all_bots if group is None or (b.group_id or 0) == group
-                  or (group == 0 and b.group_id not in group_ids)]
-    bot = int(qp["bot"]) if qp.get("bot", "").isdigit() and int(qp["bot"]) in {b.id for b in scope_bots} else None
-    chosen = [bot] if bot else [b.id for b in scope_bots]
-    qs = "&".join(x for x in (f"group={group}" if group is not None else "", f"bot={bot}" if bot else "") if x)
+    gname = {g.id: g.name for g in groups}
+
+    def eff_group(b) -> int:
+        return b.group_id if b.group_id in group_ids else 0
+
+    raw = qp.get("scope", "")
+    if not raw:  # older links: ?group= / ?bot=
+        raw = ("b" + qp["bot"]) if qp.get("bot", "").isdigit() else ("g" + qp["group"]) if qp.get("group", "").isdigit() else ""
+    by_id = {b.id: b for b in all_bots}
+    group = bot = None
+    if raw[:1] == "g" and raw[1:].isdigit() and (int(raw[1:]) in group_ids or raw == "g0"):
+        group = int(raw[1:])
+    elif raw[:1] == "b" and raw[1:].isdigit() and int(raw[1:]) in by_id:
+        bot = int(raw[1:])
+        group = eff_group(by_id[bot])
+    scope_bots = ([by_id[bot]] if bot else [b for b in all_bots if eff_group(b) == group] if group is not None else all_bots)
+    scope = f"b{bot}" if bot else f"g{group}" if group is not None else "all"
+    tree = [(g, [b for b in all_bots if eff_group(b) == g.id]) for g in groups]
+    tree = [(g, bs) for g, bs in tree if bs]
+    ungrouped = [b for b in all_bots if eff_group(b) == 0]
     return dict(market=market, period=period, days=PERIODS[period], all_bots=all_bots, groups=groups,
-                group_sel=group, scope_bots=scope_bots, bot_sel=bot, chosen=chosen, scope_qs=qs,
-                ungrouped=any(b.group_id not in group_ids for b in all_bots), periods=list(PERIODS))
+                group_sel=group, bot_sel=bot, scope=scope, scope_qs="" if scope == "all" else f"scope={scope}",
+                scope_bots=scope_bots, chosen=[b.id for b in scope_bots], tree=tree, ungrouped_bots=ungrouped,
+                ungrouped=bool(ungrouped), periods=list(PERIODS),
+                group_label=(gname.get(group) if group else None) if group is not None else None,
+                bot_label=by_id[bot].name if bot else None)
 
 
 def _can_see(request: Request) -> bool:
@@ -45,14 +62,18 @@ async def landing(request: Request):
     m, d = sc["market"], sc["days"]
     data = perf.summary(m, d, bots=sc["chosen"]) if show else None
     pairs = perf.pair_stats(m, d, sc["chosen"]) if show else {}
-    cards = perf.bot_summaries([b.id for b in sc["all_bots"]], m, d) if show else {}
+    # bots tab: the selected bot's siblings (its group), else the bots in scope
+    peers = ([b for b in sc["all_bots"] if (b.group_id or 0) == (sc["group_sel"] or 0)] if sc["bot_sel"]
+             else sc["scope_bots"])
+    cards = perf.bot_summaries([b.id for b in peers], m, d) if show else {}
+    caps = perf.capital_breakdown() if show else {}
     by_group: dict[int, list[int]] = {}
     for b in sc["all_bots"]:
         by_group.setdefault(b.group_id or 0, []).append(b.id)
-    gcards = perf.group_summaries(sc["groups"], by_group, m, d) if show else {}
-    ung = by_group.get(0, []) + [b.id for b in sc["all_bots"] if b.group_id and b.group_id not in {g.id for g in sc["groups"]}]
-    gcards[0] = perf.group_summaries([type("G", (), {"id": 0})()], {0: ung}, m, d)[0] if show and ung else {}
-    return render(request, "landing.html", data=data, pairs=pairs, show=show, cards=cards, gcards=gcards, **sc)
+    gcards = perf.group_summaries(sc["groups"], by_group, m, d) if show and sc["scope"] == "all" else {}
+    names = {b.id: b.name for b in sc["all_bots"]}
+    return render(request, "landing.html", data=data, pairs=pairs, show=show, cards=cards, gcards=gcards,
+                  peers=peers, caps=caps, bot_names=names, **sc)
 
 
 @router.get("/compare")

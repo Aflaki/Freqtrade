@@ -806,6 +806,21 @@ T: dict[str, tuple[str, str, str, str]] = {
                       "Works without a key; if CoinGecko rate-limits you, get a free “Demo” key at coingecko.com and enter it here.",
                       "Funktioniert ohne Schlüssel; bei Limits einen kostenlosen „Demo“-Schlüssel auf coingecko.com holen und hier eintragen.",
                       "Funciona sin clave; si CoinGecko te limita, consigue una clave gratuita «Demo» en coingecko.com y ponla aquí."),
+    # ---------------------------------------------------------------- filter bar & tabs
+    "fb_scope": ("کدام ربات‌ها", "Which bots", "Welche Bots", "Qué bots"),
+    "fb_whole_group": ("کل گروه {name}", "whole group {name}", "ganze Gruppe {name}", "grupo completo {name}"),
+    "fb_side": ("جهت معاملات", "Trade side", "Richtung", "Lado"),
+    "fb_period": ("بازه زمانی", "Period", "Zeitraum", "Periodo"),
+    "fb_showing": ("در حال نمایش:", "Showing:", "Anzeige:", "Mostrando:"),
+    "fb_clear": ("برداشتن این فیلتر", "remove this filter", "Filter entfernen", "quitar este filtro"),
+    "fb_reset": ("پاک کردن همه فیلترها", "Clear all filters", "Alle Filter löschen", "Quitar todos los filtros"),
+    "tab_overview": ("نمای کلی", "Overview", "Übersicht", "Resumen"),
+    "tab_pairs": ("ارزها", "Pairs", "Paare", "Pares"),
+    "tab_bots": ("ربات‌ها و گروه‌ها", "Bots & groups", "Bots & Gruppen", "Bots y grupos"),
+    "search_trade": ("جستجوی ارز یا ربات…", "Search pair or bot…", "Paar oder Bot suchen…", "Buscar par o bot…"),
+    "trades_limited": ("(فقط {n} معامله آخر نمایش داده می‌شود)", "(only the latest {n} trades are listed)", "(nur die letzten {n} Trades)", "(solo las últimas {n} operaciones)"),
+    "bots_tab_hint": ("روی هر ردیف بزنید تا همان ربات یا گروه فیلتر شود.", "Click a row to filter to that bot or group.", "Zeile anklicken, um auf diesen Bot / diese Gruppe zu filtern.", "Pulsa una fila para filtrar ese bot o grupo."),
+    "fb_edit": ("تغییر فیلترها", "Change filters", "Filter ändern", "Cambiar filtros"),
 }
 
 

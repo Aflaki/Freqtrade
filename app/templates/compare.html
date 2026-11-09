@@ -1,19 +1,12 @@
-{% extends "base.html" %}{% block content %}
+{% extends "base.html" %}{% from "_filterbar.html" import filterbar with context %}{% block content %}
 <h1>⚖️ {{ _('compare_title') }}</h1>
 <p class="muted">{{ _('compare_intro') }}</p>
 {% if not show %}<div class="card muted">{{ _('perf_hidden') }}</div>{% else %}
-{% set cards = none %}{% include "_scope.html" %}
-<form method="get" class="sum">
-  {% if group_sel is not none %}<input type="hidden" name="group" value="{{ group_sel }}">{% endif %}
-  <input type="hidden" name="market" value="{{ market }}"><input type="hidden" name="days" value="{{ period }}">
-  <select name="pair" style="width:auto" onchange="this.form.submit()"><option value="">{{ _('compare_pick_pair') }}</option>
-  {% for p in matrix %}<option value="{{ p }}" {{ 'selected' if p == pair }}>{{ p }}</option>{% endfor %}</select>
-  <span class="pills" style="margin:0">
-  {% for mk in ['all','long','short'] %}<a href="?{{ 'group=' ~ group_sel ~ '&' if group_sel is not none }}{{ 'pair=' ~ pair ~ '&' if pair }}market={{ mk }}&days={{ period }}" class="{{ 'on' if market == mk }}">{{ _('mkt_' ~ mk) }}</a>{% endfor %}
-  <span style="width:8px"></span>
-  {% for pr in periods|reverse %}<a href="?{{ 'group=' ~ group_sel ~ '&' if group_sel is not none }}{{ 'pair=' ~ pair ~ '&' if pair }}market={{ market }}&days={{ pr }}" class="{{ 'on' if pr == period }}">{{ _('period_' ~ pr) }}</a>{% endfor %}
-  </span>
-</form>
+{% call filterbar('/compare', pair=pair) %}
+  <label class="fb-scope" title="{{ _('compare_pick_pair') }}">⚖️
+  <select name="pair" onchange="this.form.submit()"><option value="">{{ _('compare_pick_pair') }}</option>
+  {% for p in matrix %}<option value="{{ p }}" {{ 'selected' if p == pair }}>{{ p }}</option>{% endfor %}</select></label>
+{% endcall %}
 
 {% if cmp %}
 <div class="card"><h2>{{ pair }} — {{ _('compare_by_bot') }}</h2>
@@ -41,7 +34,7 @@
 <p class="small muted">{{ _('compare_matrix_note') }}</p>
 {% if matrix %}<div class="table-wrap scroll-table"><table class="small">
 <tr><th>{{ _('col_pair') }}</th>{% for b in scope_bots %}<th style="white-space:normal;min-width:80px">{{ b.name }}</th>{% endfor %}</tr>
-{% for p, row in matrix.items() %}<tr><td class="mono"><a href="?{{ 'group=' ~ group_sel ~ '&' if group_sel is not none }}pair={{ p|urlencode }}&market={{ market }}&days={{ period }}">{{ p }}</a></td>
+{% for p, row in matrix.items() %}<tr><td class="mono"><a href="/compare?{{ qs(scope=scope, pair=p, market=market, days=period) }}">{{ p }}</a></td>
 {% for b in scope_bots %}{% set st = row.get(b.id) %}
 {% if st %}{% set a = [st.profit_abs|abs / maxabs, 1]|min * 0.45 %}
 <td style="background:{{ 'rgba(16,185,129,%.2f)'|format(a) if st.profit_abs >= 0 else 'rgba(244,63,94,%.2f)'|format(a) }}"><b>{{ st.profit_abs|signed }}</b><br><span class="muted">{{ st.trades }} · {{ '%.0f'|format(st.win_rate) }}% · {{ st.avg|pct(1) }}</span></td>
