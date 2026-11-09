@@ -138,9 +138,11 @@ def site(monkeypatch):
         s.commit()
         ids = [on.id, off.id, other.id]
     yield sent, ids
+    from app.db import ServerSample
     with SessionLocal() as s:
         s.query(WatchdogEvent).delete()
         s.query(WatchdogHost).delete()
+        s.query(ServerSample).delete()
         s.query(Bot).filter(Bot.id.in_(ids)).delete()
         get_global(s).watchdog_token = ""
         s.commit()
@@ -562,6 +564,11 @@ def _admin_client():
 
 def test_servers_dashboard(site, monkeypatch):
     import re
+
+    from app.db import ServerSample as _S
+    with SessionLocal() as s:
+        s.query(_S).delete()
+        s.commit()
 
     from app.db import ServerSample
     from app.web import admin_servers, watchdog as wd
