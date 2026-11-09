@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from ..db import SessionLocal, User, get_global
 from ..engine import performance as perf
@@ -72,8 +72,20 @@ async def landing(request: Request):
         by_group.setdefault(b.group_id or 0, []).append(b.id)
     gcards = perf.group_summaries(sc["groups"], by_group, m, d) if show and sc["scope"] == "all" else {}
     names = {b.id: b.name for b in sc["all_bots"]}
+    live = perf.live_trades(sc["scope_bots"], m) if show else None
     return render(request, "landing.html", data=data, pairs=pairs, show=show, cards=cards, gcards=gcards,
-                  peers=peers, caps=caps, bot_names=names, **sc)
+                  peers=peers, caps=caps, bot_names=names, live=live, **sc)
+
+
+@router.get("/live")
+async def live_partial(request: Request):
+    """Open trades table only; the performance page reloads it every few seconds."""
+    sc = _scope(request)
+    if not _can_see(request):
+        return HTMLResponse("", status_code=403)
+    resp = render(request, "_live.html", live=perf.live_trades(sc["scope_bots"], sc["market"]), **sc)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @router.get("/compare")

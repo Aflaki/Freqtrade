@@ -1,0 +1,32 @@
+{# Open trades right now (reloaded every few seconds by the page). Needs: live #}
+{% set L = live %}
+<div class="live-inner" data-count="{{ L.count }}">
+<div class="kpis">
+  <div class="kpi"><div class="k">{{ _('live_open') }}</div><div class="v"><span class="num">{{ L.count }}</span></div>
+    <div class="sub"><span class="pos">{{ L.longs }} LONG</span> · <span class="neg">{{ L.shorts }} SHORT</span></div></div>
+  <div class="kpi" title="{{ _('live_h_pnl') }}"><div class="k">{{ _('live_pnl') }}</div><div class="v {{ 'pos' if L.profit_abs >= 0 else 'neg' }}">{{ L.profit_abs|signed }}</div>
+    {% if L.ratio is not none %}<div class="sub">{{ (L.ratio * 100)|pct }} {{ _('live_on_stake') }}</div>{% endif %}</div>
+  <div class="kpi"><div class="k">{{ _('live_in_profit') }}</div><div class="v"><span class="num">{{ L.winning }} / {{ L.priced }}</span></div></div>
+  <div class="kpi"><div class="k">{{ _('live_stake') }}</div><div class="v">{{ L.stake|money }}</div></div>
+</div>
+<div class="card"><h2><span class="live-dot"></span> {{ _('live_title') }} <span class="badge">{{ L.count }}</span></h2>
+{% if L.rows %}
+<div class="table-wrap scroll-table"><table class="small">
+<thead><tr><th>{{ _('col_pair') }}</th><th>{{ _('col_bot') }}</th><th>{{ _('col_side') }}</th><th>{{ _('col_leverage') }}</th>
+<th>{{ _('col_opened') }}</th><th>{{ _('live_age') }}</th><th>{{ _('col_entry') }}</th><th>{{ _('live_current') }}</th>
+<th>{{ _('live_result') }}</th><th>{{ _('perf_profit_abs') }}</th><th>{{ _('live_stop') }}</th><th>{{ _('col_tag') }}</th></tr></thead><tbody>
+{% for r in L.rows %}{% set h = r.hours or 0 %}
+<tr><td class="mono">{{ r.pair }}{% if r.pending %} <span class="badge warn" title="{{ _('live_pending') }}">⏳</span>{% endif %}</td>
+<td>{{ r.bot }}</td><td class="{{ 'pos' if r.side == 'long' else 'neg' }}">{{ r.side|upper }}</td>
+<td><span class="num">{{ '%g'|format(r.leverage or 1) }}x</span></td>
+<td class="muted">{{ r.open_date.strftime('%Y-%m-%d %H:%M') if r.open_date }}</td>
+<td class="muted"><span class="num">{% if h >= 24 %}{{ (h // 24)|int }}d {{ (h % 24)|int }}h{% else %}{{ h|int }}h {{ ((h * 60) % 60)|int }}m{% endif %}</span></td>
+<td>{{ r.open_rate|price }}</td><td>{{ r.current_rate|price if r.current_rate is not none else '—' }}</td>
+<td class="{{ 'pos' if (r.profit_ratio or 0) >= 0 else 'neg' }}">{{ (r.profit_ratio * 100)|pct if r.profit_ratio is not none else '—' }}</td>
+<td class="{{ 'pos' if (r.profit_abs or 0) >= 0 else 'neg' }}">{{ r.profit_abs|signed if r.profit_abs is not none else '—' }}</td>
+<td class="muted">{{ r.stop_loss|price if r.stop_loss else '' }}</td><td class="muted small">{{ r.enter_tag }}</td></tr>{% endfor %}
+</tbody></table></div>
+{% else %}<p class="muted">{{ _('live_none') }}</p>{% endif %}
+<p class="small muted">{% if L.updated %}{{ _('live_updated') }} <span class="num">{{ L.updated.strftime('%H:%M:%S') }} UTC</span> · {% endif %}{{ _('live_hint') }}
+{% if L.stale %}<br><span class="badge warn">{{ _('live_stale', bots=L.stale|join(', ')) }}</span>{% endif %}</p>
+</div></div>

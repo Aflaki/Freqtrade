@@ -505,3 +505,50 @@ def market_chart(trades: list[BotTrade], capital: float | None, days: int | None
             rows.append({"key": sym, "name": bench.NAMES.get(sym, sym), "ret": sp[-1][1], "dd": _drawdown_pct([p[1] for p in sp])})
     chart = build_chart(series, "%" if capital else stake)
     return {"chart": chart, "rows": rows, "has_capital": bool(capital), "approx_total": bench.is_approx_total()}
+
+
+# ------------------------------------------------------------------ live (open) trades
+def live_trades(bots: list[Bot], market: str = "all") -> dict:
+    """Open trades of the given bots, as Freqtrade shows them right now.
+
+    Bots with a REST API: /status (current price, unrealized profit incl. leverage), refreshed every few seconds.
+    Bots with webhooks only: the open trades we know from the webhooks (no current price).
+    The bot's pair filter and the side filter apply, like for closed trades.
+    """
+    from .botmonitor import monitor
+    rows: list[dict] = []
+    fallback = []
+    updated, stale = [], []
+    for b in bots:
+        live = monitor.live.get(b.id)
+        if live and live.get("at"):
+            updated.append(live["at"])
+            if live.get("error"):
+                stale.append(b.name)
+            for r in live["trades"]:
+                rows.append({**r, "bot_id": b.id, "bot": b.name, "live": True})
+        else:
+            fallback.append(b)
+    if fallback:
+        names = {b.id: b.name for b in fallback}
+        with SessionLocal() as s:
+            for t in s.scalars(select(BotTrade).where(BotTrade.bot_id.in_(list(names)), BotTrade.is_open.is_(True))):
+                rows.append({"ft_trade_id": t.ft_trade_id, "pair": t.pair, "side": t.side, "leverage": t.leverage or 1.0,
+                             "open_date": t.open_date, "open_rate": t.open_rate, "current_rate": None,
+                             "profit_ratio": None, "profit_abs": None, "stake_amount": t.stake_amount,
+                             "stop_loss": None, "enter_tag": t.enter_tag, "pending": False,
+                             "bot_id": t.bot_id, "bot": names[t.bot_id], "live": False})
+    allows = {b.id: b.allows for b in bots}
+    rows = [r for r in rows if allows[r["bot_id"]](r["pair"]) and (market == "all" or r["side"] == market)]
+    rows.sort(key=lambda r: r["open_date"] or dt.datetime.min, reverse=True)
+    now = utcnow()
+    for r in rows:
+        r["hours"] = (now - r["open_date"]).total_seconds() / 3600 if r["open_date"] else None
+    priced = [r for r in rows if r["profit_abs"] is not None]
+    pnl = sum(r["profit_abs"] for r in priced)
+    stake = sum(r["stake_amount"] or 0 for r in priced)
+    return {"rows": rows, "count": len(rows), "profit_abs": pnl, "stake": stake,
+            "ratio": (pnl / stake) if stake else None,
+            "winning": sum(1 for r in priced if r["profit_abs"] > 0), "priced": len(priced),
+            "longs": sum(1 for r in rows if r["side"] == "long"), "shorts": sum(1 for r in rows if r["side"] == "short"),
+            "updated": max(updated) if updated else None, "stale": stale}

@@ -33,6 +33,7 @@ EVENT_TYPES = {"status", "startup", "warning", "exception", "entry_cancel", "exi
                "protection_trigger", "protection_trigger_global", "strategy_msg", "liquidation_warning"}
 CONTROL_ACTIONS = ("start", "stop", "pause", "stopentry", "reload_config")
 STALL_MINUTES = 10
+LIVE_SECONDS = 15  # how often open trades (/status) are refreshed
 
 
 def esc(v: Any) -> str:
@@ -173,9 +174,86 @@ def _error_state(e: Exception) -> dict[str, Any]:
     return {"api": "unreachable", "error": f"{type(e).__name__}: {str(e)[:200]}"}
 
 
+def _f(v: Any) -> float | None:
+    try:
+        x = float(v)
+        return x if math.isfinite(x) else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _ft_date(v: Any) -> dt.datetime | None:
+    """Freqtrade dates ("2026-11-09 10:03:00" or ISO, UTC) -> naive UTC."""
+    if not v:
+        return None
+    try:
+        d = dt.datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return d.astimezone(dt.UTC).replace(tzinfo=None) if d.tzinfo else d
+
+
+def parse_open_trades(rows: Any) -> list[dict[str, Any]]:
+    """Freqtrade /api/v1/status -> the fields we show. profit_ratio already includes the leverage (like FreqUI)."""
+    out = []
+    for r in rows if isinstance(rows, list) else []:
+        if not isinstance(r, dict) or not r.get("pair"):
+            continue
+        open_date = _ft_date(r.get("open_date"))
+        if open_date is None and r.get("open_timestamp"):
+            open_date = dt.datetime.fromtimestamp(int(r["open_timestamp"]) / 1000, dt.UTC).replace(tzinfo=None)
+        out.append({
+            "ft_trade_id": r.get("trade_id"), "pair": str(r["pair"]).split(":")[0].upper(),
+            "side": "short" if r.get("is_short") else "long", "leverage": _f(r.get("leverage")) or 1.0,
+            "open_date": open_date, "open_rate": _f(r.get("open_rate")), "current_rate": _f(r.get("current_rate")),
+            "profit_ratio": _f(r.get("profit_ratio")), "profit_abs": _f(r.get("profit_abs")),
+            "stake_amount": _f(r.get("stake_amount")), "stop_loss": _f(r.get("stop_loss_abs")),
+            "enter_tag": str(r.get("enter_tag") or "")[:80],
+            "pending": bool(r.get("has_open_orders") or r.get("open_order_id")),
+        })
+    return out
+
+
 class BotMonitor:
     def __init__(self) -> None:
         self._bg: set[asyncio.Task] = set()
+        # bot id -> {"at": datetime, "trades": [...], "error": str}; refreshed every LIVE_SECONDS
+        self.live: dict[int, dict[str, Any]] = {}
+
+    # ------------------------------------------------------------ open trades (live)
+    async def poll_live(self) -> None:
+        with SessionLocal() as s:
+            bots = [(b.id, b.api_url, b.api_user, decrypt(b.api_pass_enc) or "")
+                    for b in s.scalars(select(Bot).where(Bot.enabled.is_(True)))]
+        sem = asyncio.Semaphore(10)
+
+        async def one(bot_id: int, url: str, user: str, pw: str) -> None:
+            if not url:
+                self.live.pop(bot_id, None)
+                return
+            async with sem:
+                try:
+                    async with httpx.AsyncClient(timeout=8, auth=(user, pw)) as c:
+                        r = await c.get(normalize_api_url(url) + "/api/v1/status")
+                        r.raise_for_status()
+                        self.live[bot_id] = {"at": utcnow(), "trades": parse_open_trades(r.json()), "error": ""}
+                except Exception as e:  # keep the last good list, mark it stale
+                    prev = self.live.get(bot_id) or {"trades": [], "at": None}
+                    self.live[bot_id] = {**prev, "error": f"{type(e).__name__}: {str(e)[:120]}"}
+        await asyncio.gather(*(one(*b) for b in bots))
+        known = {b[0] for b in bots}
+        for k in [k for k in self.live if k not in known]:
+            self.live.pop(k, None)
+
+    async def live_loop(self) -> None:
+        while True:
+            try:
+                await self.poll_live()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("live trades poll failed")
+            await asyncio.sleep(LIVE_SECONDS)
 
     # ------------------------------------------------------------ admin notifications
     def notify_admins(self, kind: str, make_text) -> None:

@@ -1,5 +1,27 @@
 {# Performance body: KPI strip + tab panes (overview / pairs / trades / bots). Filters live in the sticky bar. #}
 {% from "_chart.html" import chart with context %}
+{# ------------------------------------------------------------------ live: open trades, refreshed every 15 s #}
+{% if live is not none %}
+<section class="tabpane" data-pane="live"><div id="live-box">{% include "_live.html" %}</div></section>
+<script>
+(() => {
+  const box = document.getElementById('live-box'), pane = box.closest('.tabpane');
+  const badge = () => document.querySelector('.tabs .tab[data-tab="live"] .badge');
+  const load = async () => {
+    if (document.visibilityState !== 'visible' || !pane.classList.contains('on')) return;
+    try {
+      const r = await fetch('/live' + location.search, {cache: 'no-store'});
+      if (!r.ok) return;
+      box.innerHTML = await r.text();
+      const n = box.querySelector('.live-inner')?.dataset.count, b = badge();
+      if (b && n !== undefined) b.textContent = n;
+    } catch (e) {}
+  };
+  setInterval(load, 15000);
+  document.addEventListener('visibilitychange', load);
+})();
+</script>
+{% endif %}
 {% if not data or not data.trades %}
 <div class="card muted">{{ _('perf_no_data') }}</div>
 {% else %}

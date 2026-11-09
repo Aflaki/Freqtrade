@@ -15,7 +15,7 @@
 <h1 id="performance" style="margin-top:{{ '24px' if not user else '0' }}">{{ _('perf_title') }}</h1>
 <p class="muted small" style="margin-top:-8px">{{ _('perf_intro') }}</p>
 {% if show %}
-{{ filterbar('/', tabs=[('overview', _('tab_overview'), none), ('pairs', _('tab_pairs'), pairs|length),
+{{ filterbar('/', tabs=[('overview', _('tab_overview'), none), ('live', _('tab_live'), live.count if live else 0), ('pairs', _('tab_pairs'), pairs|length),
                          ('trades', _('nav_trades'), data.trades if data else 0), ('bots', _('tab_bots'), peers|length)],
              count=(data.trades if data else 0)) }}
 {% include "_perf.html" %}

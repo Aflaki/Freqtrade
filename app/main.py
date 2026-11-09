@@ -22,6 +22,7 @@ from .telegram import bot
 from .web import account_security, admin, admin_bots, admin_security, auth, icons, public, user, webhook
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logging.getLogger("httpx").setLevel(logging.WARNING)  # open trades are polled every 15 s: no line per request
 
 
 @asynccontextmanager
@@ -30,7 +31,7 @@ async def lifespan(app: FastAPI):
     with SessionLocal() as s:
         token = decrypt(get_global(s).telegram_token_enc) or os.getenv("TELEGRAM_BOT_TOKEN", "")
     await bot.configure(token)
-    jobs = [asyncio.create_task(bot.daily_jobs()), asyncio.create_task(monitor.loop()),
+    jobs = [asyncio.create_task(bot.daily_jobs()), asyncio.create_task(monitor.loop()), asyncio.create_task(monitor.live_loop()),
             asyncio.create_task(benchmarks.loop())]
     yield
     for j in jobs:
