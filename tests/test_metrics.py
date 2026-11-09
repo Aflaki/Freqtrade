@@ -32,3 +32,24 @@ def test_amount_from_stake_when_abs_missing():
     t = trade(None, 0.25)
     t.stake_amount = 40
     assert _stats([t])["profit_abs"] == pytest.approx(10)
+
+
+def test_group_capital():
+    """Group capital is used for the whole group; a lone bot gets an equal share unless it has its own."""
+    from app.db import Bot, BotGroup, SessionLocal, init_db
+    from app.engine.performance import capitals
+    init_db()
+    with SessionLocal() as s:
+        g = BotGroup(name="CapTest", stats_capital=3000.0)
+        s.add(g)
+        s.flush()
+        bots = [Bot(name=f"cap{i}", group_id=g.id, webhook_secret=f"capsecret{i}") for i in range(3)]
+        s.add_all(bots)
+        s.commit()
+        ids = [b.id for b in bots]
+        s.get(Bot, ids[2]).stats_capital = 500.0
+        s.commit()
+    assert capitals(ids) == 3000.0                 # the whole group -> group capital
+    assert capitals([ids[0]]) == 1000.0            # one bot, no own capital -> 3000 / 3
+    assert capitals([ids[2]]) == 500.0             # own capital wins
+    assert capitals([ids[0], ids[1]]) == 2000.0    # part of the group -> shares

@@ -124,7 +124,12 @@ async def bots_action(request: Request):
         if name:
             with SessionLocal() as s:
                 n = s.scalar(select(func.count(BotGroup.id))) or 0
-                s.add(BotGroup(name=name, description=str(f.get("group_desc", "")).strip()[:500], sort=n + 1))
+                try:
+                    cap = float(str(f.get("group_capital", "")).replace(",", "") or 0)
+                except ValueError:
+                    cap = 0
+                s.add(BotGroup(name=name, description=str(f.get("group_desc", "")).strip()[:500], sort=n + 1,
+                               stats_capital=cap if cap > 0 else None))
                 s.commit()
             flash(request, tr(request, "msg_saved"))
     elif action == "group_save":
@@ -134,6 +139,11 @@ async def bots_action(request: Request):
                 g.name = str(f.get("group_name", g.name)).strip()[:80] or g.name
                 g.description = str(f.get("group_desc", "")).strip()[:500]
                 g.public = bool(f.get("group_public"))
+                try:
+                    cap = float(str(f.get("group_capital", "")).replace(",", "") or 0)
+                except ValueError:
+                    cap = 0
+                g.stats_capital = cap if cap > 0 else None
                 g.sort = int(f.get("group_sort") or g.sort or 0)
                 s.commit()
         flash(request, tr(request, "msg_saved"))

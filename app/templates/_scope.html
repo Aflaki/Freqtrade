@@ -7,6 +7,7 @@
   {% for g in groups %}{% set c = (gcards or {}).get(g.id, {}) %}
   <a class="card" href="{{ base }}?group={{ g.id }}&market={{ market }}&days={{ period }}{{ '&pair=' ~ pair if pair }}" style="color:inherit;{{ 'outline:2px solid var(--brand)' if group_sel == g.id and not bot_sel }}">
     <h2>📦 {{ g.name }}</h2>{% if g.description %}<p class="small muted">{{ g.description }}</p>{% endif %}
+    {% if g.stats_capital %}<p class="small muted">{{ _('f_group_capital') }}: <span class="num">{{ '{:,.0f}'.format(g.stats_capital) }}</span></p>{% endif %}
     {% if c %}<p class="small">{{ c.bots }} {{ _('bots_word') }} · {{ c.trades }} {{ _('perf_trades') }} · <span class="num">{{ '%.0f'|format(c.win_rate) }}%</span> ·
     <span class="{{ 'pos' if c.profit_abs >= 0 else 'neg' }}">{{ c.profit_abs|signed }}</span>{% if c.return_pct is not none %} · <span class="{{ 'pos' if c.return_pct >= 0 else 'neg' }}">{{ c.return_pct|pct(1) }}</span>{% endif %}</p>{% endif %}</a>
   {% endfor %}

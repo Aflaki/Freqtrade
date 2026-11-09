@@ -38,6 +38,7 @@
 <form method="post" class="row" style="align-items:end;margin-bottom:8px"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="group_id" value="{{ g.id }}">
 <div><label>{{ _('col_name') }}</label><input type="text" name="group_name" value="{{ g.name }}"></div>
 <div><label>{{ _('col_description') }}</label><input type="text" name="group_desc" value="{{ g.description }}"></div>
+<div style="max-width:180px"><label>{{ _('f_group_capital') }}</label><input type="number" step="any" min="0" name="group_capital" value="{{ g.stats_capital or '' }}" placeholder="—"></div>
 <div style="max-width:110px"><label>{{ _('col_order') }}</label><input type="number" name="group_sort" value="{{ g.sort }}"></div>
 <div><label class="check"><input type="checkbox" name="group_public" {{ 'checked' if g.public }}> {{ _('bot_f_public') }}</label>
 <button name="action" value="group_save" class="sm">{{ _('btn_save') }}</button>
@@ -46,7 +47,9 @@
 <form method="post" class="row" style="align-items:end"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="group_add">
 <div><label>{{ _('group_new') }}</label><input type="text" name="group_name" placeholder="Version 1" required></div>
 <div><label>{{ _('col_description') }}</label><input type="text" name="group_desc"></div>
+<div style="max-width:180px"><label>{{ _('f_group_capital') }}</label><input type="number" step="any" min="0" name="group_capital" placeholder="—"></div>
 <div><button>+ {{ _('group_new') }}</button></div></form>
+<p class="small muted">{{ _('f_group_capital_help') }}</p>
 </div>
 
 <div class="card" id="export"><h2>{{ ic('download') }}{{ _('export_title') }}</h2>

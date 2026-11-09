@@ -751,7 +751,7 @@ T: dict[str, tuple[str, str, str, str]] = {
                   "Größter Rückgang des Kontostands von einem Hoch zum folgenden Tief (Freqtrade-Methode). % bezogen auf den Stand am Hoch; Betrag in Stake-Währung.",
                   "Mayor caída del saldo desde un máximo hasta el mínimo siguiente (método de Freqtrade). El % es respecto al saldo en ese máximo; el importe en moneda base."),
     "perf_h_lev": ("میانگین لوریجی که ربات در این معاملات استفاده کرده.", "Average leverage the bot used in these trades.", "Durchschnittlicher Hebel des Bots in diesen Trades.", "Apalancamiento medio usado por el bot en estas operaciones."),
-    "perf_no_capital": ("سرمایه اولیه این ربات(ها) مشخص نیست، پس درصد بازده و درصد افت نمایش داده نمی‌شود. با وصل بودن API از Freqtrade خوانده می‌شود، یا ادمین در صفحه ربات واردش می‌کند.",
+    "perf_no_capital": ("سرمایه اولیه این ربات(ها) مشخص نیست، پس درصد بازده و درصد افت نمایش داده نمی‌شود. با وصل بودن API از Freqtrade خوانده می‌شود، یا ادمین برای گروه یا ربات واردش می‌کند.",
                         "The starting capital of these bot(s) is unknown, so return % and drawdown % are not shown. It is read from Freqtrade via the API, or the admin can enter it on the bot page.",
                         "Das Startkapital dieser Bots ist unbekannt, daher keine Rendite-% und Drawdown-%. Es wird per API von Freqtrade gelesen oder vom Admin auf der Bot-Seite eingetragen.",
                         "Se desconoce el capital inicial de estos bots, así que no se muestran % de rentabilidad ni de drawdown. Se lee de Freqtrade por API o el admin lo introduce en la página del bot."),
@@ -762,6 +762,12 @@ T: dict[str, tuple[str, str, str, str]] = {
                              "Empty = read from Freqtrade (starting_capital). Used for “return on capital” and drawdown %.",
                              "Leer = aus Freqtrade gelesen (starting_capital). Für „Rendite aufs Kapital“ und Drawdown-%.",
                              "Vacío = se lee de Freqtrade (starting_capital). Para «rentabilidad sobre capital» y % de drawdown."),
+    # ---------------------------------------------------------------- group capital
+    "f_group_capital": ("سرمایه اولیه گروه", "Group starting capital", "Startkapital der Gruppe", "Capital inicial del grupo"),
+    "f_group_capital_help": ("برای «بازده روی سرمایه» و درصد افت. وقتی کل گروه نمایش داده می‌شود از همین عدد استفاده می‌شود؛ برای یک ربات تنها، اگر خودش سرمایه نداشته باشد، سهم مساوی از سرمایه گروه (سرمایه ÷ تعداد ربات‌ها) در نظر گرفته می‌شود.",
+                             "Used for “return on capital” and drawdown %. When the whole group is shown this figure is used; for a single bot without its own capital, an equal share of the group's capital (capital ÷ number of bots) is assumed.",
+                             "Für „Rendite aufs Kapital“ und Drawdown-%. Bei Anzeige der ganzen Gruppe wird dieser Wert genutzt; für einen einzelnen Bot ohne eigenes Kapital ein gleicher Anteil (Kapital ÷ Anzahl Bots).",
+                             "Para «rentabilidad sobre capital» y % de drawdown. Al mostrar el grupo completo se usa esta cifra; para un bot sin capital propio se asume una parte igual (capital ÷ número de bots)."),
 }
 
 

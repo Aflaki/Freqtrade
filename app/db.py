@@ -280,6 +280,7 @@ class BotGroup(Base):
     description: Mapped[str] = mapped_column(String(500), default="")
     public: Mapped[bool] = mapped_column(default=True)
     sort: Mapped[int] = mapped_column(default=0)
+    stats_capital: Mapped[float | None] = mapped_column(Float, nullable=True)  # starting capital of the whole group
 
 
 def canon_pair(p: str) -> str:

@@ -169,10 +169,36 @@ def _amount(t: BotTrade) -> float:
 
 
 def capitals(bot_ids: list[int]) -> float | None:
-    """Sum of the bots' starting capital; None if any bot's capital is unknown (no misleading %)."""
+    """Starting capital behind a set of bots (None if unknown -> no % figures).
+
+    * a group with its own capital whose shown bots are all included -> the group's capital
+    * a bot with its own capital (manual or Freqtrade starting_capital) -> that
+    * a bot without one, in a group with capital -> an equal share of the group's capital
+    """
+    ids = set(bot_ids or [])
+    if not ids:
+        return None
     with SessionLocal() as s:
-        caps = [b.capital for b in s.scalars(select(Bot).where(Bot.id.in_(bot_ids or [-1])))]
-    return sum(caps) if caps and all(c for c in caps) else None
+        bots = {b.id: b for b in s.scalars(select(Bot).where(Bot.id.in_(ids)))}
+        gids = {b.group_id for b in bots.values() if b.group_id}
+        groups = {g.id: g for g in s.scalars(select(BotGroup).where(BotGroup.id.in_(gids or [-1])))}
+        members = {gid: set(s.scalars(select(Bot.id).where(Bot.group_id == gid, Bot.enabled.is_(True),
+                                                              Bot.public.is_(True)))) for gid in gids}
+    total, rest = 0.0, set(bots)
+    for gid, g in groups.items():
+        if g.stats_capital and members[gid] and members[gid] <= ids:
+            total += g.stats_capital
+            rest -= members[gid]
+            rest -= {b for b in bots if bots[b].group_id == gid}
+    for bid in rest:
+        b = bots[bid]
+        cap = b.capital
+        if cap is None and b.group_id in groups and groups[b.group_id].stats_capital and members.get(b.group_id):
+            cap = groups[b.group_id].stats_capital / len(members[b.group_id])
+        if cap is None:
+            return None
+        total += cap
+    return total or None
 
 
 def _stats(trades: list[BotTrade], capital: float | None = None) -> dict:
