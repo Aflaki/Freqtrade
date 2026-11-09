@@ -820,6 +820,8 @@ T: dict[str, tuple[str, str, str, str]] = {
     "search_trade": ("جستجوی ارز یا ربات…", "Search pair or bot…", "Paar oder Bot suchen…", "Buscar par o bot…"),
     "trades_limited": ("(فقط {n} معامله آخر نمایش داده می‌شود)", "(only the latest {n} trades are listed)", "(nur die letzten {n} Trades)", "(solo las últimas {n} operaciones)"),
     "bots_tab_hint": ("روی هر ردیف بزنید تا همان ربات یا گروه فیلتر شود.", "Click a row to filter to that bot or group.", "Zeile anklicken, um auf diesen Bot / diese Gruppe zu filtern.", "Pulsa una fila para filtrar ese bot o grupo."),
+    "fb_both_sides": ("لانگ و شورت", "Long & short", "Long & Short", "Long y short"),
+    "fb_all_time": ("کل دوره", "All time", "Gesamter Zeitraum", "Todo el periodo"),
     "fb_edit": ("تغییر فیلترها", "Change filters", "Filter ändern", "Cambiar filtros"),
     # ---------------------------------------------------------------- sign-in / sign-up / security
     "adm_security": ("ورود و امنیت", "Sign-in & security", "Anmeldung & Sicherheit", "Acceso y seguridad"),

@@ -166,6 +166,8 @@ def test_full_flow(sent):
             assert "ETH/USDT" in page and 'dir="' + ("rtl" if lang == "fa" else "ltr") + '"' in page
         assert "Custom EN title" in TestClient(app).get("/?lang=en").text
         page = TestClient(app).get("/?lang=en&days=all").text
+        chips = page.split('class="fb-chips"', 1)[1].split("</div>", 1)[0]
+        assert "Long &amp; short" in chips and "All time" in chips and "fb-dates" in chips  # visible in compact bar
         assert "+28.33%" in page and "+170.00" in page and "5.0x" in page  # exactly as Freqtrade reports, with leverage
         assert "ETH/USDT" in TestClient(app).get("/?lang=en&days=all&market=short").text
         assert "ETH/USDT" not in TestClient(app).get("/?lang=en&days=all&market=long").text.split("perf_recent")[-1]

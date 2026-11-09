@@ -34,8 +34,12 @@
     {% if bot_sel %}<span class="chip">{% if group_label %}📦 {{ group_label }} › {% endif %}🤖 {{ bot_label }}<a href="{{ path }}?{{ qs(market=market, days=period, pair=pair) }}" title="{{ _('fb_clear') }}">✕</a></span>
     {% elif group_sel is not none %}<span class="chip">📦 {{ group_label or _('ungrouped') }}<a href="{{ path }}?{{ qs(market=market, days=period, pair=pair) }}" title="{{ _('fb_clear') }}">✕</a></span>
     {% else %}<span class="chip plain">{{ _('all_bots') }}</span>{% endif %}
-    {% if market != 'all' %}<span class="chip">{{ _('mkt_' ~ market) }}<a href="{{ path }}?{{ qs(scope=scope, days=period, pair=pair) }}" title="{{ _('fb_clear') }}">✕</a></span>{% endif %}
-    {% if period != 'all' %}<span class="chip">{{ _('period_' ~ period) }}<a href="{{ path }}?{{ qs(scope=scope, market=market, pair=pair) }}" title="{{ _('fb_clear') }}">✕</a></span>{% endif %}
+    {# side and period are always listed, also when nothing is filtered, so the compact bar still says what you see #}
+    {% if market != 'all' %}<span class="chip">{{ _('mkt_' ~ market) }}<a href="{{ path }}?{{ qs(scope=scope, days=period, pair=pair) }}" title="{{ _('fb_clear') }}">✕</a></span>
+    {% else %}<span class="chip plain">{{ _('fb_both_sides') }}</span>{% endif %}
+    {% set rng = data.market.chart if (data is defined and data and data.market and data.market.chart) else none %}
+    {% if period != 'all' %}<span class="chip">🗓 {{ _('period_' ~ period) }}{% if rng %} <span class="muted fb-dates">({{ rng.start_s }} – {{ rng.end_s }})</span>{% endif %}<a href="{{ path }}?{{ qs(scope=scope, market=market, pair=pair) }}" title="{{ _('fb_clear') }}">✕</a></span>
+    {% else %}<span class="chip plain">🗓 {{ _('fb_all_time') }}{% if rng %} <span class="muted fb-dates">({{ rng.start_s }} – {{ rng.end_s }})</span>{% endif %}</span>{% endif %}
     {% if pair %}<span class="chip mono">{{ pair }}<a href="{{ path }}?{{ qs(scope=scope, market=market, days=period) }}" title="{{ _('fb_clear') }}">✕</a></span>{% endif %}
     {% if count is not none %}<span class="fb-count">· <b class="num">{{ count }}</b> {{ _('perf_trades') }} · <b class="num">{{ scope_bots|length }}</b> {{ _('bots_word') }}</span>{% endif %}
     {% if scope != 'all' or market != 'all' or period != 'all' or pair %}<a class="fb-reset" href="{{ path }}">{{ _('fb_reset') }}</a>{% endif %}
