@@ -1,0 +1,10 @@
+{% extends "base.html" %}{% from "_authkit.html" import profile_fields, terms_fields, authjs with context %}{% block content %}<div class="auth card">
+<h1>{{ _('cp_title') }}</h1><p class="muted">{{ _('cp_sub') }}</p>
+<form method="post" action="/complete-profile" data-once><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>{{ _('f_name') }}</label><input type="text" name="name" value="{{ form.name }}" required minlength="2" maxlength="120" autocomplete="name">
+{% if needs_email %}<label>{{ _('f_email') }}</label><input class="ltr" type="email" name="email" value="{{ form.email }}" required autocomplete="email">
+<p class="small muted">{{ _('cp_email_why') }}</p>{% endif %}
+{{ profile_fields(form) }}
+{{ terms_fields(form) }}
+<p><button class="wide">{{ _('btn_continue') }}</button></p></form>
+</div>{{ authjs() }}{% endblock %}

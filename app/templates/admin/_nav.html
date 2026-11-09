@@ -1,4 +1,4 @@
 {% from "_icons.html" import ic %}<div class="pills">
-{% for k, url, icon in [('bot','/admin/bot','bot'),('users','/admin','users'),('settings','/admin/settings','settings'),('performance','/admin/performance','database'),('logs','/admin/logs','file'),('trades','/admin/trades','list')] %}
+{% for k, url, icon in [('bot','/admin/bot','bot'),('users','/admin','users'),('settings','/admin/settings','settings'),('security','/admin/security','shield'),('performance','/admin/performance','database'),('logs','/admin/logs','file'),('trades','/admin/trades','list')] %}
 <a href="{{ url }}" class="{{ 'on' if tab == k }}">{{ ic(icon) }}{{ _('adm_' ~ k) }}</a>{% endfor %}
 </div>

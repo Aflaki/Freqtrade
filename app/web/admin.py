@@ -66,6 +66,13 @@ async def admin_user_action(uid: int, request: Request):
             u.is_admin = True
         elif action == "demote":
             u.is_admin = False
+        elif action == "reset_2fa":  # user lost the phone and the recovery codes (verify identity first!)
+            u.totp_enabled, u.totp_secret_enc, u.recovery_codes = False, None, None
+            u.session_version = (u.session_version or 1) + 1
+        elif action == "logout_all":
+            u.session_version = (u.session_version or 1) + 1
+        elif action == "verify_email":
+            u.email_verified = True
         elif action == "subscription":
             raw = str(f.get("until", "")).strip()
             u.subscription_until = dt.datetime.fromisoformat(raw).replace(hour=23, minute=59) if raw else None
@@ -86,9 +93,10 @@ async def admin_user_detail(uid: int, request: Request):
         trades = s.scalars(select(Trade).where(Trade.user_id == uid).order_by(Trade.id.desc()).limit(100)).all()
         execs = s.scalars(select(ExecutionLog).where(ExecutionLog.user_id == uid).order_by(ExecutionLog.id.desc()).limit(100)).all()
         notes = s.scalars(select(NotificationLog).where(NotificationLog.user_id == uid).order_by(NotificationLog.id.desc()).limit(100)).all()
+        idents = list(u.identities)
         gs = get_global(s)
     return render(request, "admin/user_detail.html", u=u, accs=accs, trades=trades, execs=execs, notes=notes,
-                  gs=gs, tab="users")
+                  gs=gs, tab="users", idents=idents)
 
 
 # ------------------------------------------------------------------ settings

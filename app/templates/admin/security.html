@@ -1,0 +1,66 @@
+{% extends "base.html" %}{% from "_authkit.html" import logo with context %}{% block content %}
+<h1>{{ _('nav_admin') }}</h1>{% include "admin/_nav.html" %}
+
+{# ---------------- social sign-in providers ---------------- #}
+<form method="post" class="card" id="providers"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="section" value="providers">
+<h2>{{ _('as_providers') }}</h2>
+<p class="muted small">{{ _('as_providers_help') }}</p>
+{% for p, meta in PROVIDERS.items() %}{% set c = cfg.get(p) or {} %}
+<details class="provider" {{ 'open' if c.enabled }}>
+<summary>{{ logo(p) }} <b>{{ meta.name }}</b>
+{% if p in enabled %}<span class="badge ok">{{ _('on') }}</span>{% elif c.enabled %}<span class="badge warn">{{ _('as_incomplete') }}</span>{% else %}<span class="badge">{{ _('off') }}</span>{% endif %}</summary>
+<label class="check"><input type="checkbox" name="{{ p }}__enabled" {{ 'checked' if c.enabled }}><span>{{ _('as_enable', provider=meta.name) }}</span></label>
+{% if meta.widget %}
+<p class="small">{% if bot_username %}{{ _('as_tg_ready', bot='@' ~ bot_username) }}{% else %}<span class="badge warn">{{ _('tg_not_configured') }}</span>{% endif %}</p>
+<p class="small muted">{{ _('as_tg_domain') }} <code class="ltr">/setdomain</code> → <code class="ltr">{{ domain }}</code></p>
+{% else %}
+<p class="small muted">1. <a href="{{ meta.console }}" target="_blank" rel="noopener">{{ _('as_console', provider=meta.name) }} ↗</a><br>
+2. {{ _('as_callback') }} <code class="ltr copy">{{ callbacks[p] }}</code>
+{% if p == 'apple' %}<br>3. {{ _('as_apple_help', domain=domain) }}{% endif %}</p>
+<div class="row"><div><label>{{ _('as_apple_service_id') if p == 'apple' else 'Client ID' }}</label><input class="ltr" type="text" name="{{ p }}__client_id" value="{{ c.client_id or '' }}" autocomplete="off"></div>
+{% if p != 'apple' %}<div><label>Client secret</label><input class="ltr" type="password" name="{{ p }}__secret" autocomplete="new-password" placeholder="{{ '•••• ' ~ _('keep_blank') if c.secret_enc else '' }}"></div>{% endif %}</div>
+{% if p == 'apple' %}<div class="row"><div><label>Team ID</label><input class="ltr" type="text" name="apple__team_id" value="{{ c.team_id or '' }}"></div>
+<div><label>Key ID</label><input class="ltr" type="text" name="apple__key_id" value="{{ c.key_id or '' }}"></div></div>
+<label>{{ _('as_apple_key') }}</label><textarea class="ltr mono" name="apple__private_key" rows="3" placeholder="{{ '•••• ' ~ _('keep_blank') if c.private_key_enc else '-----BEGIN PRIVATE KEY-----' }}"></textarea>{% endif %}
+{% if c.secret_enc or c.private_key_enc %}<label class="check"><input type="checkbox" name="{{ p }}__clear"><span>{{ _('as_clear_secret') }}</span></label>{% endif %}
+{% endif %}
+</details>{% endfor %}
+<p><button>{{ _('btn_save') }}</button></p></form>
+
+{# ---------------- CAPTCHA ---------------- #}
+<form method="post" class="card" id="captcha"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="section" value="captcha">
+<h2>CAPTCHA</h2><p class="muted small">{{ _('as_captcha_help') }}</p>
+<div class="row"><div><label>{{ _('as_captcha_provider') }}</label><select name="captcha_provider">
+<option value="">{{ _('as_captcha_none') }}</option>
+{% for k, label in [('turnstile', 'Cloudflare Turnstile'), ('hcaptcha', 'hCaptcha'), ('recaptcha', 'Google reCAPTCHA v2')] %}<option value="{{ k }}" {{ 'selected' if gs.captcha_provider == k }}>{{ label }}</option>{% endfor %}</select></div>
+<div><label>Site key</label><input class="ltr" type="text" name="captcha_site_key" value="{{ gs.captcha_site_key }}"></div>
+<div><label>Secret key</label><input class="ltr" type="password" name="captcha_secret" autocomplete="new-password" placeholder="{{ '•••• ' ~ _('keep_blank') if gs.captcha_secret_enc else '' }}"></div></div>
+<p class="small muted">{{ _('as_captcha_links') }} <a href="https://dash.cloudflare.com/?to=/:account/turnstile" target="_blank" rel="noopener">Turnstile ↗</a> · <a href="https://dashboard.hcaptcha.com/sites" target="_blank" rel="noopener">hCaptcha ↗</a> · <a href="https://www.google.com/recaptcha/admin" target="_blank" rel="noopener">reCAPTCHA ↗</a></p>
+<p><button>{{ _('btn_save') }}</button></p></form>
+
+{# ---------------- SMTP ---------------- #}
+<form method="post" class="card" id="smtp"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="section" value="smtp">
+<h2>{{ _('as_smtp') }} {% if mail_ok %}<span class="badge ok">{{ _('on') }}</span>{% else %}<span class="badge warn">{{ _('off') }}</span>{% endif %}</h2>
+<p class="muted small">{{ _('as_smtp_help') }}</p>
+<div class="row"><div><label>{{ _('as_smtp_host') }}</label><input class="ltr" type="text" name="smtp_host" value="{{ gs.smtp_host }}" placeholder="smtp.gmail.com"></div>
+<div><label>{{ _('as_smtp_port') }}</label><input class="ltr" type="number" name="smtp_port" value="{{ gs.smtp_port }}"></div>
+<div><label>{{ _('as_smtp_security') }}</label><select name="smtp_security">{% for k in ('starttls', 'ssl', 'none') %}<option value="{{ k }}" {{ 'selected' if gs.smtp_security == k }}>{{ k|upper }}</option>{% endfor %}</select></div></div>
+<div class="row"><div><label>{{ _('as_smtp_user') }}</label><input class="ltr" type="text" name="smtp_user" value="{{ gs.smtp_user }}" autocomplete="off"></div>
+<div><label>{{ _('as_smtp_pass') }}</label><input class="ltr" type="password" name="smtp_pass" autocomplete="new-password" placeholder="{{ '•••• ' ~ _('keep_blank') if gs.smtp_pass_enc else '' }}"></div>
+<div><label>{{ _('as_smtp_from') }}</label><input class="ltr" type="email" name="smtp_from" value="{{ gs.smtp_from }}" placeholder="no-reply@example.com"></div></div>
+{% if gs.smtp_pass_enc %}<label class="check"><input type="checkbox" name="smtp_clear"><span>{{ _('as_clear_secret') }}</span></label>{% endif %}
+<p><button>{{ _('btn_save') }}</button></p></form>
+{% if mail_ok %}<form method="post" action="/admin/security/test-mail" class="card inline-row"><input type="hidden" name="csrf" value="{{ csrf }}">
+<input class="ltr" type="email" name="to" value="{{ user.email }}"><button class="ghost">{{ _('as_mail_test') }}</button></form>{% endif %}
+
+{# ---------------- policies ---------------- #}
+<form method="post" class="card" id="policy"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="section" value="policy">
+<h2>{{ _('as_policy') }}</h2>
+<label>{{ _('as_min_len') }}</label><input class="ltr" type="number" name="password_min_length" min="8" max="64" value="{{ gs.password_min_length }}" style="max-width:120px">
+<label class="check"><input type="checkbox" name="check_breached_passwords" {{ 'checked' if gs.check_breached_passwords }}><span>{{ _('as_breach') }}</span></label>
+<label class="check"><input type="checkbox" name="require_email_verification" {{ 'checked' if gs.require_email_verification }}><span>{{ _('as_require_verify') }}</span></label>
+<label class="check"><input type="checkbox" name="require_2fa_admins" {{ 'checked' if gs.require_2fa_admins }}><span>{{ _('as_require_2fa') }}</span></label>
+<label class="check"><input type="checkbox" name="login_alerts" {{ 'checked' if gs.login_alerts }}><span>{{ _('as_login_alerts') }}</span></label>
+<p class="small muted">{{ _('as_always_on') }}</p>
+<p><button>{{ _('btn_save') }}</button></p></form>
+{% endblock %}

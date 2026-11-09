@@ -19,7 +19,7 @@ h1{font-size:22px;margin:0 0 16px}h2{font-size:17px;margin:0 0 12px}h3{font-size
 .stat .k{color:var(--muted);font-size:13px}.stat .v{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums}
 .pos{color:var(--long)}.neg{color:var(--short)}.muted{color:var(--muted)}.small{font-size:13px}
 label{display:block;font-weight:600;margin:12px 0 4px}
-input[type=text],input[type=email],input[type=password],input[type=number],input[type=date],select,textarea{width:100%;padding:9px 11px;
+input[type=text],input[type=tel],input[type=email],input[type=password],input[type=number],input[type=date],select,textarea{width:100%;padding:9px 11px;
 border:1px solid var(--line);border-radius:8px;background:var(--input);color:var(--text);font:inherit}
 input.ltr,textarea.ltr,.ltr{direction:ltr;text-align:left}
 .check{display:flex;gap:8px;align-items:flex-start;font-weight:400;margin:8px 0}.check input{margin-top:6px}
@@ -123,3 +123,38 @@ tr.rowlink{cursor:pointer}tr.rowlink:hover td{background:var(--brand-soft)}tr.ro
 @media (max-width:760px){.fb-scope select{max-width:200px}.seg a{padding:6px 8px}}
 .fb-edit{display:none}.filterbar.compact .fb-row{display:none}.filterbar.compact .fb-edit{display:inline-flex}
 .filterbar.compact{padding-top:2px}.filterbar.compact .fb-chips{padding:6px 0 4px}
+/* ---- sign-in / sign-up / security ---- */
+.auth{max-width:460px}.auth h1{margin-bottom:4px}.center{text-align:center}.end{text-align:end;margin:6px 0 0}
+button.wide,.btn.wide{width:100%;padding:11px 16px;font-weight:700}
+.social{display:grid;gap:10px;margin:16px 0}
+.social-btn{display:flex;align-items:center;justify-content:center;gap:10px;background:var(--card);color:var(--text);border:1px solid var(--line);font-weight:600;padding:10px 14px}
+.social-btn:hover{background:var(--bg);text-decoration:none}
+.sb-apple{background:#000;color:#fff;border-color:#000}.sb-apple:hover{background:#222}
+.brand-ic{width:20px;height:20px;flex:none;vertical-align:-4px}
+.tg-widget{display:flex;justify-content:center;min-height:40px}
+.divider{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:13px;margin:14px 0 4px}
+.divider:before,.divider:after{content:"";flex:1;border-top:1px solid var(--line)}
+.hp{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+.captcha{margin:14px 0 4px;min-height:65px}
+.pwbox{position:relative}.pwbox input{padding-inline-end:46px}
+.pwbox .pwtoggle{position:absolute;inset-inline-end:4px;top:50%;transform:translateY(-50%);border:0;padding:4px 8px;opacity:.7}
+.meter{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:6px}.meter i{height:4px;border-radius:2px;background:var(--line)}
+.meter[data-s="0"] i:nth-child(-n+1),.meter[data-s="1"] i:nth-child(-n+1){background:var(--err)}
+.meter[data-s="2"] i:nth-child(-n+2){background:var(--warn)}
+.meter[data-s="3"] i:nth-child(-n+3),.meter[data-s="4"] i{background:var(--ok)}
+.meter.big i{height:7px}.pwhint{margin:4px 0 0}
+details.more{margin:14px 0;border:1px solid var(--line);border-radius:10px;padding:8px 12px}
+details.more summary{cursor:pointer;font-weight:600}
+input.otp{font-size:22px;letter-spacing:.25em;text-align:center;font-family:ui-monospace,monospace}
+input.otp.sm{font-size:15px;letter-spacing:.1em}
+.qr-wrap{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start}
+.qr{background:#fff;padding:8px;border-radius:10px;line-height:0}.qr svg{width:190px;height:190px}
+.secret{word-break:break-all;font-size:15px;background:var(--bg);padding:6px 10px;border-radius:8px}
+.codes{columns:2;font-size:17px;background:var(--bg);padding:12px 16px;border-radius:10px;border:1px dashed var(--line)}
+.codes-card{border-color:var(--warn)}
+.checklist{list-style:none;padding:0;margin:10px 0 0;display:flex;flex-wrap:wrap;gap:8px 18px}.checklist li{color:var(--muted)}.checklist li.ok{color:var(--ok)}
+.steps{padding-inline-start:20px}.steps li{margin:4px 0}
+.inline-row{display:flex;gap:8px;align-items:center}.inline-row input{flex:1}
+details.provider{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin:8px 0}
+details.provider summary{cursor:pointer;display:flex;align-items:center;gap:8px}
+code.copy{user-select:all;word-break:break-all}

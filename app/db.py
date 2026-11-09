@@ -73,8 +73,27 @@ class User(Base):
     accepted_terms_at: Mapped[dt.datetime | None] = mapped_column(nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(default=utcnow)
     last_login_at: Mapped[dt.datetime | None] = mapped_column(nullable=True)
+    last_login_ip: Mapped[str] = mapped_column(String(64), default="")
+    # profile (light, no KYC)
+    country: Mapped[str] = mapped_column(String(2), default="")
+    experience: Mapped[str] = mapped_column(String(20), default="")  # beginner | intermediate | pro
+    referral_source: Mapped[str] = mapped_column(String(80), default="")
+    marketing_opt_in: Mapped[bool] = mapped_column(default=False)
+    profile_completed: Mapped[bool | None] = mapped_column(nullable=True)  # False only after social sign-up
+    # security
+    email_verified: Mapped[bool | None] = mapped_column(nullable=True)
+    totp_secret_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    totp_enabled: Mapped[bool] = mapped_column(default=False)
+    recovery_codes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)  # sha256 of unused codes
+    session_version: Mapped[int] = mapped_column(default=1)  # bump = log out everywhere
+    anti_phishing: Mapped[str] = mapped_column(String(32), default="")
 
     accounts: Mapped[list[ExchangeAccount]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    identities: Mapped[list[Identity]] = relationship(back_populates="user", cascade="all, delete-orphan")
+
+    @property
+    def has_password(self) -> bool:
+        return bool(self.password_hash) and not self.password_hash.startswith("!")
 
     def wants(self, kind: str) -> bool:
         return bool({**DEFAULT_NOTIFY, **(self.notify or {})}.get(kind, True))
@@ -88,6 +107,20 @@ class User(Base):
         if self.subscription_until is None:
             return None
         return max(0, (self.subscription_until - utcnow()).days)
+
+
+class Identity(Base):
+    """A sign-in identity from an external provider (Google, Apple, Telegram, ...)."""
+    __tablename__ = "identities"
+    __table_args__ = (Index("uq_identity_provider_subject", "provider", "subject", unique=True),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    provider: Mapped[str] = mapped_column(String(20))
+    subject: Mapped[str] = mapped_column(String(255))
+    email: Mapped[str] = mapped_column(String(255), default="")
+    created_at: Mapped[dt.datetime] = mapped_column(default=utcnow)
+
+    user: Mapped[User] = relationship(back_populates="identities")
 
 
 class ExchangeAccount(Base):
@@ -395,6 +428,22 @@ class GlobalSettings(Base):
     bot_state: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)  # last bot monitor result
     bench_state: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)  # benchmark updater status
     coingecko_key_enc: Mapped[str | None] = mapped_column(Text, nullable=True)  # optional free "demo" API key
+    # sign-in & security (admin panel)
+    auth_providers: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    captcha_provider: Mapped[str] = mapped_column(String(20), default="")  # "" | turnstile | hcaptcha | recaptcha
+    captcha_site_key: Mapped[str] = mapped_column(String(200), default="")
+    captcha_secret_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    smtp_host: Mapped[str] = mapped_column(String(200), default="")
+    smtp_port: Mapped[int] = mapped_column(default=587)
+    smtp_user: Mapped[str] = mapped_column(String(200), default="")
+    smtp_pass_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    smtp_from: Mapped[str] = mapped_column(String(200), default="")
+    smtp_security: Mapped[str] = mapped_column(String(10), default="starttls")  # starttls | ssl | none
+    require_email_verification: Mapped[bool] = mapped_column(default=False)
+    require_2fa_admins: Mapped[bool] = mapped_column(default=False)
+    password_min_length: Mapped[int] = mapped_column(default=10)
+    check_breached_passwords: Mapped[bool] = mapped_column(default=True)
+    login_alerts: Mapped[bool] = mapped_column(default=True)
     # telegram
     telegram_token_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
     updated_at: Mapped[dt.datetime] = mapped_column(default=utcnow, onupdate=utcnow)

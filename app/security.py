@@ -86,7 +86,8 @@ def current_user(request: Request) -> User | None:
         return None
     with SessionLocal() as s:
         u = s.get(User, uid)
-        if u is None or u.status == "suspended":
+        # session_version: bumped on password reset / "log out other devices" -> old cookies stop working
+        if u is None or u.status == "suspended" or request.session.get("sv", 1) != (u.session_version or 1):
             request.session.pop("uid", None)
             return None
         return u

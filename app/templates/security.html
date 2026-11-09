@@ -1,0 +1,86 @@
+{% extends "base.html" %}{% from "_authkit.html" import social, logo, pw, authjs with context %}{% from "_icons.html" import ic with context %}
+{% block title %}{{ _('sec_security') }} · {{ site.site_name }}{% endblock %}{% block content %}
+<h1>{{ ic('shield') }} {{ _('sec_security') }}</h1>
+<p class="muted"><a href="/settings">← {{ _('nav_settings') }}</a></p>
+
+{# ---- overview: a small checklist like exchanges show ---- #}
+<div class="card"><h2>{{ _('sec_level') }}: <span class="badge {{ 'ok' if done >= 3 else 'warn' if done >= 2 else 'err' }}">{{ _('sec_level_' ~ ('high' if done >= 3 else 'mid' if done >= 2 else 'low')) }}</span></h2>
+<div class="meter big" data-s="{{ done }}"><i></i><i></i><i></i><i></i></div>
+<ul class="checklist">{% for ok, k in checks %}<li class="{{ 'ok' if ok else '' }}">{{ '✔' if ok else '○' }} {{ _(k) }}</li>{% endfor %}</ul></div>
+
+{% if new_codes %}<div class="card codes-card" id="codes"><h2>🔑 {{ _('rc_title') }}</h2><p>{{ _('rc_help') }}</p>
+<pre class="codes ltr" id="rc">{% for c in new_codes %}{{ c }}
+{% endfor %}</pre>
+<p><button type="button" class="ghost sm" onclick="navigator.clipboard.writeText(document.getElementById('rc').textContent)">{{ _('btn_copy') }}</button>
+<a class="btn ghost sm" download="recovery-codes.txt" href="data:text/plain;charset=utf-8,{{ new_codes|join('%0A') }}">{{ _('btn_download') }}</a></p></div>{% endif %}
+
+{# ---- e-mail ---- #}
+<div class="card" id="email"><h2>{{ _('f_email') }}</h2>
+{% if placeholder %}<p><span class="badge warn">{{ _('email_missing') }}</span> <a href="/complete-profile">{{ _('cp_title') }}</a></p>
+{% else %}<p class="ltr-inline"><span class="mono">{{ user.email }}</span>
+{% if user.email_verified %}<span class="badge ok">{{ _('email_verified') }}</span>{% else %}<span class="badge warn">{{ _('email_unverified') }}</span>{% endif %}</p>
+{% if not user.email_verified %}{% if mail_ok %}<form method="post" action="/verify-email/resend" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="sm">{{ _('btn_resend_verify') }}</button></form>
+{% else %}<p class="small muted">{{ _('err_mail_unavailable') }}</p>{% endif %}{% endif %}{% endif %}
+<details class="more"><summary>{{ _('btn_change_email') }}</summary>
+<form method="post" action="/settings/security/email"><input type="hidden" name="csrf" value="{{ csrf }}">
+<div class="row"><div><label>{{ _('f_new_email') }}</label><input class="ltr" type="email" name="email" required></div>
+<div><label>{{ _('f_old_password') if user.has_password else _('f_2fa_code') }}</label><input class="ltr" type="{{ 'password' if user.has_password else 'text' }}" name="password" {{ 'required' if user.has_password or user.totp_enabled }} autocomplete="current-password"></div></div>
+<p><button class="sm">{{ _('btn_save') }}</button></p></form></details></div>
+
+{# ---- two-factor ---- #}
+<div class="card" id="twofa"><h2>{{ _('twofa_title') }} {% if user.totp_enabled %}<span class="badge ok">{{ _('on') }}</span>{% else %}<span class="badge warn">{{ _('off') }}</span>{% endif %}</h2>
+<p class="muted">{{ _('twofa_why') }}</p>
+{% if user.totp_enabled %}
+<p class="small">{{ _('rc_left', n=recovery_left) }}</p>
+<div class="row">
+<form method="post" action="/settings/security/2fa/recovery"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>{{ _('rc_regen') }}</label><div class="inline-row"><input class="ltr otp sm" type="text" name="code" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" required><button class="sm ghost">{{ _('btn_generate') }}</button></div></form>
+<form method="post" action="/settings/security/2fa/disable" onsubmit="return confirm('{{ _('confirm_2fa_off') }}')"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>{{ _('twofa_disable') }}</label><div class="inline-row"><input class="ltr otp sm" type="text" name="code" autocomplete="one-time-code" placeholder="{{ _('code_or_recovery') }}" required><button class="sm danger">{{ _('btn_disable') }}</button></div></form>
+</div>
+{% elif setup %}
+<ol class="steps"><li>{{ _('twofa_step1') }}</li><li>{{ _('twofa_step2') }}</li><li>{{ _('twofa_step3') }}</li></ol>
+<div class="qr-wrap"><div class="qr">{{ setup.qr|safe }}</div>
+<div><p class="small muted">{{ _('twofa_manual') }}</p><p class="mono ltr secret">{{ setup.secret }}</p>
+<form method="post" action="/settings/security/2fa/confirm"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>{{ _('f_2fa_code') }}</label><input class="ltr otp" type="text" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" required autofocus placeholder="123456">
+<p><button>{{ _('btn_enable') }}</button></p></form>
+<form method="post" action="/settings/security/2fa/cancel"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost sm">{{ _('btn_cancel') }}</button></form></div></div>
+{% else %}
+<form method="post" action="/settings/security/2fa/start"><input type="hidden" name="csrf" value="{{ csrf }}"><button>{{ _('twofa_setup') }}</button></form>
+<p class="small muted">{{ _('twofa_apps') }}</p>
+{% endif %}</div>
+
+{# ---- sign-in methods ---- #}
+<div class="card" id="methods"><h2>{{ _('methods_title') }}</h2>
+<table class="small"><tbody>
+<tr><td>🔑 {{ _('f_password') }}</td><td>{% if user.has_password %}<span class="badge ok">{{ _('on') }}</span>{% else %}<span class="badge">{{ _('not_set') }}</span>{% endif %}</td><td></td></tr>
+{% for i in idents %}<tr><td>{{ logo(i.provider) }} {{ PROVIDERS[i.provider].name if i.provider in PROVIDERS else i.provider }}</td>
+<td class="muted">{{ i.email or '' }} · {{ i.created_at.strftime('%Y-%m-%d') }}</td>
+<td><form method="post" action="/settings/security/unlink/{{ i.id }}" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost sm">{{ _('btn_unlink') }}</button></form></td></tr>{% endfor %}
+</tbody></table>
+{% set addable = providers|reject('in', linked)|list %}
+{% if addable %}<p class="small muted" style="margin-top:12px">{{ _('methods_add') }}</p>{{ social(addable, PROVIDERS, 'link_with', link=True) }}{% endif %}
+</div>
+
+{# ---- password ---- #}
+<form method="post" action="/settings/security/password" class="card" id="password"><input type="hidden" name="csrf" value="{{ csrf }}">
+<h2>{{ _('sec_password') if user.has_password else _('pw_set_title') }}</h2>
+{% if not user.has_password %}<p class="small muted">{{ _('pw_set_help') }}</p>{% endif %}
+{% if user.has_password %}{{ pw('old', _('f_old_password'), auto='current-password') }}{% endif %}
+{{ pw('new', _('f_password_new'), meter=True) }}
+{{ pw('new2', _('f_password_repeat')) }}
+<p class="small muted">{{ _('pw_change_logout') }}</p>
+<p><button>{{ _('btn_save') }}</button></p></form>
+
+{# ---- anti-phishing ---- #}
+<form method="post" action="/settings/security/antiphishing" class="card" id="antiphishing"><input type="hidden" name="csrf" value="{{ csrf }}">
+<h2>{{ _('ap_title') }}</h2><p class="muted">{{ _('ap_help') }}</p>
+<div class="inline-row"><input type="text" name="code" value="{{ user.anti_phishing }}" maxlength="32" placeholder="{{ _('ap_placeholder') }}"><button>{{ _('btn_save') }}</button></div></form>
+
+{# ---- sessions ---- #}
+<div class="card" id="sessions"><h2>{{ _('sessions_title') }}</h2>
+<p class="small">{% if user.last_login_at %}{{ _('last_login') }}: <span class="num">{{ user.last_login_at.strftime('%Y-%m-%d %H:%M') }} UTC</span> · <span class="mono">{{ user.last_login_ip }}</span>{% endif %}</p>
+<form method="post" action="/settings/security/logout-others"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost">{{ _('btn_logout_others') }}</button></form>
+<p class="small muted">{{ _('sessions_help') }}</p></div>
+{{ authjs() }}{% endblock %}

@@ -1,0 +1,7 @@
+{% extends "base.html" %}{% from "_authkit.html" import pw, authjs with context %}{% block content %}<div class="auth card">
+<h1>{{ _('reset_title') }}</h1><p class="muted">{{ _('reset_sub') }}</p>
+<form method="post" action="/reset/{{ token }}"><input type="hidden" name="csrf" value="{{ csrf }}">
+{{ pw('password', _('f_password_new'), meter=True) }}
+{{ pw('password2', _('f_password_repeat')) }}
+<p><button class="wide">{{ _('btn_save') }}</button></p></form>
+</div>{{ authjs() }}{% endblock %}

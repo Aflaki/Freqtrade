@@ -40,9 +40,12 @@ def csrf(client, url):
 
 
 def register(client, email, name):
-    tok = csrf(client, "/register")
-    return client.post("/register", data={"csrf": tok, "email": email, "name": name, "password": "password123",
-                                          "password2": "password123", "terms": "on"}, follow_redirects=False)
+    page = client.get("/register").text
+    tok = re.search(r'name="csrf" value="([^"]+)"', page).group(1)
+    ft = re.search(r'name="ft" value="([^"]+)"', page).group(1)
+    return client.post("/register", data={"csrf": tok, "ft": ft, "email": email, "name": name,
+                                          "password": "Tr4de-Relay-x9", "password2": "Tr4de-Relay-x9", "terms": "on"},
+                       follow_redirects=False)
 
 
 def secret(bot_id=1):

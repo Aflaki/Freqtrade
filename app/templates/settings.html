@@ -1,4 +1,4 @@
-{% extends "base.html" %}{% from "_themes.html" import theme_picker with context %}{% block content %}
+{% extends "base.html" %}{% from "_themes.html" import theme_picker with context %}{% from "_icons.html" import ic with context %}{% block content %}
 <h1>{{ _('nav_settings') }}</h1>
 <div class="card"><h2>Telegram</h2>
 {% if not bot_username %}<p class="muted">{{ _('tg_not_configured') }}</p>
@@ -21,8 +21,6 @@
 <label class="check"><input type="checkbox" name="trading_enabled" {{ 'checked' if user.trading_enabled }}> <span>{{ _('f_trading_enabled') }}</span></label>
 <p><button>{{ _('btn_save') }}</button></p></form>
 
-<form method="post" action="/settings" class="card"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="password">
-<h2>{{ _('sec_password') }}</h2><div class="row"><div><label>{{ _('f_old_password') }}</label><input class="ltr" type="password" name="old" required></div>
-<div><label>{{ _('f_password_new') }}</label><input class="ltr" type="password" name="new" required minlength="8"></div></div>
-<p><button>{{ _('btn_save') }}</button></p></form>
+<div class="card"><h2>{{ ic('shield') }} {{ _('sec_security') }}</h2><p class="muted">{{ _('security_teaser') }}</p>
+<p><a class="btn" href="/settings/security">{{ _('btn_open_security') }}</a></p></div>
 {% endblock %}

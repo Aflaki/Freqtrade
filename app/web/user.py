@@ -6,13 +6,30 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy import func, select
 
-from ..db import (ADMIN_NOTIFY, DEFAULT_NOTIFY, SIZING_MODES, Bot, ExchangeAccount, ExecutionLog, NotificationLog, SessionLocal, Trade,
-                  User, get_global)
+from ..db import (
+    ADMIN_NOTIFY,
+    DEFAULT_NOTIFY,
+    SIZING_MODES,
+    Bot,
+    ExchangeAccount,
+    ExecutionLog,
+    NotificationLog,
+    SessionLocal,
+    Trade,
+    User,
+    get_global,
+)
 from ..engine import performance as perf
 from ..engine.exchange import NEEDS_PASSWORD, pool, test_connection
-from ..engine.sizing import allocation_table, effective_capital, effective_mode, max_open_trades, tradable_capital
+from ..engine.sizing import (
+    allocation_table,
+    effective_capital,
+    effective_mode,
+    max_open_trades,
+    tradable_capital,
+)
 from ..engine.trader import force_exit
-from ..security import encrypt, flash, form_with_csrf, hash_password, mask, require_user, verify_password
+from ..security import encrypt, flash, form_with_csrf, mask, require_user
 from ..telegram import bot
 from .common import render, tr
 
@@ -120,6 +137,9 @@ async def _save_account(request: Request, acc_id: int | None):
         gs = get_global(s)
         acc = _own(s, user, acc_id) if acc_id else None
         kind = acc.kind if acc else ("signal" if f.get("kind") == "signal" else "exchange")
+        if kind == "exchange" and gs.require_email_verification and not user.email_verified:
+            flash(request, tr(request, "err_verify_first"), "error")
+            return RedirectResponse("/settings/security", 303)
         errors = []
         exchange = str(f.get("exchange", "")) if kind == "exchange" else ""
         if kind == "exchange" and exchange not in gs.allowed_exchanges:
@@ -338,14 +358,6 @@ async def settings_save(request: Request):
             u.theme = str(f.get("theme")) if f.get("theme") in THEMES else None
             u.phone = str(f.get("phone", u.phone)).strip()[:32]
             flash(request, tr(request, "msg_saved"))
-        elif action == "password":
-            if not verify_password(str(f.get("old", "")), u.password_hash):
-                flash(request, tr(request, "err_old_password"), "error")
-            elif len(str(f.get("new", ""))) < 8:
-                flash(request, tr(request, "err_password_len"), "error")
-            else:
-                u.password_hash = hash_password(str(f["new"]))
-                flash(request, tr(request, "msg_password_changed"))
         elif action == "telegram_unlink":
             u.telegram_chat_id = None
             flash(request, tr(request, "msg_saved"))

@@ -1,12 +1,19 @@
-{% extends "base.html" %}{% block content %}<div class="auth card">
-<h1>{{ _('nav_register') }}</h1>
-<form method="post" action="/register"><input type="hidden" name="csrf" value="{{ csrf }}">
-<label>{{ _('f_name') }}</label><input type="text" name="name" value="{{ form.name }}" required>
-<label>{{ _('f_email') }}</label><input class="ltr" type="email" name="email" value="{{ form.email }}" required>
-<label>{{ _('f_phone') }}</label><input class="ltr" type="text" name="phone" value="{{ form.phone }}">
-<label>{{ _('f_password_new') }}</label><input class="ltr" type="password" name="password" required minlength="8">
-<label>{{ _('f_password_repeat') }}</label><input class="ltr" type="password" name="password2" required minlength="8">
-<label class="check"><input type="checkbox" name="terms" required><span>{{ _('f_terms') }}</span></label>
-<p><button>{{ _('nav_register') }}</button></p></form>
-<p class="muted">{{ _('have_account') }} <a href="/login">{{ _('nav_login') }}</a></p>
-</div>{% endblock %}
+{% extends "base.html" %}{% from "_authkit.html" import social, botfields, captcha_box, pw, profile_fields, terms_fields, authjs with context %}
+{% block title %}{{ _('nav_register') }} · {{ site.site_name }}{% endblock %}{% block content %}<div class="auth card">
+<h1>{{ _('reg_title') }}</h1><p class="muted">{{ _('reg_sub') }}</p>
+{{ social(providers, PROVIDERS, 'signup_with') }}
+{% if providers %}<div class="divider"><span>{{ _('or_email') }}</span></div>{% endif %}
+<form method="post" action="/register" data-once><input type="hidden" name="csrf" value="{{ csrf }}">{{ botfields() }}
+<label for="r-name">{{ _('f_name') }}</label><input id="r-name" type="text" name="name" value="{{ form.name }}" required minlength="2" maxlength="120" autocomplete="name">
+<label for="r-email">{{ _('f_email') }}</label><input id="r-email" class="ltr" type="email" name="email" value="{{ form.email }}" required autocomplete="email">
+{{ pw('password', _('f_password'), meter=True) }}
+{{ pw('password2', _('f_password_repeat')) }}
+<details class="more" {{ 'open' if form.country or form.phone or form.experience }}><summary>{{ _('more_info') }} <span class="muted small">({{ _('optional') }})</span></summary>
+<p class="small muted">{{ _('more_info_why') }}</p>
+{{ profile_fields(form) }}</details>
+{{ terms_fields(form) }}
+{{ captcha_box(captcha) }}
+<p><button class="wide">{{ _('nav_register') }}</button></p></form>
+<p class="muted center">{{ _('have_account') }} <a href="/login">{{ _('nav_login') }}</a></p>
+<p class="small muted center">🔒 {{ _('reg_privacy') }}</p>
+</div>{{ authjs() }}{% endblock %}
