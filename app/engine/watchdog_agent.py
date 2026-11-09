@@ -24,6 +24,7 @@ Stopping a bot yourself with Ctrl+C, or closing its tmux session/window, is resp
   python3 agent.py pause PORT      don't restart this bot (e.g. you stop it on purpose); resume PORT undoes it
   python3 agent.py forget PORT     remove a bot you deleted for good
   python3 agent.py once            one check, printed (for testing)
+  python3 agent.py test            can this server reach the site?
 Bots are identified by their API port. A bot that was never seen running is not known: start it once by hand.
 Needs only Python 3.8+.
 """
@@ -678,6 +679,21 @@ def main():
         save_state(st)
         print("%s: %s" % (cmd, ", ".join(keys)))
         return
+    if cmd == "test":
+        try:
+            req = urllib.request.Request(SITE.rstrip("/") + "/watchdog/ping", method="POST", data=b"{}",
+                                         headers={"X-Watchdog-Token": TOKEN, "Content-Type": "application/json",
+                                                  "User-Agent": "relay-watchdog/" + VERSION})
+            with urllib.request.urlopen(req, timeout=20) as r:
+                print("OK - %s answers (HTTP %s)" % (SITE, r.status))
+        except urllib.error.HTTPError as e:
+            print("FAILED - %s answered HTTP %s%s" % (SITE, e.code, " (wrong token: reinstall from the panel)" if e.code == 403 else ""))
+            sys.exit(1)
+        except Exception as e:
+            print("FAILED - cannot reach %s: %s" % (SITE, e))
+            print("Check the site address in the admin panel (Settings -> site address) and that this server can reach it.")
+            sys.exit(1)
+        return
     if cmd == "status":
         for k, b in sorted(st["bots"].items()):
             where = ("tmux:" + (b.get("tmux") or {}).get("session", "")) if b.get("kind") == "tmux" else b.get("kind")
@@ -709,15 +725,22 @@ if __name__ == "__main__":
 
 
 INSTALL = r'''#!/bin/sh
-# Signal Relay watchdog installer: run on every bot server as root:
-#   curl -fsSL "__SITE__/watchdog/install.sh?t=__TOKEN__" | sudo sh
+# Signal Relay watchdog installer. Run on every bot server as root:
+#   curl -fsSL "__SITE__/watchdog/install.sh?t=__TOKEN__" | sh
+#   (or)  wget -qO- "__SITE__/watchdog/install.sh?t=__TOKEN__" | sh
 set -e
-[ "$(id -u)" = 0 ] || { echo "Please run as root (sudo)."; exit 1; }
-command -v python3 >/dev/null || { echo "python3 is required (apt install python3)."; exit 1; }
+[ "$(id -u)" = 0 ] || { echo "Please run as root (or put sudo before sh)."; exit 1; }
+command -v python3 >/dev/null || { echo "python3 is required: apt install -y python3"; exit 1; }
+command -v systemctl >/dev/null || { echo "systemd is required."; exit 1; }
 mkdir -p /opt/relay-watchdog /var/lib/relay-watchdog
-curl -fsSL "__SITE__/watchdog/agent.py?t=__TOKEN__" -o /opt/relay-watchdog/agent.py.new
-python3 -c "import ast,sys; ast.parse(open(sys.argv[1]).read())" /opt/relay-watchdog/agent.py.new
-mv /opt/relay-watchdog/agent.py.new /opt/relay-watchdog/agent.py
+# the agent itself is inside this file (no second download)
+python3 - <<'PY'
+import base64, ast
+src = base64.b64decode("__AGENT_B64__").decode()
+ast.parse(src)
+with open("/opt/relay-watchdog/agent.py", "w") as f:
+    f.write(src)
+PY
 chmod 700 /opt/relay-watchdog/agent.py
 cat > /etc/systemd/system/relay-watchdog.service <<'UNIT'
 [Unit]
@@ -738,11 +761,13 @@ UNIT
 systemctl daemon-reload
 systemctl enable relay-watchdog >/dev/null 2>&1
 systemctl restart relay-watchdog
-sleep 3
+echo "== bots found on this server =="
 python3 /opt/relay-watchdog/agent.py status || true
 echo
-echo "Watchdog installed. It reports to __SITE__ every minute."
-echo "Log: journalctl -u relay-watchdog -f"
+echo "== connection to the site =="
+python3 /opt/relay-watchdog/agent.py test || true
+echo
+echo "Watchdog installed (service: relay-watchdog). Log: journalctl -u relay-watchdog -f"
 '''
 
 
@@ -751,4 +776,6 @@ def build_agent(site: str, token: str) -> str:
 
 
 def build_install(site: str, token: str) -> str:
-    return INSTALL.replace("__SITE__", site.rstrip("/")).replace("__TOKEN__", token)
+    import base64
+    agent = base64.b64encode(build_agent(site, token).encode()).decode()
+    return INSTALL.replace("__SITE__", site.rstrip("/")).replace("__TOKEN__", token).replace("__AGENT_B64__", agent)

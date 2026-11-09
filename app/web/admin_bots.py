@@ -117,7 +117,7 @@ def _watchdog_view(request: Request, bots) -> dict:
                          "binance": (h.report or {}).get("binance") or {}, "ban": h.ban or {}})
     names = {b.id: b.name for b in bots}
     unwatched = [b for b in bots if b.enabled and b.api_url and b.id not in watched]
-    return {"cmd": f'curl -fsSL "{site_url(request)}/watchdog/install.sh?t={token()}" | sudo sh', "hosts": rows,
+    return {"cmd": f'curl -fsSL "{site_url(request)}/watchdog/install.sh?t={token()}" | sh', "hosts": rows,
             "events": events, "watched": watched, "unwatched": unwatched if hosts else [], "names": names}
 
 

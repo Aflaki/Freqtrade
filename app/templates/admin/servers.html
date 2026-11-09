@@ -55,7 +55,9 @@
 </div>
 
 {% if not servers %}<div class="card"><h2>🛟 {{ _('srv_no_agent') }}</h2><p class="muted">{{ _('wd_intro') }}</p>
-<pre class="ltr copy" style="white-space:pre-wrap;word-break:break-all">{{ install_cmd }}</pre></div>{% endif %}
+<pre class="ltr copy" style="white-space:pre-wrap;word-break:break-all">{{ install_cmd }}</pre>
+<p class="small muted">{{ _('wd_install_wget') }}</p>
+<pre class="ltr copy" style="white-space:pre-wrap;word-break:break-all">{{ install_cmd.replace('curl -fsSL', 'wget -qO-') }}</pre></div>{% endif %}
 
 {# ---------------- one card per server ---------------- #}
 {% for sv in servers %}

@@ -59,6 +59,8 @@
 <p class="small muted">{{ _('wd_intro') }}</p>
 <p class="small"><b>{{ _('wd_install') }}</b></p>
 <pre class="ltr copy" style="white-space:pre-wrap;word-break:break-all">{{ wd.cmd }}</pre>
+<p class="small muted">{{ _('wd_install_wget') }}</p>
+<pre class="ltr copy" style="white-space:pre-wrap;word-break:break-all">{{ wd.cmd.replace('curl -fsSL', 'wget -qO-') }}</pre>
 <p class="small muted">{{ _('wd_install_note') }}</p>
 {% if wd.hosts %}
 <div class="table-wrap"><table class="small">

@@ -153,7 +153,14 @@ def test_report_maps_bots_and_alerts(site):
     c = TestClient(app)
     assert c.get("/watchdog/agent.py?t=wrong").status_code == 403
     assert 'TOKEN = "wd-token-123"' in c.get("/watchdog/agent.py?t=wd-token-123").text
-    assert "/watchdog/agent.py?t=wd-token-123" in c.get("/watchdog/install.sh?t=wd-token-123").text
+    inst = c.get("/watchdog/install.sh?t=wd-token-123").text
+    import base64
+    import re as _re
+    agent_src = base64.b64decode(_re.search(r'b64decode\("([A-Za-z0-9+/=]+)"\)', inst).group(1)).decode()
+    assert 'TOKEN = "wd-token-123"' in agent_src and "sudo" not in inst.split("\n", 3)[2]  # agent embedded, no 2nd download
+    assert subprocess.run(["sh", "-n"], input=inst, text=True).returncode == 0
+    assert c.post("/watchdog/ping", headers={"X-Watchdog-Token": "wd-token-123"}).status_code == 200
+    assert c.post("/watchdog/ping", headers={"X-Watchdog-Token": "x"}).status_code == 403
     body = {"host": "ft-v1", "ips": ["65.109.188.248", "10.0.0.5"], "version": "1.0",
             "mem": {"MemTotal": 16000, "MemAvailable": 900}, "load": [3.1, 2.0, 1.5],
             "bots": [{"key": "port:8015", "port": 8015, "status": "running"}],
@@ -204,7 +211,7 @@ def test_admin_bots_page_shows_watchdog(site):
         captcha.MIN_SECONDS = 0
         c.post("/login", data={**data, "email": "wd-admin@x.com", "password": "Xy-12345678-zz"})
         html = c.get("/admin/bot").text
-        assert "/watchdog/install.sh?t=wd-token-123" in html and "sudo sh" in html
+        assert "/watchdog/install.sh?t=wd-token-123" in html and "| sh</pre>" in html and "wget -qO-" in html and "sudo sh" not in html
     finally:
         with SessionLocal() as s:
             s.query(User).filter_by(id=uid).delete()

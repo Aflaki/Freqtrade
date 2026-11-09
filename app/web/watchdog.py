@@ -118,6 +118,13 @@ def _event_text(lang: str, ev: dict, bot_name: str, host: str) -> tuple[str, str
     return None
 
 
+@router.post("/watchdog/ping")
+async def ping(request: Request):
+    """Connection test used by the installer (`agent.py test`)."""
+    _check(request.headers.get("x-watchdog-token"))
+    return JSONResponse({"ok": True})
+
+
 @router.post("/watchdog/report")
 async def report(request: Request):
     _check(request.headers.get("x-watchdog-token"))
