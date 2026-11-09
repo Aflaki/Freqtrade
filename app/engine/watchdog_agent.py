@@ -4,7 +4,7 @@ The agent source is AGENT below; the site fills in its address and token when it
 """
 from __future__ import annotations
 
-AGENT_VERSION = "1.2"
+AGENT_VERSION = "1.3"
 
 AGENT = r'''#!/usr/bin/env python3
 """
@@ -363,6 +363,45 @@ def port_open(ip, port):
     return False
 
 
+CLK = os.sysconf("SC_CLK_TCK") if hasattr(os, "sysconf") else 100
+
+
+def proc_usage(pid, prev):
+    """(rss_mb, cpu_percent since the previous check) of a process; prev = (cpu_ticks, time)."""
+    rss = None
+    try:
+        with open("/proc/%s/status" % pid) as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    rss = int(line.split()[1]) // 1024
+        with open("/proc/%s/stat" % pid) as f:
+            fields = f.read().rsplit(")", 1)[-1].split()
+        ticks = int(fields[11]) + int(fields[12])  # utime + stime
+    except (OSError, ValueError, IndexError):
+        return rss, None, prev
+    now = time.time()
+    cpu = None
+    if prev and now > prev[1] and ticks >= prev[0]:
+        cpu = round(100.0 * (ticks - prev[0]) / CLK / (now - prev[1]), 1)
+    return rss, cpu, (ticks, now)
+
+
+def host_info():
+    out = {"cores": os.cpu_count() or 1}
+    try:
+        du = shutil.disk_usage("/")
+        out["disk_pct"] = round(100.0 * du.used / du.total, 1)
+        out["disk_free_gb"] = round(du.free / 1e9, 1)
+    except OSError:
+        pass
+    try:
+        with open("/proc/uptime") as f:
+            out["uptime_s"] = int(float(f.read().split()[0]))
+    except (OSError, ValueError):
+        pass
+    return out
+
+
 def mem_info():
     out = {}
     try:
@@ -517,8 +556,12 @@ def host_ips():
 
 def report(st, events):
     bots = [{"key": k, "port": b.get("port"), "kind": b.get("kind"), "status": b.get("status"), "pid": b.get("pid"),
-             "since": b.get("since"), "paused": bool(b.get("paused"))} for k, b in sorted(st["bots"].items())]
+             "since": b.get("since"), "paused": bool(b.get("paused")), "rss_mb": b.get("rss_mb"), "cpu": b.get("cpu"),
+             "session": (b.get("tmux") or {}).get("session") or b.get("container") or b.get("unit") or "",
+             "config": " ".join(x for x in config_args(b.get("argv") or [], b.get("cwd") or "/")[:3]) if b.get("argv") else ""}
+            for k, b in sorted(st["bots"].items())]
     body = json.dumps({"host": platform.node(), "ips": host_ips(), "version": VERSION, "mem": mem_info(),
+                       "host_info": host_info(),
                        "load": list(os.getloadavg()), "bots": bots, "events": st["pending"] + events,
                        "binance": st.get("binance") or {}}).encode()
     req = urllib.request.Request(SITE.rstrip("/") + "/watchdog/report", data=body, method="POST",
@@ -547,9 +590,12 @@ def check(st, cfg, verbose=False):
         if b.get("status") in ("down", "gave_up") and b.get("missing", 0) >= 1:
             events.append({"key": key, "port": info.get("port"), "action": "recovered", "at": now,
                            "detail": "running again (started by someone else)"})
-        if b.get("pid") != info.get("pid") or "since" not in b:
+        same = b.get("pid") == info.get("pid")
+        if not same or "since" not in b:
             b["since"] = now  # a new process
         b.update(info, key=key, status="running", missing=0, last_seen=now)
+        prev = b.get("_cpu") if same else None
+        b["rss_mb"], b["cpu"], b["_cpu"] = proc_usage(info.get("pid"), prev)
         st["bots"][key] = b
     for key, b in st["bots"].items():
         if key in procs:

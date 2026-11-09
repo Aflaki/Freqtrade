@@ -13,7 +13,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy import select
 
-from ..db import Bot, SessionLocal, WatchdogEvent, WatchdogHost, get_global, utcnow
+from ..db import Bot, ServerSample, SessionLocal, WatchdogEvent, WatchdogHost, get_global, utcnow
 from ..engine.watchdog_agent import build_agent, build_install
 from ..i18n import t
 
@@ -82,6 +82,21 @@ def bots_on_host(ips: list[str], s) -> dict[int, Bot]:
     return out
 
 
+def _sample(host: str, rep: dict) -> ServerSample:
+    mem, load = rep.get("mem") or {}, rep.get("load") or []
+
+    def pct(used, total):
+        return round(100.0 * used / total, 1) if total else None
+    weights = [100.0 * v["used_weight"] / v["limit"] for v in (rep.get("binance") or {}).values()
+               if v.get("used_weight") is not None and v.get("limit")]
+    return ServerSample(host=host, load1=load[0] if load else None,
+                        mem_pct=pct((mem.get("MemTotal") or 0) - (mem.get("MemAvailable") or 0), mem.get("MemTotal")),
+                        swap_pct=pct((mem.get("SwapTotal") or 0) - (mem.get("SwapFree") or 0), mem.get("SwapTotal")),
+                        disk_pct=(rep.get("host") or {}).get("disk_pct"),
+                        weight_pct=round(max(weights), 1) if weights else None,
+                        bots_running=sum(1 for b in rep.get("bots") or [] if b.get("status") == "running"))
+
+
 def _event_text(lang: str, ev: dict, bot_name: str, host: str) -> tuple[str, str] | None:
     """(title, message) for an event the admins should hear about; None for quiet ones."""
     from ..telegram import esc
@@ -122,7 +137,11 @@ async def report(request: Request):
         h.ips, h.version, h.last_seen, h.silent_alerted = ips, str(data.get("version", ""))[:20], utcnow(), False
         binance = {k: v for k, v in (data.get("binance") or {}).items() if isinstance(v, dict)}
         h.report = {"mem": data.get("mem") or {}, "load": data.get("load") or [], "binance": binance,
+                    "host": data.get("host_info") or {},
                     "bots": [b for b in (data.get("bots") or []) if isinstance(b, dict)][:200]}
+        s.add(_sample(host, h.report))
+        if utcnow().minute == 0:  # once an hour: keep 7 days of samples
+            s.query(ServerSample).filter(ServerSample.at < utcnow() - dt.timedelta(days=7)).delete()
         by_port = bots_on_host(ips, s)
         names = {p: b.name for p, b in by_port.items()}
         bot_ids = {p: b.id for p, b in by_port.items()}

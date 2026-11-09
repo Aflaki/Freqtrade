@@ -403,6 +403,20 @@ class WatchdogHost(Base):
     ban: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)  # Binance IP ban / pause state
 
 
+class ServerSample(Base):
+    """One measurement per watchdog report (every minute): the monitoring charts. Kept 7 days."""
+    __tablename__ = "server_samples"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    host: Mapped[str] = mapped_column(String(120), index=True)
+    at: Mapped[dt.datetime] = mapped_column(default=utcnow, index=True)
+    load1: Mapped[float | None] = mapped_column(Float, nullable=True)
+    mem_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    swap_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    disk_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    weight_pct: Mapped[float | None] = mapped_column(Float, nullable=True)  # highest Binance weight use, % of limit
+    bots_running: Mapped[int] = mapped_column(default=0)
+
+
 class WatchdogEvent(Base):
     __tablename__ = "watchdog_events"
     id: Mapped[int] = mapped_column(primary_key=True)

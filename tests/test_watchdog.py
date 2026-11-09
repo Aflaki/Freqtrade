@@ -536,3 +536,83 @@ def test_paused_bots_are_not_polled(monkeypatch):
         with SessionLocal() as s:
             s.query(Bot).filter(Bot.id.in_(ids)).delete()
             s.commit()
+
+
+# ------------------------------------------------------------------ servers dashboard
+def _admin_client():
+    import re
+
+    from app.auth import captcha
+    from app.security import hash_password
+    captcha.MIN_SECONDS = 0
+    with SessionLocal() as s:
+        u = s.query(User).filter_by(email="srv-admin@x.com").first()
+        if u is None:
+            u = User(email="srv-admin@x.com", name="S", password_hash=hash_password("Xy-12345678-zz"), is_admin=True, lang="en",
+                     status="active")
+            s.add(u)
+            s.commit()
+        uid = u.id
+    c = TestClient(app)
+    page = c.get("/login").text
+    data = {k: re.search(rf'name="{k}" value="([^"]+)"', page).group(1) for k in ("csrf", "ft")}
+    c.post("/login", data={**data, "email": "srv-admin@x.com", "password": "Xy-12345678-zz"})
+    return c, uid
+
+
+def test_servers_dashboard(site, monkeypatch):
+    import re
+
+    from app.db import ServerSample
+    from app.web import admin_servers, watchdog as wd
+    sent, (on_id, off_id, other_id) = site
+    with SessionLocal() as s:
+        s.get(Bot, on_id).state = {"api": "ok", "state": "running", "last_process": utcnow().isoformat(), "max_open_trades": 5}
+        s.get(Bot, off_id).state = {"api": "ok", "state": "running", "ban_paused": True}
+        s.get(Bot, other_id).state = {"api": "unreachable", "error": "ConnectError"}
+        s.commit()
+    rep = {"host": "ft-v1", "ips": ["65.109.188.248"], "version": "1.3", "events": [],
+           "mem": {"MemTotal": 16000, "MemAvailable": 1600, "SwapTotal": 2000, "SwapFree": 500}, "load": [6.0, 4, 3],
+           "host_info": {"cores": 4, "disk_pct": 71.0, "disk_free_gb": 40.2, "uptime_s": 90000},
+           "binance": {"futures": {"status": "ok", "used_weight": 1800, "limit": 2400}},
+           "bots": [{"key": "port:8015", "port": 8015, "status": "running", "kind": "tmux", "session": "4520",
+                     "rss_mb": 812, "cpu": 12.5, "since": int(time.time()) - 7200},
+                    {"key": "port:9999", "port": 9999, "status": "running", "session": "9999"}]}
+    c = TestClient(app)
+    c.post("/watchdog/report", json=rep, headers={"X-Watchdog-Token": "wd-token-123"})
+    with SessionLocal() as s:
+        smp = s.query(ServerSample).filter_by(host="ft-v1").one()
+        assert smp.mem_pct == 90.0 and smp.swap_pct == 75.0 and smp.weight_pct == 75.0 and smp.load1 == 6.0
+    admin, uid = _admin_client()
+    try:
+        html = admin.get("/admin/servers?lang=en").text
+        assert "ft-v1" in html and "812 MB" in html and "12.5%" in html and "4520" in html and "1800/2400" in html
+        assert "paused (ban)" in html and "API not answering" in html  # V1_8020 paused; V2 bot on a server w/o agent
+        assert "port:9999" in html  # a bot running there that the panel doesn't know
+        assert "no watchdog" in html and "51.91.55.39" in html
+        calls = []
+
+        async def fake_control(bot_id, act):
+            calls.append((bot_id, act))
+            return "ok"
+        monkeypatch.setattr(admin_servers.monitor, "control", fake_control)
+        posted = []
+
+        async def fake_post(bot_id, act):
+            posted.append((bot_id, act))
+            return "ok"
+        monkeypatch.setattr(admin_servers, "ft_post", fake_post)
+        csrf = re.search(r'name="csrf" value="([^"]+)"', html).group(1)
+        admin.post("/admin/servers/action", data={"csrf": csrf, "bot_id": str(on_id), "action": "stop"})
+        assert calls == [(on_id, "stop")]
+        admin.post("/admin/servers/action", data={"csrf": csrf, "host": "ft-v1", "action": "stop_all"})
+        assert sorted(posted) == [(on_id, "stop"), (off_id, "stop")]
+        assert admin.post("/admin/servers/action", data={"csrf": csrf, "bot_id": str(on_id), "action": "rm -rf"},
+                          follow_redirects=False).status_code == 400
+        assert TestClient(app).get("/admin/servers", follow_redirects=False).status_code in (303, 403)  # admins only
+    finally:
+        with SessionLocal() as s:
+            s.query(ServerSample).delete()
+            s.query(User).filter_by(id=uid).delete()
+            s.commit()
+        wd._tasks.clear()

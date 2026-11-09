@@ -67,7 +67,7 @@
 <td>{% if r.online %}<span class="badge ok">{{ _('wd_online') }}</span>{% else %}<span class="badge err">{{ _('wd_offline') }}</span>{% endif %}</td>
 <td class="muted"><span class="num">{{ r.h.last_seen.strftime('%m-%d %H:%M:%S') if r.h.last_seen }}</span></td><td>{{ r.n }}</td>
 <td>{% if r.mem.MemTotal %}{% set pct = 100 * (1 - r.mem.MemAvailable / r.mem.MemTotal) %}<span class="{{ 'neg' if pct > 90 else '' }} num">{{ '%.0f'|format(pct) }}%</span> <span class="muted small">({{ r.mem.MemAvailable }} / {{ r.mem.MemTotal }} MB {{ _('wd_free') }})</span>{% endif %}</td>
-<td class="num">{{ r.load|map('round', 2)|join(' ') }}</td>
+<td class="tnum">{{ r.load|map('round', 2)|join(' ') }}</td>
 <td>{% for kind, v in r.binance.items() %}<div class="small">{{ kind }}:
 {% if v.status == 'banned' %}<span class="badge err">{{ _('ban_banned') }}</span>
 {% elif v.status == 'limited' %}<span class="badge warn">429</span>
@@ -79,9 +79,9 @@
 <p class="small muted">{{ _('wd_unwatched_help') }}</p>{% endif %}
 {% if wd.events %}<details class="more"><summary>{{ _('wd_events') }} ({{ wd.events|length }})</summary>
 <div class="table-wrap"><table class="small">
-{% for e in wd.events %}<tr><td class="muted num">{{ e.created_at.strftime('%m-%d %H:%M') }}</td><td>{{ e.host }}</td>
+{% for e in wd.events %}<tr><td class="muted tnum">{{ e.created_at.strftime('%m-%d %H:%M') }}</td><td>{{ e.host }}</td>
 <td>{{ wd.names.get(e.bot_id) or (e.port or '') }}</td><td><span class="badge {{ 'ok' if e.action in ('restarted','recovered') else 'err' if e.action in ('restart_failed','gave_up') else 'warn' }}">{{ _('wd_ev_' ~ e.action) }}</span></td>
-<td class="small muted" style="white-space:pre-wrap;max-width:420px">{{ e.detail[:300] }}</td></tr>{% endfor %}
+<td class="small muted" style="white-space:pre-wrap;max-width:420px">{{ _('srv_oom_short') if e.detail == 'oom' else e.detail[:300] }}</td></tr>{% endfor %}
 </table></div></details>{% endif %}
 {% endif %}
 <form method="post" class="card" style="margin:12px 0;background:var(--bg)"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="watchdog_settings">

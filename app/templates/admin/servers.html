@@ -1,0 +1,105 @@
+{% extends "base.html" %}{% from "_icons.html" import ic with context %}
+{% block title %}{{ _('adm_servers') }} · {{ site.site_name }}{% endblock %}{% block content %}
+<h1>{{ _('nav_admin') }}</h1>{% include "admin/_nav.html" %}
+
+{# ---- sparkline: values 0..max over 24 h, None = no data ---- #}
+{% macro spark(vals, maxv, label, unit='%', warn=80) %}
+{% set pts = [] %}{% set n = vals|length %}
+{% for v in vals %}{% if v is not none %}{% if pts.append(('%.1f'|format(loop.index0 * 240 / (n - 1 if n > 1 else 1)), '%.1f'|format(38 - 36 * ([v, maxv]|min) / maxv))) %}{% endif %}{% endif %}{% endfor %}
+{% set last = (vals|reject('none')|list)[-1] if vals|reject('none')|list else none %}
+{% set peak = (vals|reject('none')|max) if vals|reject('none')|list else none %}
+<div class="spark"><div class="spark-h"><span class="muted">{{ label }}</span>
+<b class="num {{ 'neg' if last is not none and last >= warn }}">{{ ('%.0f'|format(last) ~ unit) if last is not none else '—' }}</b>
+{% if peak is not none %}<span class="muted small">{{ _('srv_peak') }} <span class="num">{{ '%.0f'|format(peak) }}{{ unit }}</span></span>{% endif %}</div>
+<svg viewBox="0 0 240 40" preserveAspectRatio="none" aria-hidden="true">
+<line x1="0" x2="240" y1="{{ 38 - 36 * ([warn, maxv]|min) / maxv }}" y2="{{ 38 - 36 * ([warn, maxv]|min) / maxv }}" class="spark-warn"/>
+{% if pts|length > 1 %}<polyline points="{% for x, y in pts %}{{ x }},{{ y }} {% endfor %}" class="spark-line"/>{% endif %}
+</svg></div>
+{% endmacro %}
+
+{% macro health_badge(h) %}
+{% set cls = {'ok': 'ok', 'paused': 'warn', 'stopped': 'warn', 'restarting': 'warn', 'stalled': 'err', 'down': 'err',
+              'gave_up': 'err', 'unreachable': 'err', 'no_api': ''}.get(h, 'warn') %}
+<span class="badge {{ cls }}">{{ _('srv_h_' ~ h) if h in ('ok','paused','stopped','restarting','stalled','down','gave_up','unreachable','no_api') else h.replace('ft_', 'Freqtrade: ') }}</span>
+{% endmacro %}
+
+{% macro bot_table(rows, with_agent=True) %}
+<div class="table-wrap"><table class="small srv-bots">
+<thead><tr><th>{{ _('col_bot') }}</th><th>{{ _('col_status') }}</th>{% if with_agent %}<th>{{ _('srv_where') }}</th><th>{{ _('srv_uptime') }}</th><th>RAM</th><th>CPU</th>{% endif %}
+<th>{{ _('srv_heartbeat') }}</th><th>{{ _('live_open') }}</th><th>{{ _('live_pnl') }}</th><th></th></tr></thead><tbody>
+{% for r in rows %}<tr id="bot-{{ r.b.id }}" class="{{ 'srv-bad' if r.health not in ('ok', 'paused', 'stopped') }}">
+<td><a href="/admin/bots/{{ r.b.id }}"><b>{{ r.b.name }}</b></a><div class="muted mono">{{ (r.b.api_url or '').split('//')[-1] }}</div></td>
+<td>{{ health_badge(r.health) }}{% if r.st.error and r.health == 'unreachable' %}<div class="muted small">{{ r.st.error[:60] }}</div>{% endif %}</td>
+{% if with_agent %}<td class="muted">{{ r.agent.session or r.agent.kind or '—' }}</td>
+<td class="tnum">{% if r.uptime_h is not none %}{% if r.uptime_h >= 24 %}{{ (r.uptime_h // 24)|int }}d {{ (r.uptime_h % 24)|int }}h{% else %}{{ '%.1f'|format(r.uptime_h) }}h{% endif %}{% else %}—{% endif %}</td>
+<td class="tnum">{{ (r.agent.rss_mb|string ~ ' MB') if r.agent.rss_mb else '—' }}</td><td class="tnum">{{ (r.agent.cpu|string ~ '%') if r.agent.cpu is not none else '—' }}</td>{% endif %}
+<td class="tnum {{ 'neg' if r.heartbeat is not none and r.heartbeat > stall_min }}">{{ ('%.0f'|format(r.heartbeat) ~ ' min') if r.heartbeat is not none else '—' }}</td>
+<td class="tnum">{{ r.open }}{% if r.max_open %}/{{ r.max_open }}{% endif %}</td>
+<td class="{{ 'pos' if r.upnl >= 0 else 'neg' }}">{{ r.upnl|signed if r.open else '—' }}</td>
+<td><form method="post" action="/admin/servers/action" class="inline srv-actions"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="bot_id" value="{{ r.b.id }}">
+{% if r.st.state == 'running' and r.health != 'paused' %}<button class="ghost sm" name="action" value="stop" title="/stop" onclick="return confirm('{{ _('srv_confirm_stop', bot=r.b.name) }}')">⏸</button>
+{% else %}<button class="ghost sm" name="action" value="start" title="/start">▶</button>{% endif %}
+<button class="ghost sm" name="action" value="reload_config" title="/reload_config">⟳</button></form></td></tr>{% endfor %}
+</tbody></table></div>
+{% endmacro %}
+
+{# ---------------- overview ---------------- #}
+<div class="kpis">
+  <div class="kpi"><div class="k">{{ _('srv_servers') }}</div><div class="v {{ 'neg' if kpi.online < kpi.servers }}"><span class="num">{{ kpi.online }}/{{ kpi.servers }}</span></div><div class="sub">{{ _('wd_online') }}</div></div>
+  <div class="kpi"><div class="k">{{ _('srv_bots_ok') }}</div><div class="v {{ 'pos' if kpi.ok == kpi.bots else '' }}"><span class="num">{{ kpi.ok }}/{{ kpi.bots }}</span></div>
+    <div class="sub">{% if kpi.stopped %}⏸ {{ kpi.stopped }} {{ _('srv_h_stopped') }} {% endif %}{% if kpi.paused %}🚫 {{ kpi.paused }} {{ _('srv_h_paused') }}{% endif %}</div></div>
+  <div class="kpi"><div class="k">{{ _('srv_problems') }}</div><div class="v {{ 'neg' if kpi.problems else 'pos' }}"><span class="num">{{ kpi.problems }}</span></div>{% if kpi.bans %}<div class="sub neg">🚫 {{ kpi.bans }} Binance ban</div>{% endif %}</div>
+  <div class="kpi"><div class="k">{{ _('live_open') }}</div><div class="v"><span class="num">{{ kpi.open }}</span></div></div>
+  <div class="kpi"><div class="k">{{ _('live_pnl') }}</div><div class="v {{ 'pos' if kpi.upnl >= 0 else 'neg' }}">{{ kpi.upnl|signed }}</div></div>
+  <div class="kpi"><div class="k">{{ _('srv_events_24h') }}</div><div class="v"><span class="num">{{ kpi.events }}</span></div></div>
+</div>
+
+{% if not servers %}<div class="card"><h2>🛟 {{ _('srv_no_agent') }}</h2><p class="muted">{{ _('wd_intro') }}</p>
+<pre class="ltr copy" style="white-space:pre-wrap;word-break:break-all">{{ install_cmd }}</pre></div>{% endif %}
+
+{# ---------------- one card per server ---------------- #}
+{% for sv in servers %}
+<div class="card srv {{ 'srv-off' if not sv.online }}" id="host-{{ sv.h.hostname }}">
+<div class="srv-head"><h2>🖥 {{ sv.h.hostname }}
+{% if sv.online %}<span class="badge ok">{{ _('wd_online') }}</span>{% else %}<span class="badge err">{{ _('wd_offline') }} · {{ sv.h.last_seen.strftime('%H:%M') if sv.h.last_seen }}</span>{% endif %}
+{% if sv.ban.active %}<span class="badge err">🚫 {{ _('ban_paused_until', until=sv.ban.until[11:16] ~ ' UTC', n=(sv.ban.bots or [])|length) }}</span>{% endif %}</h2>
+<span class="muted mono small">{{ (sv.h.ips or [])|join(', ') }} · {{ sv.info.cores or '?' }} cores
+{% if sv.info.uptime_s %} · up {{ (sv.info.uptime_s // 86400)|int }}d {{ ((sv.info.uptime_s % 86400) // 3600)|int }}h{% endif %} · agent {{ sv.h.version }}</span></div>
+
+<div class="srv-gauges">
+  {{ spark(sv.hist.mem_pct, 100, _('wd_memory') ~ (' · swap ' ~ sv.swap_pct ~ '%' if sv.swap_pct else ''), '%', 90) }}
+  {{ spark(sv.hist.load1, [sv.info.cores or 1, 1]|max * 1.5, _('wd_load') ~ ' (' ~ (sv.info.cores or '?') ~ ' cores)', '', sv.info.cores or 1) }}
+  {{ spark(sv.hist.weight_pct, 100, _('srv_binance_weight'), '%', 80) }}
+  <div class="spark"><div class="spark-h"><span class="muted">{{ _('srv_disk') }}</span><b class="num {{ 'neg' if (sv.info.disk_pct or 0) >= 90 }}">{{ sv.info.disk_pct if sv.info.disk_pct is not none else '—' }}%</b></div>
+  <div class="small muted">{{ sv.info.disk_free_gb }} GB {{ _('wd_free') }} · {{ _('srv_bots_ram') }}: <span class="num">{{ sv.rss_total }} MB</span></div>
+  <div class="small">{% for kind, v in sv.binance.items() %}Binance {{ kind }}: {% if v.status == 'banned' %}<span class="badge err">{{ _('ban_banned') }}</span>{% elif v.status == 'limited' %}<span class="badge warn">429</span>{% elif v.status == 'ok' %}<span class="num">{{ v.used_weight }}/{{ v.limit }}</span>{% else %}<span class="muted">{{ v.error }}</span>{% endif %}<br>{% endfor %}</div></div>
+</div>
+
+{{ bot_table(sv.rows) }}
+{% if sv.unknown %}<p class="small muted">{{ _('srv_unknown') }} {% for u in sv.unknown %}<span class="badge">{{ u.key }}{% if u.session %} ({{ u.session }}){% endif %}</span> {% endfor %}</p>{% endif %}
+
+<form method="post" action="/admin/servers/action" class="srv-host-actions"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="host" value="{{ sv.h.hostname }}">
+<button class="ghost sm" name="action" value="stop_all" onclick="return confirm('{{ _('srv_confirm_stop_all', host=sv.h.hostname) }}')">⏸ {{ _('srv_stop_all') }}</button>
+<button class="ghost sm" name="action" value="start_all">▶ {{ _('srv_start_all') }}</button>
+<button class="ghost sm" name="action" value="reload_all">⟳ {{ _('btn_reload_all') }}</button></form>
+</div>
+{% endfor %}
+
+{% for host, rows in others.items() %}
+<div class="card"><h2>🤖 {{ host }} <span class="badge">{{ _('srv_no_agent_short') }}</span></h2>
+<p class="small muted">{{ _('srv_other_help') }}</p>
+{{ bot_table(rows, false) }}</div>
+{% endfor %}
+
+{# ---------------- timeline ---------------- #}
+<div class="card"><h2>🕑 {{ _('srv_timeline') }}</h2>
+{% if timeline %}<div class="table-wrap scroll-table"><table class="small"><tbody>
+{% for kind, at, e in timeline %}<tr><td class="muted tnum">{{ at.strftime('%m-%d %H:%M') }}</td>
+{% if kind == 'wd' %}<td>{{ e.host }}</td><td>{{ names.get(e.bot_id) or (e.port or '') }}</td>
+<td><span class="badge {{ 'ok' if e.action in ('restarted','recovered') else 'err' if e.action in ('restart_failed','gave_up') else 'warn' }}">{{ _('wd_ev_' ~ e.action) }}</span></td>
+<td class="muted" style="white-space:pre-wrap;max-width:460px">{{ _('srv_oom_short') if e.detail == 'oom' else e.detail[:240] }}</td>
+{% else %}<td colspan="3" style="white-space:pre-wrap">{{ e.text|striptags|truncate(220) }}</td><td></td>{% endif %}</tr>{% endfor %}
+</tbody></table></div>{% else %}<p class="muted">{{ _('srv_quiet') }}</p>{% endif %}</div>
+<p class="small muted">{{ _('srv_refresh') }}</p>
+<script>setTimeout(function r() { if (document.visibilityState === 'visible' && !document.querySelector('input:focus,textarea:focus')) location.reload(); else setTimeout(r, 30000); }, 30000);</script>
+{% endblock %}
