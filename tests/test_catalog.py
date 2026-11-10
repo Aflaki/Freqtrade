@@ -239,13 +239,16 @@ def test_admin_catalog_autosave_and_bulk(env):
 # ------------------------------------------------------------------ the user's portfolio form
 def save(c, csrf, **fields):
     data = {"csrf": csrf, "kind": "exchange", "label": "cat-p", "exchange": "binance", "trading_mode": "futures",
-            "leverage": "5", "margin_mode": "isolated", "sizing_mode": "custom_amounts", "api_key": "k", "secret": "s",
-            "no_withdraw": "on", **fields}
+            "api_key": "k", "secret": "s", "no_withdraw": "on", **fields}
     return c.post("/accounts/new", data=data)
 
 
 def test_form_rules(env):
+    """Catalog portfolios: the user only gives the total capital (split equally); leverage is the admin's/bot's."""
     a, b = env
+    with SessionLocal() as s:
+        get_global(s).tradable_balance_ratio = 0.9
+        s.commit()
     offer("BTC/USDT", a)
     offer("BTC/USDT", b)  # two bots, no default -> user must choose
     offer("ETH/USDT", a, mandatory=True, leverage=3)
@@ -253,32 +256,35 @@ def test_form_rules(env):
     c, csrf = login("cat-user@x.com")
     form = c.get("/accounts/new?kind=exchange").text
     assert 'class="catrow" data-p="BTC/USDT"' in form and "🔒" in form
-    errs = save(c, csrf, **{"pair__BTC/USDT": "on", "value__BTC/USDT": "30"}).text
+    assert 'name="max_open_trades"' not in form and 'class="pv"' not in form and 'type="number" name="leverage"' not in form
+    errs = save(c, csrf, capital="300", **{"pair__BTC/USDT": "on"}).text
     assert "Choose which bot BTC/USDT" in errs and "ETH/USDT is mandatory" in errs
-    errs = save(c, csrf, **{"pair__BTC/USDT": "on", "value__BTC/USDT": "15", "pbot__BTC/USDT": str(a),
-                            "pair__ETH/USDT": "on", "value__ETH/USDT": "30", "pair__SSV/USDT": "on",
-                            "value__SSV/USDT": "20"}).text
-    assert "BTC/USDT: margin per trade is 15.00" in errs and "SSV/USDT: this pair" in errs
+    # 60 x 90% / 3 pairs = 18 per pair: BTC at the bot's own 5x needs 20 (Binance min 100); SSV's admin minimum is 50
+    errs = save(c, csrf, capital="60", leverage="10", **{"pair__BTC/USDT": "on", "pbot__BTC/USDT": str(a),
+                                                         "pair__ETH/USDT": "on", "pair__SSV/USDT": "on"}).text
+    assert "BTC/USDT: margin per trade is 18.00 but the exchange needs at least 20.00 at 5x" in errs
+    assert "SSV/USDT: this pair" in errs
     FakeBinance.balance = 40.0
-    errs = save(c, csrf, **{"pair__BTC/USDT": "on", "value__BTC/USDT": "25", "pbot__BTC/USDT": str(a),
-                            "pair__ETH/USDT": "on", "value__ETH/USDT": "30"}).text
-    assert "needs 55.00 USDT but the account holds 40.00" in errs
+    errs = save(c, csrf, capital="100", **{"pair__BTC/USDT": "on", "pbot__BTC/USDT": str(a), "pair__ETH/USDT": "on"}).text
+    assert "needs 100.00 USDT but the account holds 40.00" in errs
     FakeBinance.balance = 500.0
     FakeBinance.perms = {**FakeBinance.perms, "enableWithdrawals": True}
-    errs = save(c, csrf, **{"pair__BTC/USDT": "on", "value__BTC/USDT": "25", "pbot__BTC/USDT": str(a),
-                            "pair__ETH/USDT": "on", "value__ETH/USDT": "30"}).text
+    errs = save(c, csrf, capital="100", **{"pair__BTC/USDT": "on", "pbot__BTC/USDT": str(a), "pair__ETH/USDT": "on"}).text
     assert "Withdrawals are ENABLED" in errs
     FakeBinance.perms["enableWithdrawals"] = False
-    r = save(c, csrf, **{"pair__BTC/USDT": "on", "value__BTC/USDT": "25", "pbot__BTC/USDT": str(b),
-                         "pair__ETH/USDT": "on", "value__ETH/USDT": "30"})
+    r = save(c, csrf, capital="100", max_open_trades="1", sizing_mode="custom_amounts",
+             **{"pair__BTC/USDT": "on", "pbot__BTC/USDT": str(b), "pair__ETH/USDT": "on"})
+    assert r.status_code == 200
     with SessionLocal() as s:
         acc = s.query(ExchangeAccount).filter_by(label="cat-p").one()
         assert acc.pair_bot == {"BTC/USDT": b, "ETH/USDT": a} and set(acc.bots) == {a, b}
-        from app.engine.sizing import leverage_for
+        assert acc.sizing_mode == "equal_split" and acc.max_open_trades is None and acc.capital == 100  # user can't change
+        from app.engine.sizing import leverage_for, max_open_trades, pair_budget
         gs = get_global(s)
-        assert leverage_for(gs, acc, "ETH/USDT") == 3 and leverage_for(gs, acc, "BTC/USDT") == 5
+        assert leverage_for(gs, acc, "ETH/USDT", 5.0) == 3  # admin's fixed leverage wins over the bot's 5x
+        assert leverage_for(gs, acc, "BTC/USDT", 5.0) == 5  # otherwise the bot's own leverage
+        assert max_open_trades(gs, acc) == 2 and abs(pair_budget(gs, acc, "BTC/USDT") - 45) < 1e-9  # 100 x 90% / 2
         acc_id = acc.id
-    assert r.status_code == 200
     # the check button (JSON), with the stored keys
     res = c.post("/accounts/check", json={"csrf": csrf, "acc_id": acc_id, "exchange": "binance", "trading_mode": "futures",
                                           "pairs": {"BTC/USDT": {"margin": 10, "leverage": 5, "bot": b}}}).json()

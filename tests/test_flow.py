@@ -137,7 +137,7 @@ def test_full_flow(sent):
             # ali: 200 margin * 5x / 3000 = 0.333 ETH ; stop at +4% (20% / 5x)
             assert t_ali.amount == 0.333 and abs(t_ali.sl_price - 3120) < 1e-6 and t_ali.sl_order_id
             # sara: 1000 * 90% * 3/4 = 675 margin, 3x, signal price
-            assert abs(t_sara.stake - 675) < 1e-6 and t_sara.is_signal and t_sara.leverage == 3
+            assert abs(t_sara.stake - 675) < 1e-6 and t_sara.is_signal and t_sara.leverage == 5  # the bot's own 5x, not the portfolio's 3x
         ex = [e for e in fx.FakeExchange.instances if e.orders][-1]
         assert ex.stops[-1]["params"] == {"stopLossPrice": 3120.0, "reduceOnly": True}
 

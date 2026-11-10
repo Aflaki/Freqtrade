@@ -37,10 +37,14 @@
   <div><label>{{ _('f_market') }}</label><select name="trading_mode" id="mode">
     <option value="futures" {{ 'selected' if not acc or acc.trading_mode=='futures' }}>{{ _('mkt_futures_long') }}</option>
     <option value="spot" {{ 'selected' if acc and acc.trading_mode=='spot' }}>{{ _('mkt_spot_long') }}</option></select></div>
+  {% if catalog %}<input type="hidden" name="leverage" id="lev" value="1"><input type="hidden" name="margin_mode" value="isolated">
+  <div class="fut"><label>{{ _('col_leverage') }}</label><p class="small muted" style="margin:6px 0">🔒 {{ _('lev_by_admin', max=gs.max_leverage) }}</p></div>
+  {% else %}
   <div class="fut"><label>{{ _('f_leverage', max=gs.max_leverage) }}</label><input type="number" name="leverage" id="lev" min="1" max="{{ gs.max_leverage }}" value="{{ acc.leverage if acc else 1 }}"></div>
   {% if not is_signal %}<div class="fut"><label>{{ _('f_margin_mode') }}</label><select name="margin_mode">
     <option value="isolated" {{ 'selected' if not acc or acc.margin_mode=='isolated' }}>Isolated</option>
     <option value="cross" {{ 'selected' if acc and acc.margin_mode=='cross' }}>Cross</option></select></div>{% endif %}
+  {% endif %}
 </div>
 
 {% if not catalog %}
@@ -64,6 +68,12 @@
 
 <h2 style="margin-top:22px">{{ _('sec_basket') }}</h2>
 <p class="small muted">{{ _('basket_intro') }}</p>
+{% if catalog %}
+<input type="hidden" name="sizing_mode" id="sizing" value="equal_split"><input type="hidden" id="mot" value="">
+<div class="row"><div id="capbox"><label>{{ _('f_capital_total', cur=gs.stake_currency, min='%.0f'|format(gs.min_capital)) }}</label>
+  <input type="number" step="any" min="0" name="capital" id="capital" value="{{ acc.capital if acc else '' }}" required>
+  <div class="small muted">{{ _('capital_split_help', pct=(gs.tradable_balance_ratio*100)|round|int) }}</div><span id="modehelp" hidden></span></div></div>
+{% else %}
 <div class="row">
   <div><label>{{ _('f_sizing') }}</label><select name="sizing_mode" id="sizing">
     {% for m in modes %}<option value="{{ m }}" {{ 'selected' if m == cur_mode }}>{{ _('mode_' ~ m) }}</option>{% endfor %}</select>
@@ -73,11 +83,12 @@
   <div id="motbox"><label>{{ _('f_max_open') }}</label>
     <input type="number" name="max_open_trades" id="mot" min="1" max="50" value="{{ acc.max_open_trades if acc and acc.max_open_trades else '' }}" placeholder="{{ gs.default_max_open_trades }}"></div>
 </div>
+{% endif %}
 <div class="pills" style="margin-top:12px"><span class="small muted">{{ _('stats_window') }}</span></div>
 {% if catalog %}
 <div class="table-wrap"><table class="pairs cat">
 <tr><th></th><th>{{ _('col_pair') }}</th><th>{{ _('pair_from_bot') }}</th><th>{{ _('perf_trades') }}</th><th>{{ _('perf_win_rate') }}</th><th>{{ _('perf_total_abs') }}</th><th>{{ _('perf_avg') }}</th>
-<th>{{ _('col_leverage') }}</th><th id="valhead">{{ _('col_weight') }}</th><th>{{ _('col_margin_trade') }}</th><th title="{{ _('pc_need_help') }}">{{ _('pc_need') }}</th><th>{{ _('col_position_value') }}</th></tr>
+<th>{{ _('col_leverage') }}</th><th>{{ _('col_margin_trade') }}</th><th title="{{ _('pc_need_help') }}">{{ _('pc_need') }}</th><th>{{ _('col_position_value') }}</th></tr>
 {% for c in catalog %}{% set p = c.pair %}{% set sel = (acc and p in acc.pairs) or (not acc and (c.mandatory or c.default_bot)) or c.mandatory %}
 <tr class="catrow" data-p="{{ p }}" data-ex='{{ c.ex|tojson }}'>
 <td>{% if c.mandatory %}<input type="checkbox" class="pc" data-p="{{ p }}" checked disabled><input type="hidden" name="pair__{{ p }}" value="on">
@@ -85,12 +96,11 @@
 <td class="mono">{{ p }}{% if c.mandatory %} <span class="badge warn" title="{{ _('pc_mandatory_user') }}">🔒</span>{% endif %}<div class="small neg exnote" data-p="{{ p }}"></div></td>
 <td>{% set cur = pair_bot.get(p) or c.default_bot %}<select class="pb" name="pbot__{{ p }}" data-p="{{ p }}" style="width:auto;padding:4px 6px">
 {% if c.bots|length > 1 and not cur %}<option value="">— {{ _('pick_bot') }} —</option>{% endif %}
-{% for b in c.bots %}<option value="{{ b.id }}" data-lev="{{ b.lev or '' }}" data-min="{{ b.min or '' }}" {{ 'selected' if b.id == cur }}>{{ b.name }}</option>{% endfor %}</select></td>
+{% for b in c.bots %}<option value="{{ b.id }}" data-lev="{{ b.lev or '' }}" data-blev="{{ b.blev or '' }}" data-min="{{ b.min or '' }}" {{ 'selected' if b.id == cur }}>{{ b.name }}</option>{% endfor %}</select></td>
 <td class="s-trades" data-p="{{ p }}">-</td><td class="s-wr" data-p="{{ p }}">-</td><td class="s-total" data-p="{{ p }}">-</td><td class="s-dd" data-p="{{ p }}">-</td>
 <td class="plev" data-p="{{ p }}">-</td>
-<td><input type="number" class="pv" step="any" min="0" name="value__{{ p }}" data-p="{{ p }}" value="{{ acc.pairs[p] if acc and p in acc.pairs else '' }}" style="width:100px"></td>
 <td class="st" data-p="{{ p }}">-</td><td class="need" data-p="{{ p }}">-</td><td class="nt" data-p="{{ p }}">-</td></tr>{% endfor %}
-<tr><td></td><td><b>{{ _('total') }}</b></td><td colspan="7"></td><td id="tot_st"><b>-</b></td><td></td><td id="tot_nt"><b>-</b></td></tr>
+<tr><td></td><td><b>{{ _('total') }}</b></td><td colspan="6"></td><td id="tot_st"><b>-</b></td><td></td><td id="tot_nt"><b>-</b></td></tr>
 </table></div>
 <p class="small" id="balline"></p>
 {% else %}
@@ -124,7 +134,7 @@
 </form>
 <script>
 (function(){
-  const maxLev={{ gs.max_leverage }}, exName={{ EXCHANGES|tojson }}, notListed={{ _('ck_not_on_exchange')|tojson }},
+  const botWord={{ _('lev_from_bot')|tojson }}, maxLev={{ gs.max_leverage }}, exName={{ EXCHANGES|tojson }}, notListed={{ _('ck_not_on_exchange')|tojson }},
         balText={{ _('ck_bal_line')|tojson }}, ckWait={{ _('ck_wait')|tojson }}, ckAllOk={{ _('ck_all_ok')|tojson }}, ckFix={{ _('ck_fix')|tojson }};
   const ratio={{ gs.tradable_balance_ratio }}, defMot={{ gs.default_max_open_trades }}, maxStake={{ gs.max_stake_per_trade or 0 }},
         needPw={{ NEEDS_PASSWORD|list|tojson }}, stats={{ stats_json|safe }},
@@ -137,9 +147,9 @@
     const spot=$('#mode').value==='spot', mode=$('#sizing').value;
     $$('.fut').forEach(e=>e.style.display=spot?'none':'');
     const ex=$('#exchange'); if(ex) $('#pwbox').style.display=needPw.includes(ex.value)?'':'none';
-    $('#capbox').style.display=mode==='custom_amounts'?'none':'';
-    $('#motbox').style.display=mode==='equal_split'?'':'none';
-    $('#valhead').textContent=heads[mode]||''; $$('.pv').forEach(i=>{i.style.display=mode==='equal_split'?'none':''; if(mode==='pair_weights'&&!i.value) i.value=1;});
+    if(!$('.catrow')) $('#capbox').style.display=mode==='custom_amounts'?'none':'';
+    if($('#motbox')) $('#motbox').style.display=mode==='equal_split'?'':'none';
+    if($('#valhead')) $('#valhead').textContent=heads[mode]||''; $$('.pv').forEach(i=>{i.style.display=mode==='equal_split'?'none':''; if(mode==='pair_weights'&&!i.value) i.value=1;});
     $('#modehelp').textContent=help[mode]||'';
     const mk=spot?'long':'all', bsel=$$('.bc').filter(c=>c.checked).map(c=>c.value), st={};
     const only={}; $$('.pb').forEach(s=>{ if(s.value) only[s.dataset.p]=s.value; });
@@ -156,11 +166,13 @@
     const lev=spot?1:(parseInt($('#lev').value)||1), cap=parseFloat($('#capital').value)||0;
     const sel=$$('.pc').filter(c=>c.checked).map(c=>c.dataset.p);
     const val=p=>Math.max(0,parseFloat(($(`.pv[data-p="${p}"]`)||{}).value)||0);
-    const tw=sel.reduce((a,p)=>a+val(p),0), mot=parseInt($('#mot').value)||defMot;
+    const isCat=!!$('.catrow');
+    const tw=sel.reduce((a,p)=>a+val(p),0), mot=isCat?Math.max(1,sel.filter(p=>!($(`.pc[data-p="${p}"]`)||{dataset:{}}).dataset.blocked).length):(parseInt($('#mot').value)||defMot);
     let ts=0, tn=0;
     const exn=($('#exchange')||{}).value||'';
     const optOf=p=>{const sb=$(`.pb[data-p="${p}"]`); return sb&&sb.selectedOptions[0];};
-    const plev=p=>{ if(spot) return 1; const o=optOf(p), fixed=o?parseInt(o.dataset.lev):0; return Math.max(1,Math.min(fixed||lev,maxLev)); };
+    const plev=p=>{ if(spot) return 1; const o=optOf(p), fixed=o?parseInt(o.dataset.lev):0, blev=o?parseInt(o.dataset.blev):0;
+      return Math.max(1,Math.min(fixed||blev||lev,maxLev)); };
     $$('.catrow').forEach(r=>{  // pairs the chosen exchange doesn't list
       const p=r.dataset.p, ex=JSON.parse(r.dataset.ex||'{}'), known=exn in ex, listed=!known||ex[exn]!==null, cb=r.querySelector('.pc');
       const note=r.querySelector('.exnote'); note.textContent=listed?'':notListed.replace('{ex}',exName[exn]||exn);
@@ -171,7 +183,7 @@
       if(on){ if(mode==='custom_amounts') s=val(p); else if(mode==='pair_weights') s=tw?cap*ratio*val(p)/tw:0; else s=cap*ratio/mot; }
       if(maxStake) s=Math.min(s,maxStake); const L=plev(p); if(on){ ts+=s; tn+=s*L; }
       td.textContent=on?fmt(s):'-'; $(`.nt[data-p="${p}"]`).textContent=on?fmt(s*L):'-';
-      const lc=$(`.plev[data-p="${p}"]`); if(lc){ const o=optOf(p); lc.textContent=L+'x'+(o&&o.dataset.lev&&!spot?' 🔒':''); }
+      const lc=$(`.plev[data-p="${p}"]`); if(lc){ const o=optOf(p); lc.textContent=L+'x'+(o&&o.dataset.lev&&!spot?' 🔒':(o&&o.dataset.blev&&!spot?' ('+botWord+')':'')); }
       const nc=$(`.need[data-p="${p}"]`);
       if(nc){ const row=nc.closest('.catrow'), ex=JSON.parse(row.dataset.ex||'{}'), o=optOf(p);
         const exMin=(ex[exn]||0)/L, adm=o?parseFloat(o.dataset.min)||0:0, need=Math.max(exMin,adm);

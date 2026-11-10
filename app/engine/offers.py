@@ -89,3 +89,14 @@ def forced_leverage(pair: str, bot_id: int | None) -> int | None:
     elif len(offers) > 1:
         offers = [o for o in offers if o.is_default] or offers[:1]
     return offers[0].leverage if offers and offers[0].leverage else None
+
+
+def bot_leverage(bot_id: int) -> int | None:
+    """The leverage this bot usually trades with (most common among its last 100 trades)."""
+    from collections import Counter
+
+    from ..db import BotTrade
+    with SessionLocal() as s:
+        levs = [round(x or 1) for x in s.scalars(select(BotTrade.leverage).where(BotTrade.bot_id == bot_id)
+                                                     .order_by(BotTrade.id.desc()).limit(100))]
+    return Counter(levs).most_common(1)[0][0] if levs else None

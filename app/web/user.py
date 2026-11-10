@@ -113,9 +113,10 @@ def _catalog_ctx(gs, bots) -> dict:
     """Offered pairs for the form: their bots (with the admin's rules) and each exchange's minimum order."""
     from ..engine import markets
     from ..engine.offers import offers_by_pair, pair_rules
+    from ..engine.offers import bot_leverage
     names = {b.id: b.name for b in bots}
     cache = markets.all_info()
-    catalog = []
+    catalog, blev = [], {}
     for pair, offers in sorted(offers_by_pair().items()):
         offers = [o for o in offers if o.bot_id in names]
         if not offers:
@@ -128,8 +129,8 @@ def _catalog_ctx(gs, bots) -> dict:
                 i = pairs.get(pair)
                 ex[e] = markets.min_order(i) if i else None
         catalog.append({"pair": pair, "mandatory": r["mandatory"], "default_bot": r["default_bot"], "ex": ex,
-                        "bots": [{"id": o.bot_id, "name": names[o.bot_id], "lev": o.leverage, "min": o.min_capital}
-                                 for o in offers]})
+                        "bots": [{"id": o.bot_id, "name": names[o.bot_id], "lev": o.leverage, "min": o.min_capital,
+                                  "blev": blev.setdefault(o.bot_id, bot_leverage(o.bot_id))} for o in offers]})
     return {"catalog": catalog}
 
 
@@ -141,8 +142,11 @@ def _rule_errors(request, gs, kind, exchange, mode, leverage, sizing, pairs, cap
     tmp = ExchangeAccount(kind=kind, exchange=exchange, trading_mode=mode, leverage=leverage, sizing_mode=sizing,
                           pairs=pairs, capital=capital, max_open_trades=mot, pair_bot=chosen_bot)
     sel = {}
+    from ..engine.offers import bot_leverage
     for pp in pairs:
-        lev = 1 if mode == "spot" else max(1, min(forced_leverage(pp, chosen_bot.get(pp)) or leverage, gs.max_leverage))
+        b = chosen_bot.get(pp)
+        lev = 1 if mode == "spot" else max(1, min(forced_leverage(pp, b) or (bot_leverage(b) if b else None) or leverage,
+                                                   gs.max_leverage))
         sel[pp] = {"margin": pair_budget(gs, tmp, pp), "leverage": lev, "bot": chosen_bot.get(pp)}
     items = check_pairs(exchange if kind == "exchange" else "", mode, sel, catalog)
     return [t["text"] for t in check_texts(request, items)]
@@ -219,11 +223,17 @@ async def _save_account(request: Request, acc_id: int | None):
         if kind == "exchange" and exchange not in gs.allowed_exchanges:
             errors.append(tr(request, "err_exchange"))
         mode = "spot" if f.get("trading_mode") == "spot" else "futures"
+        from ..engine.offers import offers_by_pair as _obp
+        simple = bool(_obp())  # pair catalog in use: the user only gives the total capital
         leverage = int(_num(f.get("leverage"), 1)) if mode == "futures" else 1
+        if simple:
+            leverage = 1  # never used: the admin's fixed leverage or the bot's own applies
         if not 1 <= leverage <= gs.max_leverage:
             errors.append(tr(request, "err_leverage", max=gs.max_leverage))
         sizing = str(f.get("sizing_mode", ""))
-        if sizing not in (gs.sizing_modes or []):
+        if simple:
+            sizing = "equal_split"
+        elif sizing not in (gs.sizing_modes or []):
             sizing = (gs.sizing_modes or ["equal_split"])[0]
         pairs: dict[str, float] = {}
         for p in gs.allowed_pairs:
@@ -264,7 +274,7 @@ async def _save_account(request: Request, acc_id: int | None):
         capital = sum(pairs.values()) if sizing == "custom_amounts" else _num(f.get("capital"))
         if capital < gs.min_capital:
             errors.append(tr(request, "err_min_capital", min=f"{gs.min_capital:,.0f}", cur=gs.stake_currency))
-        mot = int(_num(f.get("max_open_trades"), 0)) or None
+        mot = None if simple else (int(_num(f.get("max_open_trades"), 0)) or None)
         sl = _num(f.get("stoploss_pct"), 0) or None
         dll = _num(f.get("daily_loss_limit_pct"), 0) or None
         if sl is not None and not 1 <= sl <= 100:

@@ -42,6 +42,7 @@ class Signal:
     stake: float | None = None  # margin (quote currency) the source used for this order
     pair: str | None = None  # original ccxt-style pair, e.g. "BTC/USDT:USDT"
     ft_trade_id: int | None = None
+    leverage: float | None = None  # the Freqtrade bot's own leverage for this trade
     enter_tag: str = ""
     exit_reason: str = ""
     raw: dict[str, Any] = field(default_factory=dict)
@@ -162,7 +163,8 @@ def parse_freqtrade(payload: dict, relay_on: str = "fill") -> Signal | None:
     amount = _f(payload.get("amount"))
     rate = _f(payload.get("order_rate")) or _f(payload.get("limit"))
     open_rate = _f(payload.get("open_rate")) or rate
-    lev = _f(payload.get("leverage")) or 1.0
+    bot_lev = _f(payload.get("leverage"))
+    lev = bot_lev or 1.0
     stake = _f(payload.get("stake_amount"))
 
     if msg_type == entry_t:
@@ -200,4 +202,5 @@ def parse_freqtrade(payload: dict, relay_on: str = "fill") -> Signal | None:
         enter_tag=_s(payload.get("enter_tag")),
         exit_reason=_s(payload.get("exit_reason")),
         raw=raw,
+        leverage=bot_lev,
     )

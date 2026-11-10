@@ -27,8 +27,9 @@ def tradable_capital(gs: GlobalSettings, acc: ExchangeAccount) -> float:
 
 
 def max_open_trades(gs: GlobalSettings, acc: ExchangeAccount) -> int:
-    if effective_mode(gs, acc) == "equal_split":
-        return max(1, acc.max_open_trades or gs.default_max_open_trades)
+    """Only old portfolios have a limit; otherwise each chosen pair gets its own share (one trade per pair)."""
+    if effective_mode(gs, acc) == "equal_split" and acc.max_open_trades:
+        return max(1, acc.max_open_trades)
     return max(1, len(acc.pairs or {}))
 
 
@@ -47,17 +48,19 @@ def pair_budget(gs: GlobalSettings, acc: ExchangeAccount, pair: str) -> float:
     return stake
 
 
-def leverage_for(gs: GlobalSettings, acc: ExchangeAccount, pair: str | None = None) -> int:
-    """The portfolio's leverage, or the admin's fixed leverage for this pair (offer of the bot the user chose)."""
+def leverage_for(gs: GlobalSettings, acc: ExchangeAccount, pair: str | None = None,
+                 signal_leverage: float | None = None) -> int:
+    """Leverage is the admin's choice, never the user's: the fixed leverage of the pair's offer, else the Freqtrade
+    bot's own leverage for this trade, else (old portfolios) the portfolio's; capped at the admin's maximum."""
     if acc.is_spot:
         return 1
-    lev = acc.leverage
+    lev = None
     if pair:
         from .offers import forced_leverage
-        fixed = forced_leverage(pair, (acc.pair_bot or {}).get(pair))
-        if fixed:
-            lev = fixed
-    return max(1, min(lev, gs.max_leverage))
+        lev = forced_leverage(pair, (acc.pair_bot or {}).get(pair))
+    if not lev and signal_leverage:
+        lev = int(round(signal_leverage))
+    return max(1, min(int(lev or acc.leverage or 1), gs.max_leverage))
 
 
 def allocation_table(gs: GlobalSettings, acc: ExchangeAccount) -> list[dict]:
