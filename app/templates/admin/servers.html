@@ -104,6 +104,8 @@
 <button class="ghost sm" name="action" value="stop_all" onclick="return confirm('{{ _('srv_confirm_stop_all', host=sv.h.alias or sv.h.hostname) }}')">⏸ {{ _('srv_stop_all') }}</button>
 <button class="ghost sm" name="action" value="start_all">▶ {{ _('srv_start_all') }}</button>
 <button class="ghost sm" name="action" value="reload_all">⟳ {{ _('btn_reload_all') }}</button></form>
+<form method="post" action="/admin/servers/remove" class="inline" onsubmit="return confirm({{ _('srv_confirm_remove', host=sv.h.alias or sv.h.hostname)|tojson }})"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="host" value="{{ sv.h.hostname }}">
+<button class="danger sm">🗑 {{ _('srv_remove') }}</button></form>
 </div>
 {% endfor %}
 

@@ -167,6 +167,26 @@ async def set_alias(request: Request):
     return RedirectResponse("/admin/servers#host-" + str(f.get("host", "")), 303)
 
 
+@router.post("/remove")
+async def remove_host(request: Request):
+    """Take a server off this page (with its history). Its bots stay on the bots page. If its watchdog still
+    runs, the server comes back with its next report: uninstall the watchdog first."""
+    require_admin(request)
+    f = await form_with_csrf(request)
+    host = str(f.get("host", ""))
+    with SessionLocal() as s:
+        h = s.scalars(select(WatchdogHost).where(WatchdogHost.hostname == host)).first()
+        if h is None:
+            raise HTTPException(404)
+        name = h.alias or h.hostname
+        s.query(ServerSample).filter(ServerSample.host == host).delete()
+        s.query(WatchdogEvent).filter(WatchdogEvent.host == host).delete()
+        s.delete(h)
+        s.commit()
+    flash(request, tr(request, "srv_removed", host=name))
+    return RedirectResponse("/admin/servers", 303)
+
+
 @router.post("/test-alert")
 async def test_alert(request: Request):
     """Send one monitoring alert through every channel and say which ones worked (and why not)."""
