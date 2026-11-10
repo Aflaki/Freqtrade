@@ -88,7 +88,11 @@
 <form method="post" action="/admin/servers/outbound-ips"><input type="hidden" name="csrf" value="{{ csrf }}">
 <textarea name="ips" rows="3" class="ltr mono" placeholder="203.0.113.10&#10;203.0.113.11">{{ A.ips|join('\n') }}</textarea>
 <p><button class="ghost sm">{{ _('btn_save') }}</button></p></form>
-<p class="small muted">📡 {{ _('api_ws_status', c=A.streams.connected, t=A.streams.total, m=A.streams.marks) }}</p>
+<p class="small muted">📡 {{ _('api_ws_status', c=A.streams.connected, t=A.streams.total, m=A.streams.marks) }}{% if not A.streams.mark_ok %} · <span class="warn">{{ _('ws_marks_down') }}</span>{% endif %}</p>
+{% if A.not_live %}<details class="more"><summary>{{ _('ws_not_live', n=A.not_live|length) }}</summary>
+<div class="table-wrap"><table class="small"><tr><th>{{ _('col_portfolio') }}</th><th>{{ _('col_user') }}</th><th>{{ _('col_status') }}</th><th>IP</th><th>{{ _('ws_col_error') }}</th></tr>
+{% for x in A.not_live %}<tr><td>{{ x.acc.label or x.acc.exchange }}</td><td class="mono">{{ x.email }}</td><td><span class="badge warn">{{ _('ws_mode_' ~ x.mode) }}</span></td>
+<td class="mono">{{ x.ip or '—' }}</td><td class="small">{{ x.error or '—' }}</td></tr>{% endfor %}</table></div></details>{% endif %}
 <form method="post" action="/admin/servers/api-budget" class="inline-row" style="margin-top:10px"><input type="hidden" name="csrf" value="{{ csrf }}">
 <label class="small">{{ _('api_budget_label') }}</label><input type="number" name="pct" min="20" max="95" step="5" value="{{ '%g'|format(A.budget_pct) }}" style="width:90px"><button class="ghost sm">{{ _('btn_save') }}</button></form>
 <p class="small muted">{{ _('api_rules') }}</p>

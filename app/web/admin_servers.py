@@ -217,8 +217,16 @@ def api_model() -> dict:
                     "max_accounts": int(budget * 0.5 // max(per_acc, 1)), "live": snap.get(gid),
                     "per_acc": round(per_acc, 1)})
     problems = {ip: netips.usable(ip) for ip in ips}
+    from ..db import User
+    with SessionLocal() as s:
+        emails = {u.id: u.email for u in s.scalars(select(User).where(User.id.in_({a.user_id for a in accs})))}
+    not_live = []
+    for a in accs:
+        st = streams.status(a)
+        if st and st["mode"] != "live":
+            not_live.append({"acc": a, "email": emails.get(a.user_id, ""), **st})
     return {"rows": out, "budget_pct": governor.budget_pct, "w_entry": W_ENTRY, "w_exit": W_EXIT, "w_view": W_VIEW,
-            "ips": ips, "ip_problems": {k: v for k, v in problems.items() if v}, "streams": streams.summary(),
+            "not_live": not_live, "ips": ips, "ip_problems": {k: v for k, v in problems.items() if v}, "streams": streams.summary(),
             "ip_accounts": {ip: sum(1 for a in accs if a.out_ip == ip) for ip in ips}}
 
 

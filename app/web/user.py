@@ -92,6 +92,7 @@ def _own(s, user: User, acc_id: int) -> ExchangeAccount:
 
 @router.get("/accounts")
 async def accounts(request: Request):
+    from ..engine.streams import manager as _streams
     user = require_user(request)
     with SessionLocal() as s:
         gs = get_global(s)
@@ -103,7 +104,8 @@ async def accounts(request: Request):
                  "tradable": tradable_capital(gs, a), "mot": max_open_trades(gs, a),
                  "open": s.scalar(select(func.count(Trade.id)).where(Trade.account_id == a.id, Trade.status == "open")),
                  "adopted": s.scalar(select(func.count(Trade.id)).where(Trade.account_id == a.id, Trade.status == "open",
-                                                                        Trade.adopted.is_(True)))}
+                                                                        Trade.adopted.is_(True))),
+                 "stream": _streams.status(a)}
                 for a in accs]
         by_hash: dict[str, list] = {}
         for a in accs:

@@ -258,6 +258,21 @@ class StreamManager:
                 except Exception:
                     pass
 
+    def status(self, acc: ExchangeAccount) -> dict | None:
+        """How this portfolio gets its numbers: {"mode": live | connecting | api, "error", "since"}; None when a
+        stream doesn't apply (paper, signals, spot, other exchanges)."""
+        from .exchange import ccxt_target
+        if acc.kind != "exchange" or acc.dry_run or not acc.enabled or \
+                ccxt_target(acc.exchange, acc.trading_mode)[0] not in SUPPORTED:
+            return None
+        st = self.accounts.get(acc.id)
+        if st is None:
+            return {"mode": "api", "error": "", "since": None, "ip": acc.out_ip}
+        if self.live(acc.id):
+            return {"mode": "live", "error": "", "since": st.at, "ip": acc.out_ip}
+        return {"mode": "connecting" if not st.error else "api", "error": st.error, "since": st.at or None,
+                "ip": acc.out_ip}
+
     def summary(self) -> dict:
         sts = list(self.accounts.values())
         return {"total": len(sts), "connected": sum(1 for s in sts if s.connected), "marks": len(self.marks),

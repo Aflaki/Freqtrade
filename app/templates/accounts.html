@@ -11,6 +11,7 @@
     <span class="badge">{{ _('mode_' ~ r.mode) }}{% if r.mode == 'wallet_pct' and a.wallet_pct %} · {{ '%g'|format(a.wallet_pct) }}%{% endif %}</span>
     {% if a.dry_run and not a.is_signal %}<span class="badge warn">{{ _('badge_paper') }}</span>{% endif %}
     {% if not a.enabled %}<span class="badge err">{{ _('badge_disabled') }}</span>{% endif %}
+    {% if r.stream %}{% set w = r.stream %}<span class="badge {{ 'ok' if w.mode == 'live' else 'warn' }}" title="{{ _('ws_mode_help_' ~ w.mode) }}{% if w.error %} — {{ w.error }}{% endif %}">{{ _('ws_mode_' ~ w.mode) }}</span>{% endif %}
     {% if a.last_check_ok %}<span class="badge ok">{{ _('badge_conn_ok') }}</span>{% elif a.last_check_ok == false %}<span class="badge err">{{ _('badge_conn_fail') }}</span>{% endif %}
   </h2>
   {% if r.same_key %}<div class="flash error">{{ _('warn_same_key', names=r.same_key) }}</div>{% endif %}

@@ -95,6 +95,7 @@ def test_entry_and_live_view_from_the_stream(live):
         await manager.start(acc, exmod.client_version(acc))
         await asyncio.sleep(0.05)
         assert manager.live(acc_id) and manager.wallet(acc_id, "USDT") == 8000
+        assert manager.status(acc)["mode"] == "live"
         manager.marks["ETH/USDT:USDT"] = (_t.time(), 3000.0)
         manager.marks["BTC/USDT:USDT"] = (_t.time(), 60000.0)
         client = await pool.get(acc)
@@ -117,6 +118,9 @@ def test_entry_and_live_view_from_the_stream(live):
         assert manager.free_estimate(acc_id, "USDT") == pytest.approx(8000 - 120 - 0, rel=0.01)  # 600 notional / 5x
         await manager.stop(acc_id)
         assert pushed.closed and not manager.live(acc_id)
+        assert manager.status(acc)["mode"] == "api"  # shown on the portfolio card: works with normal requests
+        acc.dry_run = True
+        assert manager.status(acc) is None  # paper trading: nothing to show
     asyncio.run(go())
 
 
