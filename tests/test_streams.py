@@ -245,3 +245,34 @@ def test_live_without_any_balance_change_and_after_a_reconnect(live):
         await manager.stop(acc_id)
         assert old is streams_mod.asyncio.sleep
     asyncio.run(go())
+
+
+def test_wallet_balances(live):
+    """Dashboard wallet: from the live connection when there is one, else one read per minute (then cached)."""
+    acc_id, _, _ = live
+    from app.engine import livepos
+    import time as _t
+
+    async def go():
+        with SessionLocal() as s:
+            acc = s.get(ExchangeAccount, acc_id)
+            s.expunge(acc)
+        livepos._bal.clear()
+        b = (await livepos.balances([acc], "USDT"))[acc_id]
+        assert b == {"wallet": 10_000.0, "equity": 10_000.0, "free": 10_000.0, "live": False}  # REST (fake exchange)
+        client = await pool.get(acc)
+        client.ex.balance["USDT"] = 1.0
+        assert (await livepos.balances([acc], "USDT"))[acc_id]["wallet"] == 10_000  # cached for a minute
+        assert livepos.cached_balances([acc], "USDT")[acc_id]["wallet"] == 10_000  # what the page renders at once
+        pushed = FakeStream(balance={"USDT": {"free": 700.0, "total": 700.0}, "total": {"USDT": 700.0}},
+                            positions=[{"symbol": "BTC/USDT:USDT", "side": "long", "contracts": 0.01, "contractSize": 1,
+                                        "entryPrice": 60000.0, "leverage": 5}])
+        manager.factory = lambda a: pushed
+        await manager.start(acc, exmod.client_version(acc))
+        await asyncio.sleep(0.05)
+        manager.marks["BTC/USDT:USDT"] = (_t.time(), 61000.0)
+        b = (await livepos.balances([acc], "USDT"))[acc_id]
+        assert b["live"] and b["wallet"] == 700 and b["equity"] == pytest.approx(710)  # +10 open profit
+        await manager.stop(acc_id)
+        livepos._bal.clear()
+    asyncio.run(go())

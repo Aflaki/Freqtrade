@@ -1,4 +1,4 @@
-{% extends "base.html" %}{% block content %}
+{% extends "base.html" %}{% from "_filterbar.html" import filterbar with context %}{% from "_chart.html" import chart with context %}{% block content %}
 <h1>{{ _('hello', name=(user.name or user.email)) }}</h1>
 {% if user.status == 'pending' %}<div class="flash warn">{{ _('warn_pending') }}</div>{% endif %}
 {% if not user.subscription_active %}<div class="flash error">{{ _('warn_sub_expired') }}</div>
@@ -14,61 +14,182 @@
 </div>
 {% endif %}
 
+{# ------------------------------------------------------------------ the whole account, always #}
 <div class="grid">
+  {% if bals or accounts|selectattr('kind', 'equalto', 'exchange')|rejectattr('dry_run')|list %}<div class="card stat" id="wallet-card"><div class="k">{{ _('st_wallet') }}</div>
+    <div class="v"><span id="wallet-total">{{ wallet_total|money if bals else '…' }}</span> <span class="small muted">{{ gs.stake_currency }}</span></div>
+    <div class="small muted">{{ _('st_equity') }}: <span id="equity-total">{{ equity_total|money if bals else '…' }}</span></div></div>{% endif %}
   <div class="card stat"><div class="k">{{ _('st_capital') }}</div><div class="v">{{ total_capital|money }} <span class="small muted">{{ gs.stake_currency }}</span></div></div>
   <div class="card stat"><div class="k">{{ _('st_realized') }}</div><div class="v {{ 'pos' if pnl >= 0 else 'neg' }}">{{ pnl|signed }}</div></div>
-  <div class="card stat"><div class="k">{{ _('st_open') }}</div><div class="v">{{ open_trades|length }}</div></div>
-  {% if open_trades %}<div class="card stat" id="upnl-card"><div class="k">{{ _('col_upnl') }}</div>
+  <div class="card stat"><div class="k">{{ _('st_open') }}</div><div class="v">{{ all_open }}</div></div>
+  {% if all_open %}<div class="card stat" id="upnl-card"><div class="k">{{ _('col_upnl') }}</div>
     <div class="v {{ 'pos' if live_upnl >= 0 else 'neg' }}" id="upnl-total">{{ live_upnl|signed if live else '…' }}</div>
     <div class="small muted" id="upnl-split">{% if live %}{{ _('st_upnl_split', w=live_win, l=live_loss) }}{% endif %}</div></div>{% endif %}
   <div class="card stat"><div class="k">{{ _('st_closed_wr') }}</div><div class="v">{{ n_closed }} <span class="small muted">/ {{ (wins / n_closed * 100)|round|int if n_closed else 0 }}%</span></div></div>
   <div class="card stat"><div class="k">{{ _('st_subscription') }}</div><div class="v small">{{ user.subscription_until|lt('%Y-%m-%d') if user.subscription_until else _('unlimited') }}</div></div>
 </div>
 
-<div class="card"><h2>{{ _('open_positions') }}</h2>
+{% if accounts %}
+{# ------------------------------------------------------------------ like the bots' performance page, for my own trades #}
+{% set scopes = [(_('my_portfolios'), acc_opts), (_('my_bots'), bot_opts)] %}
+{{ filterbar('/dashboard', tabs=[('live', _('tab_live'), open_trades|length), ('overview', _('tab_overview'), none), ('pairs', _('tab_pairs'), pairs|length),
+                                 ('trades', _('nav_trades'), data.trades if data else 0), ('portfolios', _('tab_portfolios'), accounts|length)],
+             count=(data.trades if data else 0), scopes=scopes, all_label=_('my_all_portfolios'), scope_label=scope_label) }}
+
+{# ------------------------------------------------------------------ live: my open positions, from the exchange #}
+<section class="tabpane" data-pane="live">
+<div class="card"><h2><span class="live-dot"></span> {{ _('open_positions') }} <span class="badge">{{ open_trades|length }}</span></h2>
 {% if open_trades %}<p class="small muted">{{ _('live_note') }} <span id="live-at"></span></p>
 <div class="table-wrap"><table id="openpos">
-<tr><th>#</th><th>{{ _('col_pair') }}</th><th>{{ _('col_side') }}</th><th>{{ _('col_portfolio') }}</th><th>{{ _('col_entry') }}</th><th>{{ _('col_mark') }}</th><th>{{ _('col_upnl') }}</th><th>{{ _('col_amount') }}</th><th>{{ _('col_margin') }}</th><th>{{ _('col_leverage') }}</th><th>{{ _('col_liq') }}</th><th>{{ _('col_sl') }}</th><th>{{ _('col_opened') }}</th><th></th></tr>
+<tr><th>#</th><th>{{ _('col_pair') }}</th><th>{{ _('col_side') }}</th><th>{{ _('col_portfolio') }}</th><th>{{ _('col_bot') }}</th><th>{{ _('col_entry') }}</th><th>{{ _('col_mark') }}</th><th>{{ _('col_upnl') }}</th><th>{{ _('col_amount') }}</th><th>{{ _('col_margin') }}</th><th>{{ _('col_leverage') }}</th><th>{{ _('col_liq') }}</th><th>{{ _('col_sl') }}</th><th>{{ _('col_opened') }}</th><th></th></tr>
 {% for t in open_trades %}{% set L = live.get(t.id, {}) %}<tr data-id="{{ t.id }}"><td>{{ t.id }}</td><td class="mono">{{ coin(t.pair) }}{{ t.pair }}</td><td class="{{ 'pos' if t.side=='long' else 'neg' }}">{{ t.side|upper }}</td>
 <td>{{ acc_names.get(t.account_id) }}{% if t.is_signal %} <span class="badge brand">{{ _('badge_signal') }}</span>{% elif t.dry_run %} <span class="badge">{{ _('badge_paper') }}</span>{% endif %}{% if t.adopted %} <span class="badge" title="{{ _('adopted_title') }}">🤝</span>{% endif %}</td>
+<td class="small">{{ bot_names.get(t.bot_id, '—') }}</td>
 <td class="tnum" data-k="entry">{{ t.entry_price|price }}</td>
 <td class="tnum" data-k="mark">{{ L.get('mark')|price if L.get('mark') else '…' }}</td>
 <td class="tnum {{ ('pos' if L.get('upnl') >= 0 else 'neg') if L.get('upnl') is not none else '' }}" data-k="upnl">{% if L.get('upnl') is not none %}{{ L.get('upnl')|signed }}{% if L.get('pct') is not none %} <span class="small">({{ '%+.2f'|format(L.get('pct')) }}%)</span>{% endif %}{% elif L.get('missing') %}<span class="badge err" title="{{ _('not_on_exchange_help') }}">{{ _('not_on_exchange') }}</span>{% else %}—{% endif %}</td>
 <td class="tnum">{{ (t.amount * t.contract_size)|price }}</td><td class="tnum">{{ t.stake|money }}</td><td>{{ t.leverage|int }}x</td>
 <td class="tnum" data-k="liq">{{ L.get('liq')|price if L.get('liq') else '—' }}</td><td class="tnum">{{ t.sl_price|price }}</td>
 <td class="small muted">{{ t.opened_at|lt('%Y-%m-%d %H:%M') }}</td>
-<td><form class="inline" method="post" action="/trades/{{ t.id }}/close" onsubmit="return confirm('{{ _('confirm_close') }}')"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger sm">{{ _('btn_close') }}</button></form></td></tr>{% endfor %}
+<td><form class="inline" method="post" action="/trades/{{ t.id }}/close" onsubmit="return confirm({{ _('confirm_close')|tojson }})"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger sm">{{ _('btn_close') }}</button></form></td></tr>{% endfor %}
 </table></div>
+<form method="post" action="/trades/close-all" onsubmit="return confirm({{ _('confirm_close_all')|tojson }})" style="margin-top:10px"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger sm">{{ _('btn_close_all') }}</button></form>
+{% else %}<p class="muted">{{ _('no_open') }}</p>{% endif %}</div>
+</section>
 <script>
 (function(){
   const fmt=(v,d)=>v==null?'—':Number(v).toLocaleString('en',{maximumFractionDigits:d??8}), notOn={{ _('not_on_exchange')|tojson }}, splitText={{ _('st_upnl_split')|tojson }};
   const px=v=>v==null?'—':fmt(v, Math.abs(v)>=100?2:Math.abs(v)>=1?4:8);
   async function tick(){
-    try{ const r=await fetch('/trades/live',{headers:{'Accept':'application/json'}}); if(!r.ok) return; const d=await r.json(); let tot=0;
-      document.querySelectorAll('#openpos tr[data-id]').forEach(tr=>{ const L=d[tr.dataset.id]; if(!L) return;
-        const c=k=>tr.querySelector(`[data-k="${k}"]`);
-        if(L.entry) c('entry').textContent=px(L.entry); c('mark').textContent=px(L.get('mark')); c('liq').textContent=px(L.get('liq'));
-        const u=c('upnl');
-        if(L.get('upnl')!=null){ tot+=L.get('upnl'); u.className='tnum '+(L.get('upnl')>=0?'pos':'neg');
-          u.innerHTML=(L.get('upnl')>=0?'+':'')+fmt(L.get('upnl'),2)+(L.get('pct')!=null?' <span class="small">('+(L.get('pct')>=0?'+':'')+L.get('pct').toFixed(2)+'%)</span>':''); }
-        else if(L.get('missing')){ u.innerHTML='<span class="badge err">'+notOn+'</span>'; } });
-      let w=0, l=0; Object.values(d).forEach(L=>{ if(L.upnl>0) w++; else if(L.upnl<0) l++; });
-      const t=document.getElementById('upnl-total'); if(t){ t.className='v '+(tot>=0?'pos':'neg'); t.textContent=(tot>=0?'+':'')+fmt(tot,2); }
-      const sp=document.getElementById('upnl-split'); if(sp) sp.textContent=splitText.replace('{w}',w).replace('{l}',l);
-      document.getElementById('live-at').textContent='· '+new Date().toLocaleTimeString();
-    }catch(e){}
+    let d;
+    try{ const r=await fetch('/trades/live',{headers:{'Accept':'application/json'}}); if(!r.ok) return; d=await r.json(); }catch(e){ return; }
+    let tot=0, w=0, l=0;
+    Object.values(d).forEach(L=>{ if(L.upnl!=null){ tot+=L.upnl; if(L.upnl>0) w++; else if(L.upnl<0) l++; } });
+    document.querySelectorAll('#openpos tr[data-id]').forEach(tr=>{ const L=d[tr.dataset.id]; if(!L) return;
+      const c=k=>tr.querySelector(`[data-k="${k}"]`);
+      if(L.entry) c('entry').textContent=px(L.entry);
+      c('mark').textContent=px(L.mark); c('liq').textContent=px(L.liq);
+      const u=c('upnl');
+      if(L.upnl!=null){ u.className='tnum '+(L.upnl>=0?'pos':'neg');
+        u.innerHTML=(L.upnl>=0?'+':'')+fmt(L.upnl,2)+(L.pct!=null?' <span class="small">('+(L.pct>=0?'+':'')+L.pct.toFixed(2)+'%)</span>':''); }
+      else if(L.missing){ u.innerHTML='<span class="badge err">'+notOn+'</span>'; } });
+    const t=document.getElementById('upnl-total'); if(t){ t.className='v '+(tot>=0?'pos':'neg'); t.textContent=(tot>=0?'+':'')+fmt(tot,2); }
+    const sp=document.getElementById('upnl-split'); if(sp) sp.textContent=splitText.replace('{w}',w).replace('{l}',l);
+    const at=document.getElementById('live-at'); if(at) at.textContent='· '+new Date().toLocaleTimeString();
   }
-  tick();  // fresh numbers right after the page is shown
-  setInterval(()=>{ if(!document.hidden) tick(); }, 15000);
+  async function bal(){
+    let d;
+    try{ const r=await fetch('/accounts/balances',{headers:{'Accept':'application/json'}}); if(!r.ok) return; d=await r.json(); }catch(e){ return; }
+    let w=0, eq=0;
+    Object.entries(d).forEach(([id,B])=>{ w+=B.wallet||0; eq+=(B.equity!=null?B.equity:(B.wallet||0));
+      ['wallet','equity','free'].forEach(k=>{ const c=document.querySelector(`[data-bal="${id}"][data-k="${k}"]`); if(c) c.textContent=B[k]!=null?fmt(B[k],2):'—'; }); });
+    const wt=document.getElementById('wallet-total'), et=document.getElementById('equity-total');
+    if(wt) wt.textContent=fmt(w,2); if(et) et.textContent=fmt(eq,2);
+  }
+  window.dashTick = tick;
+  if (document.getElementById('upnl-card')) { tick(); setInterval(()=>{ if(!document.hidden) tick(); }, 15000); }
+  if (document.getElementById('wallet-card')) { bal(); setInterval(()=>{ if(!document.hidden) bal(); }, 15000); }
 })();
 </script>
-<form method="post" action="/trades/close-all" onsubmit="return confirm('{{ _('confirm_close_all') }}')" style="margin-top:10px"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger sm">{{ _('btn_close_all') }}</button></form>
-{% else %}<p class="muted">{{ _('no_open') }}</p>{% endif %}</div>
 
-<div class="card"><h2>{{ _('recent_closed') }}</h2>
-{% if closed %}<div class="table-wrap"><table>
-<tr><th>{{ _('col_pair') }}</th><th>{{ _('col_side') }}</th><th>{{ _('col_entry') }}</th><th>{{ _('col_exit') }}</th><th>{{ _('col_pnl') }}</th><th>%</th><th>{{ _('col_reason') }}</th></tr>
-{% for t in closed %}<tr><td class="mono">{{ t.pair }}</td><td>{{ t.side|upper }}</td><td>{{ t.entry_price|price }}</td><td>{{ t.exit_price|price }}</td>
-<td class="{{ 'pos' if t.realized_pnl >= 0 else 'neg' }}">{{ t.realized_pnl|signed }}</td><td>{{ (t.pnl_ratio*100)|pct }}</td><td class="small">{{ t.exit_reason }}</td></tr>{% endfor %}
-</table></div><p><a href="/trades">{{ _('all_trades') }}</a></p>{% else %}<p class="muted">{{ _('no_closed') }}</p>{% endif %}</div>
+{% if not data %}
+<section class="tabpane" data-pane="overview"><div class="card muted">{{ _('my_no_closed') }}</div></section>
+<section class="tabpane" data-pane="pairs"><div class="card muted">{{ _('my_no_closed') }}</div></section>
+<section class="tabpane" data-pane="trades"><div class="card muted">{{ _('my_no_closed') }}</div></section>
+{% else %}
+{# ------------------------------------------------------------------ overview #}
+<section class="tabpane" data-pane="overview">
+<div class="kpis">
+  <div class="kpi" title="{{ _('perf_h_trades') }}"><div class="k">{{ _('perf_trades') }}</div><div class="v">{{ data.trades }}</div></div>
+  <div class="kpi" title="{{ _('perf_h_win') }}"><div class="k">{{ _('perf_win_rate') }}</div><div class="v"><span class="num">{{ '%.0f'|format(data.win_rate) }}%</span></div></div>
+  <div class="kpi" title="{{ _('perf_h_profit') }}"><div class="k">{{ _('perf_total_abs') }}</div><div class="v {{ 'pos' if data.profit_abs >= 0 else 'neg' }}">{{ data.profit_abs|signed }}</div></div>
+  {% if data.return_pct is not none %}<div class="kpi" title="{{ _('perf_h_return') }}"><div class="k">{{ _('perf_return') }}</div><div class="v {{ 'pos' if data.return_pct >= 0 else 'neg' }}">{{ data.return_pct|pct(1) }}</div><div class="sub">{{ _('perf_on_capital', cap='{:,.0f}'.format(data.capital)) }}</div></div>{% endif %}
+  <div class="kpi" title="{{ _('perf_h_avg') }}"><div class="k">{{ _('perf_avg') }}</div><div class="v {{ 'pos' if data.avg >= 0 else 'neg' }}">{{ data.avg|pct }}</div></div>
+  <div class="kpi" title="{{ _('perf_h_dd') }}"><div class="k">{{ _('perf_max_dd') }}</div><div class="v neg">{% if data.max_dd_pct is not none %}{{ (0 - data.max_dd_pct)|pct(1) }}{% else %}{{ (0 - data.max_dd_abs)|signed }}{% endif %}</div>{% if data.max_dd_pct is not none %}<div class="sub">{{ (0 - data.max_dd_abs)|signed }}</div>{% endif %}</div>
+  <div class="kpi" title="{{ _('perf_h_lev') }}"><div class="k">{{ _('perf_avg_lev') }}</div><div class="v"><span class="num">{{ '%.1f'|format(data.avg_lev) }}x</span></div></div>
+</div>
+{% set mk = data.market %}
+{% if mk and mk.chart %}
+<div class="card"><h2>{{ _('my_chart_vs_market') if mk.has_capital else _('perf_curve') }}</h2>
+{{ chart(mk.chart, {'bot': _('my_result')}) }}
+{% if mk.rows|length > 1 %}
+<div class="table-wrap"><table class="small no-grid">
+<tr><th></th><th>{{ _('bench_return') }}</th><th>{{ _('bench_dd') }}</th><th>{{ _('my_vs_me') }}</th></tr>
+{% set myret = mk.rows[0].ret %}
+{% for r in mk.rows %}<tr{% if r.key == 'bot' %} style="background:var(--brand-soft)"{% endif %}>
+<td><b>{{ _('my_result') if r.key == 'bot' else r.name }}</b></td>
+<td class="{{ 'pos' if r.ret >= 0 else 'neg' }}">{{ r.ret|pct(1) }}</td><td class="neg">{{ (0 - r.dd)|pct(1) }}</td>
+<td>{% if r.key != 'bot' %}<span class="{{ 'pos' if myret - r.ret >= 0 else 'neg' }}">{{ (myret - r.ret)|pct(1) }}</span>{% endif %}</td></tr>{% endfor %}
+</table></div>{% endif %}
+</div>{% endif %}
+<p class="small muted">{{ _('my_numbers_note') }}</p>
+</section>
+
+{# ------------------------------------------------------------------ pairs #}
+<section class="tabpane" data-pane="pairs">
+<div class="card"><h2>{{ _('perf_by_pair') }} <span class="badge">{{ pairs|length }}</span></h2>
+<div class="table-wrap scroll-table"><table id="mypairs">
+<thead><tr><th>{{ _('col_pair') }}</th><th data-k="n">{{ _('perf_trades') }}</th><th data-k="n">{{ _('perf_win_rate') }}</th><th data-k="n">{{ _('perf_total_abs') }}</th>
+<th data-k="n">{{ _('perf_avg') }}</th><th data-k="n">{{ _('perf_best') }}</th><th data-k="n">{{ _('perf_worst') }}</th><th data-k="n">{{ _('perf_max_dd_abs') }}</th><th data-k="n">{{ _('perf_avg_lev') }}</th><th data-k="n">{{ _('perf_avg_hours') }}</th></tr></thead><tbody>
+{% for p, st in pairs.items() %}<tr><td class="mono">{{ coin(p) }}{{ p }}</td>
+<td>{{ st.trades }}</td><td data-v="{{ st.win_rate }}"><span class="num">{{ '%.0f'|format(st.win_rate) }}%</span></td>
+<td data-v="{{ st.profit_abs }}" class="{{ 'pos' if st.profit_abs >= 0 else 'neg' }}">{{ st.profit_abs|signed }}</td>
+<td data-v="{{ st.avg }}" class="{{ 'pos' if st.avg >= 0 else 'neg' }}">{{ st.avg|pct }}</td><td data-v="{{ st.best }}" class="pos">{{ st.best|pct(1) }}</td>
+<td data-v="{{ st.worst }}" class="neg">{{ st.worst|pct(1) }}</td><td data-v="{{ st.max_dd_abs }}" class="neg">{{ (0 - st.max_dd_abs)|signed }}</td>
+<td data-v="{{ st.avg_lev }}"><span class="num">{{ '%.1f'|format(st.avg_lev) }}x</span></td><td data-v="{{ st.avg_hours }}">{{ '%.1f'|format(st.avg_hours) }}</td></tr>{% endfor %}
+</tbody></table></div></div>
+</section>
+
+{# ------------------------------------------------------------------ closed trades #}
+<section class="tabpane" data-pane="trades">
+<div class="card"><h2>{{ _('nav_trades') }} <span class="badge">{{ data.trades }}</span></h2>
+<div class="table-wrap scroll-table"><table id="mytrades" class="small">
+<thead><tr><th>{{ _('col_pair') }}</th><th>{{ _('col_portfolio') }}</th><th>{{ _('col_bot') }}</th><th>{{ _('col_side') }}</th><th data-k="n">{{ _('col_leverage') }}</th>
+<th>{{ _('col_opened') }}</th><th>{{ _('col_closed') }}</th><th data-k="n">{{ _('perf_avg_hours') }}</th>
+<th data-k="n">{{ _('col_entry') }}</th><th data-k="n">{{ _('col_exit') }}</th><th data-k="n">{{ _('col_margin') }}</th><th data-k="n">{{ _('perf_result') }}</th><th data-k="n">{{ _('perf_profit_abs') }}</th><th data-k="n">{{ _('col_fees') }}</th><th>{{ _('col_reason') }}</th></tr></thead><tbody>
+{% for tr in data.all_trades %}{% set hrs = ((tr.close_date - tr.open_date).total_seconds() / 3600) if tr.close_date and tr.open_date else 0 %}
+<tr><td class="mono">{{ coin(tr.pair) }}{{ tr.pair }}{% if tr.adopted %} <span title="{{ _('adopted_title') }}">🤝</span>{% endif %}</td><td>{{ acc_names.get(tr.account_id, '—') }}</td><td class="small">{{ bot_names.get(tr.bot_id, '—') }}</td>
+<td class="{{ 'pos' if tr.side=='long' else 'neg' }}">{{ tr.side|upper }}</td><td data-v="{{ tr.leverage }}"><span class="num">{{ '%g'|format(tr.leverage) }}x</span></td>
+<td class="muted">{{ tr.open_date|lt('%Y-%m-%d %H:%M') if tr.open_date }}</td><td class="muted">{{ tr.close_date|lt('%Y-%m-%d %H:%M') if tr.close_date }}</td>
+<td data-v="{{ hrs }}">{{ '%.1f'|format(hrs) }}</td><td data-v="{{ tr.open_rate or 0 }}">{{ tr.open_rate|price }}</td><td data-v="{{ tr.close_rate or 0 }}">{{ tr.close_rate|price }}</td>
+<td data-v="{{ tr.stake_amount }}">{{ tr.stake_amount|money }}</td>
+<td data-v="{{ tr.profit_ratio }}" class="{{ 'pos' if tr.profit_ratio >= 0 else 'neg' }}">{{ (tr.profit_ratio*100)|pct }}</td>
+<td data-v="{{ tr.profit_abs }}" class="{{ 'pos' if tr.profit_abs >= 0 else 'neg' }}">{{ tr.profit_abs|signed }}</td>
+<td data-v="{{ tr.fees }}" class="muted">{{ tr.fees|money(4) }}</td><td class="small">{{ tr.exit_reason }}</td></tr>{% endfor %}
+</tbody></table></div>
+{% if data.trades > data.all_trades|length %}<p class="small muted">{{ _('trades_limited', n=data.all_trades|length) }}</p>{% endif %}</div>
+</section>
+{% endif %}
+
+{# ------------------------------------------------------------------ per portfolio (connection) and per bot #}
+<section class="tabpane" data-pane="portfolios">
+<div class="card"><h2>🧺 {{ _('my_by_portfolio') }}</h2><div class="table-wrap"><table>
+<thead><tr><th>{{ _('col_portfolio') }}</th><th>{{ _('my_connection') }}</th><th data-k="n">{{ _('st_wallet') }}</th><th data-k="n">{{ _('st_equity') }}</th><th data-k="n">{{ _('st_free') }}</th><th data-k="n">{{ _('st_capital') }}</th><th data-k="n">{{ _('st_open') }}</th><th data-k="n">{{ _('perf_trades') }}</th><th data-k="n">{{ _('perf_win_rate') }}</th>
+<th data-k="n">{{ _('perf_total_abs') }}</th><th data-k="n">{{ _('perf_return') }}</th><th data-k="n">{{ _('perf_avg') }}</th><th data-k="n">{{ _('perf_max_dd') }}</th></tr></thead><tbody>
+{% for a in accounts %}{% set c = acc_cards.get(a.id, {}) %}{% set w = streams.get(a.id) %}
+<tr class="rowlink{{ ' sel' if acc_sel == a.id }}" data-href="/dashboard?{{ qs(scope='a' ~ a.id, market=market, days=period) }}">
+<td><a href="/dashboard?{{ qs(scope='a' ~ a.id, market=market, days=period) }}"><b>{{ acc_names[a.id] }}</b></a>
+{% if a.is_signal %} <span class="badge brand">{{ _('badge_signal') }}</span>{% elif a.dry_run %} <span class="badge">{{ _('badge_paper') }}</span>{% endif %}{% if not a.enabled %} <span class="badge err">{{ _('badge_disabled') }}</span>{% endif %}</td>
+<td>{% if w %}<span class="badge {{ 'ok' if w.mode == 'live' else 'warn' }}" title="{{ _('ws_mode_help_' ~ w.mode) }}">{{ _('ws_mode_' ~ w.mode) }}</span>{% elif not a.is_signal %}<span class="muted small">{{ EXCHANGES.get(a.exchange, a.exchange) }}</span>{% else %}—{% endif %}</td>
+{% set B = bals.get(a.id) %}<td class="tnum" data-bal="{{ a.id }}" data-k="wallet">{{ B.wallet|money if B and B.wallet is not none else '—' }}</td>
+<td class="tnum" data-bal="{{ a.id }}" data-k="equity">{{ B.equity|money if B and B.equity is not none else '—' }}</td>
+<td class="tnum" data-bal="{{ a.id }}" data-k="free">{{ B.free|money if B and B.free is not none else '—' }}</td>
+<td data-v="{{ acc_capital.get(a.id, 0) }}">{{ acc_capital.get(a.id, 0)|money }}</td><td>{{ acc_open.get(a.id, 0) }}</td>
+<td>{{ c.trades or 0 }}</td><td data-v="{{ c.win_rate or 0 }}"><span class="num">{{ '%.0f'|format(c.win_rate or 0) }}%</span></td>
+<td data-v="{{ c.profit_abs or 0 }}" class="{{ 'pos' if (c.profit_abs or 0) >= 0 else 'neg' }}">{{ (c.profit_abs or 0)|signed }}</td>
+<td data-v="{{ c.return_pct if c.return_pct is not none else -1e9 }}">{% if c.return_pct is not none %}<span class="{{ 'pos' if c.return_pct >= 0 else 'neg' }}">{{ c.return_pct|pct(1) }}</span>{% else %}—{% endif %}</td>
+<td data-v="{{ c.avg or 0 }}">{{ (c.avg or 0)|pct }}</td>
+<td data-v="{{ c.max_dd_pct if c.max_dd_pct is not none else c.max_dd_abs or 0 }}" class="neg">{% if c.max_dd_pct is not none %}{{ (0 - c.max_dd_pct)|pct(1) }}{% else %}{{ (0 - (c.max_dd_abs or 0))|signed }}{% endif %}</td></tr>{% endfor %}
+</tbody></table></div></div>
+{% if bots %}<div class="card"><h2>🤖 {{ _('my_by_bot') }}</h2><div class="table-wrap"><table>
+<thead><tr><th>{{ _('col_bot') }}</th><th data-k="n">{{ _('st_open') }}</th><th data-k="n">{{ _('perf_trades') }}</th><th data-k="n">{{ _('perf_win_rate') }}</th><th data-k="n">{{ _('perf_total_abs') }}</th><th data-k="n">{{ _('perf_avg') }}</th><th data-k="n">{{ _('perf_avg_lev') }}</th></tr></thead><tbody>
+{% for b in bots %}{% set c = bot_cards.get(b.id, {}) %}
+<tr class="rowlink{{ ' sel' if bot_sel == b.id }}" data-href="/dashboard?{{ qs(scope='b' ~ b.id, market=market, days=period) }}">
+<td><a href="/dashboard?{{ qs(scope='b' ~ b.id, market=market, days=period) }}"><b>{{ b.name }}</b></a></td><td>{{ bot_open.get(b.id, 0) }}</td>
+<td>{{ c.trades or 0 }}</td><td data-v="{{ c.win_rate or 0 }}"><span class="num">{{ '%.0f'|format(c.win_rate or 0) }}%</span></td>
+<td data-v="{{ c.profit_abs or 0 }}" class="{{ 'pos' if (c.profit_abs or 0) >= 0 else 'neg' }}">{{ (c.profit_abs or 0)|signed }}</td>
+<td data-v="{{ c.avg or 0 }}">{{ (c.avg or 0)|pct }}</td><td data-v="{{ c.avg_lev or 0 }}"><span class="num">{{ '%.1f'|format(c.avg_lev or 0) }}x</span></td></tr>{% endfor %}
+</tbody></table></div><p class="small muted">{{ _('my_bot_hint') }}</p></div>{% endif %}
+</section>
+{% endif %}
 {% endblock %}

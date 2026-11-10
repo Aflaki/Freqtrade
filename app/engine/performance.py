@@ -255,8 +255,13 @@ def _stats(trades: list[BotTrade], capital: float | None = None) -> dict:
 
 
 def pair_stats(market: str = "all", days: int | None = None, bots: list[int] | None = None) -> dict[str, dict]:
-    by_pair: dict[str, list[BotTrade]] = defaultdict(list)
-    for t in _closed(market, days, bots):
+    return pair_stats_of(_closed(market, days, bots))
+
+
+def pair_stats_of(trades: list) -> dict[str, dict]:
+    """Per-pair numbers of any list of closed trades (bot trades, or a user's own trades)."""
+    by_pair: dict[str, list] = defaultdict(list)
+    for t in trades:
         by_pair[t.pair].append(t)
     return {p: _stats(ts) for p, ts in sorted(by_pair.items())}
 
@@ -265,8 +270,14 @@ def summary(market: str = "all", days: int | None = None, pairs: list[str] | Non
             bots: list[int] | None = None) -> dict:
     trades = [t for t in _closed(market, days, bots) if not pairs or t.pair in pairs]
     ids = bots if bots is not None else sorted({t.bot_id for t in trades if t.bot_id})
-    st = _stats(trades, capitals(ids))
-    st["capital"] = capitals(ids)
+    return summary_of(trades, capitals(ids), days)
+
+
+def summary_of(trades: list, capital: float | None, days: int | None) -> dict:
+    """Headline numbers, equity curve and market comparison of any list of closed trades (oldest first).
+    Each trade needs: pair, side, leverage, open_date, close_date, profit_ratio, profit_abs, stake_amount."""
+    st = _stats(trades, capital)
+    st["capital"] = capital
     # equity curve: cumulative profit in stake currency, like the FreqUI chart
     st["curve_abs"] = True
     pts, eq = [], 0.0

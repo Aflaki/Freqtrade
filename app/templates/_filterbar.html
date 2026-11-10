@@ -1,7 +1,7 @@
 {# Sticky filter bar: scope dropdown, side + period, applied-filter chips with ✕, result count, optional tabs.
    Usage: {% call filterbar('/', tabs=[...], count=n, pair=pair) %}extra controls{% endcall %} #}
 {% from "_icons.html" import ic %}
-{% macro filterbar(path, tabs=none, count=none, pair='') %}
+{% macro filterbar(path, tabs=none, count=none, pair='', scopes=none, all_label='', scope_label='') %}
 <div id="fb-anchor"></div>
 <div class="filterbar" id="fb">
   <form method="get" action="{{ path }}" class="fb-row">
@@ -10,6 +10,10 @@
     {% if period != 'all' %}<input type="hidden" name="days" value="{{ period }}">{% endif %}
     <label class="fb-scope" title="{{ _('fb_scope') }}">{{ ic('bot') }}
       <select name="scope" onchange="this.form.submit()">
+        {% if scopes %}
+        <option value="all" {{ 'selected' if scope == 'all' }}>{{ all_label }}</option>
+        {% for glabel, opts in scopes %}{% if opts %}<optgroup label="{{ glabel }}">{% for v, l in opts %}<option value="{{ v }}" {{ 'selected' if scope == v }}>{{ l }}</option>{% endfor %}</optgroup>{% endif %}{% endfor %}
+        {% else %}
         <option value="all" {{ 'selected' if scope == 'all' }}>{{ _('all_bots') }} ({{ all_bots|length }})</option>
         {% for g, gbots in tree %}
         <optgroup label="📦 {{ g.name }}">
@@ -20,6 +24,7 @@
           {% if tree %}<option value="g0" {{ 'selected' if scope == 'g0' }}>{{ _('fb_whole_group', name=_('ungrouped')) }} ({{ ungrouped_bots|length }})</option>{% endif %}
           {% for b in ungrouped_bots %}<option value="b{{ b.id }}" {{ 'selected' if scope == 'b' ~ b.id }}>&nbsp;&nbsp;🤖 {{ b.name }}</option>{% endfor %}
         </optgroup>{% endif %}
+        {% endif %}
       </select></label>
     <div class="seg" role="group" aria-label="{{ _('fb_side') }}">
       {% for mk in ['all', 'long', 'short'] %}<a href="{{ path }}?{{ qs(scope=scope, market=mk, days=period, pair=pair) }}" class="{{ 'on' if market == mk }}">{{ _('mkt_' ~ mk) }}</a>{% endfor %}
@@ -31,7 +36,8 @@
   </form>
   <div class="fb-chips">
     <span class="muted">{{ _('fb_showing') }}</span>
-    {% if bot_sel %}<span class="chip">{% if group_label %}📦 {{ group_label }} › {% endif %}🤖 {{ bot_label }}<a href="{{ path }}?{{ qs(market=market, days=period, pair=pair) }}" title="{{ _('fb_clear') }}">✕</a></span>
+    {% if scopes %}{% if scope != 'all' %}<span class="chip">{{ scope_label }}<a href="{{ path }}?{{ qs(market=market, days=period, pair=pair) }}" title="{{ _('fb_clear') }}">✕</a></span>{% else %}<span class="chip plain">{{ all_label }}</span>{% endif %}
+    {% elif bot_sel %}<span class="chip">{% if group_label %}📦 {{ group_label }} › {% endif %}🤖 {{ bot_label }}<a href="{{ path }}?{{ qs(market=market, days=period, pair=pair) }}" title="{{ _('fb_clear') }}">✕</a></span>
     {% elif group_sel is not none %}<span class="chip">📦 {{ group_label or _('ungrouped') }}<a href="{{ path }}?{{ qs(market=market, days=period, pair=pair) }}" title="{{ _('fb_clear') }}">✕</a></span>
     {% else %}<span class="chip plain">{{ _('all_bots') }}</span>{% endif %}
     {# side and period are always listed, also when nothing is filtered, so the compact bar still says what you see #}
@@ -41,7 +47,7 @@
     {% if period != 'all' %}<span class="chip">🗓 {{ _('period_' ~ period) }}{% if rng %} <span class="muted fb-dates">({{ rng.start_s }} – {{ rng.end_s }})</span>{% endif %}<a href="{{ path }}?{{ qs(scope=scope, market=market, pair=pair) }}" title="{{ _('fb_clear') }}">✕</a></span>
     {% else %}<span class="chip plain">🗓 {{ _('fb_all_time') }}{% if rng %} <span class="muted fb-dates">({{ rng.start_s }} – {{ rng.end_s }})</span>{% endif %}</span>{% endif %}
     {% if pair %}<span class="chip mono">{{ pair }}<a href="{{ path }}?{{ qs(scope=scope, market=market, days=period) }}" title="{{ _('fb_clear') }}">✕</a></span>{% endif %}
-    {% if count is not none %}<span class="fb-count">· <b class="num">{{ count }}</b> {{ _('perf_trades') }} · <b class="num">{{ scope_bots|length }}</b> {{ _('bots_word') }}</span>{% endif %}
+    {% if count is not none %}<span class="fb-count">· <b class="num">{{ count }}</b> {{ _('perf_trades') }}{% if not scopes %} · <b class="num">{{ scope_bots|length }}</b> {{ _('bots_word') }}{% endif %}</span>{% endif %}
     {% if scope != 'all' or market != 'all' or period != 'all' or pair %}<a class="fb-reset" href="{{ path }}">{{ _('fb_reset') }}</a>{% endif %}
     <button type="button" class="fb-edit ghost sm" onclick="document.getElementById('fb').classList.remove('compact');window.scrollTo({top:document.getElementById('fb-anchor').getBoundingClientRect().top+window.scrollY-70,behavior:'smooth'})">{{ ic('settings') }}{{ _('fb_edit') }}</button>
   </div>

@@ -45,27 +45,67 @@ def _num(v, default: float = 0.0) -> float:
 
 @router.get("/dashboard")
 async def dashboard(request: Request):
+    """Like the bots' performance page, but for the user's own trades: live positions, results, chart vs the
+    market, pairs, closed trades; for all portfolios, one portfolio, or one bot."""
     user = require_user(request)
-    from ..engine import livepos
+    from ..engine import livepos, myperf
+    from ..engine.streams import manager as streams
+    from .public import PERIODS
+    qp = request.query_params
+    market = qp.get("market") if qp.get("market") in ("long", "short") else "all"
+    period = qp.get("days", "all") if qp.get("days", "all") in PERIODS else "all"
+    rep = myperf.report(user.id, qp.get("scope", ""), market, PERIODS[period])
     with SessionLocal() as s:
         gs = get_global(s)
-        accounts = s.scalars(select(ExchangeAccount).where(ExchangeAccount.user_id == user.id)).all()
-        open_trades = s.scalars(select(Trade).where(Trade.user_id == user.id, Trade.status == "open")
-                                .order_by(Trade.opened_at.desc())).all()
-        closed = s.scalars(select(Trade).where(Trade.user_id == user.id, Trade.status == "closed")
-                           .order_by(Trade.closed_at.desc()).limit(10)).all()
+        accounts = rep["accounts"]
+        all_open = list(s.scalars(select(Trade).where(Trade.user_id == user.id, Trade.status == "open")
+                                  .order_by(Trade.opened_at.desc())))
+        for t in all_open:
+            s.expunge(t)
         pnl = s.scalar(select(func.coalesce(func.sum(Trade.realized_pnl), 0)).where(Trade.user_id == user.id)) or 0
         n_closed = s.scalar(select(func.count(Trade.id)).where(Trade.user_id == user.id, Trade.status == "closed")) or 0
         wins = s.scalar(select(func.count(Trade.id)).where(
             Trade.user_id == user.id, Trade.status == "closed", Trade.realized_pnl > 0)) or 0
-        acc_names = {a.id: a.label or a.exchange or "Signals" for a in accounts}
-        total_capital = sum(effective_capital(gs, a) for a in accounts)
-    live = livepos.cached_for_trades(open_trades)  # no exchange call here: the page asks /trades/live right after
-    return render(request, "dashboard.html", gs=gs, accounts=accounts, open_trades=open_trades, closed=closed,
-                  pnl=pnl, n_closed=n_closed, wins=wins, acc_names=acc_names, total_capital=total_capital, live=live,
+    open_trades = [t for t in all_open if t.account_id in rep["acc_ids"] and (not rep["bot_sel"] or t.bot_id == rep["bot_sel"])
+                   and (market == "all" or t.side == market)]
+    live = livepos.cached_for_trades(all_open)  # no exchange call here: the page asks /trades/live right after
+    acc_open: dict[int, int] = {}
+    bot_open: dict[int, int] = {}
+    for t in all_open:
+        acc_open[t.account_id] = acc_open.get(t.account_id, 0) + 1
+        if t.bot_id:
+            bot_open[t.bot_id] = bot_open.get(t.bot_id, 0) + 1
+    acc_capital = {a.id: effective_capital(gs, a) for a in accounts}
+    bals = livepos.cached_balances(accounts, gs.stake_currency)  # live numbers follow from /accounts/balances
+    return render(request, "dashboard.html", bals=bals,
+                  wallet_total=sum(b["wallet"] or 0 for b in bals.values()),
+                  equity_total=sum((b["equity"] if b["equity"] is not None else b["wallet"] or 0) for b in bals.values()), gs=gs, accounts=accounts, open_trades=open_trades, all_open=len(all_open),
+                  pnl=pnl, n_closed=n_closed, wins=wins, total_capital=sum(acc_capital.values()), acc_capital=acc_capital,
+                  acc_open=acc_open, bot_open=bot_open, live=live,
                   live_upnl=sum(x.get("upnl") or 0 for x in live.values()),
                   live_win=sum(1 for x in live.values() if (x.get("upnl") or 0) > 0),
-                  live_loss=sum(1 for x in live.values() if (x.get("upnl") or 0) < 0))
+                  live_loss=sum(1 for x in live.values() if (x.get("upnl") or 0) < 0),
+                  streams={a.id: streams.status(a) for a in accounts},
+                  acc_opts=[(f"a{a.id}", "🧺 " + rep["acc_names"][a.id]) for a in accounts],
+                  bot_opts=[(f"b{b.id}", "🤖 " + b.name) for b in rep["bots"]],
+                  market=market, period=period, periods=list(PERIODS), **{k: rep[k] for k in (
+                      "data", "pairs", "acc_cards", "bot_cards", "acc_names", "bot_names", "bots", "acc_sel", "bot_sel",
+                      "scope", "scope_label")})
+
+
+@router.get("/accounts/balances")
+async def accounts_balances(request: Request):
+    """Wallet / equity / free margin of the user's real portfolios (polled by the dashboard)."""
+    from fastapi.responses import JSONResponse
+
+    from ..engine import livepos
+    user = require_user(request)
+    with SessionLocal() as s:
+        cur = get_global(s).stake_currency
+        accs = list(s.scalars(select(ExchangeAccount).where(ExchangeAccount.user_id == user.id)))
+        for a in accs:
+            s.expunge(a)
+    return JSONResponse({str(k): v for k, v in (await livepos.balances(accs, cur)).items()})
 
 
 @router.get("/trades/live")

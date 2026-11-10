@@ -232,3 +232,70 @@ async def for_trades(trades: list[Trade]) -> dict[int, dict[str, Any]]:
             out[t.id] = {"mark": px, "upnl": upnl, "pct": upnl / t.stake * 100 if t.stake else None, "liq": None,
                          "entry": t.entry_price, "live": False, "missing": False, "opened": t.opened_at}
     return out
+
+
+# ---------------------------------------------------------------- wallet balances (dashboard)
+_bal: dict[int, tuple[float, dict]] = {}  # account id -> (monotonic, {"wallet", "equity", "free", "live"})
+BAL_MAX_AGE = 60.0
+
+
+def _real(acc: ExchangeAccount) -> bool:
+    return acc.kind == "exchange" and not acc.dry_run and bool(acc.api_key_enc)
+
+
+def _from_stream(acc: ExchangeAccount, cur: str) -> dict | None:
+    from .streams import manager as streams
+    wallet = streams.wallet(acc.id, cur)
+    pos = streams.positions(acc.id)
+    if wallet is None or pos is None:
+        return None
+    upnl = sum(float(p.get("unrealizedPnl") or 0) for p in pos)
+    return {"wallet": wallet, "equity": wallet + upnl, "free": streams.free_estimate(acc.id, cur), "live": True}
+
+
+def cached_balances(accs: list[ExchangeAccount], cur: str) -> dict[int, dict]:
+    """What is known without asking the exchange (pages render at once)."""
+    out = {}
+    for a in accs:
+        if not _real(a):
+            continue
+        b = _from_stream(a, cur) or (_bal.get(a.id) or (0, None))[1]
+        if b is None and a.wallet_balance is not None:
+            b = {"wallet": a.wallet_balance, "equity": None, "free": None, "live": False}
+        if b is not None:
+            out[a.id] = b
+    return out
+
+
+async def balances(accs: list[ExchangeAccount], cur: str) -> dict[int, dict]:
+    """Wallet (closed P/L included), equity (with open P/L) and free margin of each real portfolio: from the live
+    connection when there is one, else one balance read per minute while someone looks (skipped when busy)."""
+    from .exchange import pool, wallet_of
+    from .ratelimit import prio
+    out = {}
+
+    async def one(a: ExchangeAccount) -> None:
+        live = _from_stream(a, cur)
+        if live:
+            out[a.id] = live
+            return
+        hit = _bal.get(a.id)
+        if hit and time.monotonic() - hit[0] < BAL_MAX_AGE:
+            out[a.id] = hit[1]
+            return
+        tok = prio.set("view")
+        try:
+            client = await pool.get(a)
+            raw = await asyncio.wait_for(client.ex.fetch_balance(), 15)
+            b = {"wallet": wallet_of(raw, cur), "equity": float((raw.get("total") or {}).get(cur) or 0),
+                 "free": float((raw.get("free") or {}).get(cur) or 0), "live": False}
+            _bal[a.id] = (time.monotonic(), b)
+            out[a.id] = b
+        except Exception as e:  # busy budget, network: the last numbers
+            log.info("[acc %s] balance not read: %s", a.id, e)
+            if hit:
+                out[a.id] = hit[1]
+        finally:
+            prio.reset(tok)
+    await asyncio.gather(*(one(a) for a in accs if _real(a)))
+    return out

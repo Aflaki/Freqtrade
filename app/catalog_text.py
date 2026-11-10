@@ -364,4 +364,22 @@ C: dict[str, tuple[str, str, str, str]] = {
     "ws_not_live": ("{n} سبد روی اتصال زنده نیست (کلیک کنید)", "{n} portfolio(s) not on a live connection (click)", "{n} Portfolio(s) ohne Live-Verbindung (klicken)", "{n} cartera(s) sin conexión en vivo (pulsa)"),
     "ws_col_error": ("آخرین خطا", "Last error", "Letzter Fehler", "Último error"),
     "ws_marks_down": ("جریان قیمت مارک قطع است", "mark price stream is down", "Mark-Preis-Stream unterbrochen", "flujo de precios mark caído"),
+
+    # ---------------------------------------------------------------- my dashboard (like the bots' performance page)
+    "my_portfolios": ("سبدهای من", "My portfolios", "Meine Portfolios", "Mis carteras"),
+    "my_bots": ("ربات‌های من", "My bots", "Meine Bots", "Mis bots"),
+    "my_all_portfolios": ("همه سبدهای من", "All my portfolios", "Alle meine Portfolios", "Todas mis carteras"),
+    "tab_portfolios": ("سبدها و ربات‌ها", "Portfolios & bots", "Portfolios & Bots", "Carteras y bots"),
+    "my_no_closed": ("هنوز معامله بسته‌شده‌ای با این فیلتر نیست.", "No closed trades with this filter yet.", "Noch keine geschlossenen Trades mit diesem Filter.", "Aún no hay operaciones cerradas con este filtro."),
+    "my_chart_vs_market": ("نتیجه من در برابر بازار", "My result vs the market", "Mein Ergebnis vs. Markt", "Mi resultado vs. el mercado"),
+    "my_result": ("نتیجه من", "My result", "Mein Ergebnis", "Mi resultado"),
+    "my_vs_me": ("اختلاف من با آن", "Me minus it", "Ich minus Markt", "Yo menos él"),
+    "my_numbers_note": ("این اعداد از معامله‌های واقعی سبدهای شما روی صرافی است (با کارمزد)، نه از نتیجه ربات. درصدها روی سرمایه‌ای است که برای سبدها تعیین کرده‌اید.", "These numbers come from the trades really made on your portfolios (fees included), not from the bot's own results. Percentages are on the capital you set for the portfolios.", "Diese Zahlen stammen aus den echten Trades Ihrer Portfolios (inkl. Gebühren), nicht aus den Ergebnissen des Bots. Prozente beziehen sich auf das Portfolio-Kapital.", "Estos números salen de las operaciones reales de tus carteras (con comisiones), no de los resultados del bot. Los % son sobre el capital de las carteras."),
+    "my_by_portfolio": ("به تفکیک سبد (اتصال)", "By portfolio (connection)", "Nach Portfolio (Verbindung)", "Por cartera (conexión)"),
+    "my_by_bot": ("به تفکیک ربات", "By bot", "Nach Bot", "Por bot"),
+    "my_connection": ("اتصال", "Connection", "Verbindung", "Conexión"),
+    "my_bot_hint": ("روی هر سبد یا ربات بزنید تا کل داشبورد فقط برای همان نشان داده شود.", "Click a portfolio or bot to show the whole dashboard for it only.", "Portfolio oder Bot anklicken, um das ganze Dashboard nur dafür zu zeigen.", "Pulsa una cartera o bot para ver todo el panel solo de ella."),
+    "st_wallet": ("موجودی کیف پول", "Wallet balance", "Wallet-Guthaben", "Saldo de la cartera"),
+    "st_equity": ("با سود/زیان باز", "With open P/L", "Mit offenem G/V", "Con P/G abierto"),
+    "st_free": ("مارجین آزاد", "Free margin", "Freie Margin", "Margen libre"),
 }
