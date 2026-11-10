@@ -42,7 +42,12 @@ async def lifespan(app: FastAPI):
         monitor.notify_admins("monitoring", lambda L: "🚫 " + _t(L, "api_banned_alert", ex=gid, until=when), critical=True,
                               title=lambda L: _t(L, "api_banned_title", ex=gid), tag=f"api-ban-{gid}")
     ratelimit.governor._alert = ip_banned
-    jobs = [asyncio.create_task(bot.daily_jobs()), asyncio.create_task(monitor.loop()), asyncio.create_task(monitor.live_loop()), asyncio.create_task(markets.loop()), asyncio.create_task(marketdata.loop()),
+    from .engine import streams
+    if os.getenv("RELAY_STREAMS", "1") != "0":
+        jobs_streams = [asyncio.create_task(streams.manager.loop())]
+    else:
+        jobs_streams = []
+    jobs = jobs_streams + [asyncio.create_task(bot.daily_jobs()), asyncio.create_task(monitor.loop()), asyncio.create_task(monitor.live_loop()), asyncio.create_task(markets.loop()), asyncio.create_task(marketdata.loop()),
             asyncio.create_task(benchmarks.loop())]
     yield
     for j in jobs:

@@ -31,8 +31,8 @@ LIMITS = {"binanceusdm": 2400, "binancecoinm": 2400, "binance": 6000, "bybit": 6
           "kucoinfutures": 2000, "kucoin": 2000, "gate": 3000, "mexc": 1200, "htx": 3000, "bingx": 1200}
 DEFAULT_LIMIT = 1200
 WEIGHT_HEADER = "x-mbx-used-weight-1m"
-SHARE = {"trade": 1.0, "check": 0.85, "view": 0.6, "background": 0.4}
-MAX_WAIT = {"trade": 60.0, "check": 20.0, "view": 0.0, "background": 30.0}
+SHARE = {"exit": 1.0, "trade": 0.9, "check": 0.8, "view": 0.6, "background": 0.4}  # exits keep 10% to themselves
+MAX_WAIT = {"exit": 120.0, "trade": 60.0, "check": 20.0, "view": 0.0, "background": 30.0}
 
 prio: contextvars.ContextVar[str] = contextvars.ContextVar("api_prio", default="trade")
 
@@ -48,7 +48,7 @@ class ApiBanned(Exception):
 class _Group:
     def __init__(self, gid: str):
         self.gid = gid
-        self.limit = LIMITS.get(gid, DEFAULT_LIMIT)
+        self.limit = LIMITS.get(gid.split("@")[0], DEFAULT_LIMIT)
         self.calls: deque[tuple[float, int, str]] = deque()  # (time, weight, kind) in the last 60 s
         self.server_used: int | None = None
         self.server_at = 0.0
@@ -116,7 +116,7 @@ class Governor:
                     g.waited[kind] = g.waited.get(kind, 0) + 1
                 return
             if time.monotonic() - start >= MAX_WAIT.get(kind, 0):
-                if kind in ("view", "background", "check"):
+                if kind in ("view", "background", "check"):  # exits and entries never give up silently
                     g.skipped[kind] = g.skipped.get(kind, 0) + 1
                     raise ApiBusy(f"{gid}: request budget for {kind} is used up right now")
                 # trading never gives up silently: go on (the exchange may answer 429, handled below)
@@ -179,11 +179,11 @@ class Governor:
             g.paused_until = max(g.paused_until, now + (retry or 10))
             g.errors = (g.errors + [{"at": now, "code": 429, "until": g.paused_until, "msg": message[:200]}])[-10:]
 
-    def attach(self, ex) -> None:
-        """Put the governor under one ccxt client (async_support)."""
+    def attach(self, ex, ip: str = "") -> None:
+        """Put the governor under one ccxt client (async_support). Each outgoing IP has its own budget."""
         if getattr(ex, "_governed", False) or not hasattr(ex, "throttle") or not hasattr(ex, "fetch"):
             return  # already done, or not a real ccxt client (test stand-ins)
-        gid = getattr(ex, "id", "") or type(ex).__name__.lower()
+        gid = (getattr(ex, "id", "") or type(ex).__name__.lower()) + (f"@{ip}" if ip else "")
         orig_throttle, orig_fetch = ex.throttle, ex.fetch
         gov = self
 

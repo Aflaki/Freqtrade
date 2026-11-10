@@ -28,8 +28,11 @@ def _client(exchange: str, mode: str, api_key: str, secret: str, password: str =
     ex = klass(params)
     if sandbox:
         ex.set_sandbox_mode(True)
+    from . import netips
     from .ratelimit import governor
-    governor.attach(ex)
+    ip = netips.ip_for(exmod.ExchangeAccount())  # least used outgoing IP (users allow all of them)
+    netips.bind(ex, ip)
+    governor.attach(ex, ip)
     return ex
 
 

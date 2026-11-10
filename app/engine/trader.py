@@ -43,6 +43,8 @@ async def run_for_account(account_id: int, sig: Signal, pair: str, event_id: int
                           bot_id: int | None = None) -> Outcome:
     t0 = time.monotonic()
     client = None
+    from .ratelimit import prio
+    prio.set("trade" if sig.action in ("long", "short") else "exit")  # exits go first when requests are scarce
     async with pool.lock(account_id):
         with SessionLocal() as s:
             acc = s.get(ExchangeAccount, account_id)
@@ -166,7 +168,9 @@ async def _open(s: Session, acc: ExchangeAccount, user: User, gs: GlobalSettings
     symbol = client.resolve(pair)
     lev = leverage_for(gs, acc, pair, sig.leverage)
     if not client.dry_run:
-        free = await client.free_balance(gs.stake_currency)
+        free = await client.free_balance(gs.stake_currency, estimate_ok=True)
+        if free < stake * 1.3:  # close call: ask the exchange itself
+            free = await client.free_balance(gs.stake_currency)
         if free < stake:
             if free < stake * 0.5:
                 return _skip(acc, user, pair, t(L, "why_balance", free=f"{free:,.2f}", cur=gs.stake_currency,

@@ -67,7 +67,9 @@
   <div class="small muted">{{ _('api_limit', limit=r.limit, pct='%g'|format(A.budget_pct)) }}{% if L.get('server_used') is not none %} · {{ _('api_server_says', n=L.server_used) }}{% endif %}</div></div>
 <div class="stat"><div class="k">{{ _('api_accounts') }}</div><div class="v">{{ r.accounts }}</div><div class="small muted">{{ _('api_open', n=r.open) }}</div></div>
 <div class="stat"><div class="k">{{ _('api_entry_cost') }}</div><div class="v {{ 'neg' if r.entry_pct > 70 else 'warn' if r.entry_pct > 40 else '' }}">{{ r.entry }} <span class="small muted">({{ r.entry_pct }}%)</span></div>
-  <div class="small muted">{{ _('api_entry_help', pair=r.top_pair, n=r.top_n, w=A.w_entry) }}</div></div>
+  <div class="small muted">{{ _('api_entry_help', pair=r.top_pair, n=r.top_n, w=r.per_acc) }}</div></div>
+<div class="stat"><div class="k">{{ _('api_ws') }}</div><div class="v {{ 'pos' if r.accounts and r.streamed == r.accounts else '' }}">{{ r.streamed }} <span class="small muted">/ {{ r.accounts }}</span></div>
+  <div class="small muted">{{ _('api_ws_help') }}</div></div>
 <div class="stat"><div class="k">{{ _('api_signals_min') }}</div><div class="v">{{ r.signals_min if r.signals_min is not none else '∞' }}</div>
   <div class="small muted">{{ _('api_signals_help') }}</div></div>
 <div class="stat"><div class="k">{{ _('api_view_cost') }}</div><div class="v">{{ r.view_all }} <span class="small muted">({{ r.view_pct }}%)</span></div>
@@ -80,6 +82,13 @@
 {% for e in L.errors[-3:] %}<div class="small {{ 'neg' if e.code == 418 else 'warn' }}">HTTP {{ e.code }} · {{ e.msg[:120] }}</div>{% endfor %}{% endif %}
 <p class="small muted">💡 {{ _('api_scale', n=r.max_accounts) }}</p>
 {% else %}<p class="muted small">{{ _('api_none') }}</p>{% endfor %}
+<h3 style="margin-top:16px">🌐 {{ _('api_ips_title') }}</h3>
+<p class="small muted">{{ _('api_ips_help') }}</p>
+{% if A.ips %}<p class="small">{% for ip in A.ips %}<span class="badge {{ 'err' if ip in A.ip_problems else 'ok' }}" title="{{ A.ip_problems.get(ip, '') }}">{{ ip }} · {{ _('api_ips_n', n=A.ip_accounts.get(ip, 0)) }}</span> {% endfor %}</p>{% endif %}
+<form method="post" action="/admin/servers/outbound-ips"><input type="hidden" name="csrf" value="{{ csrf }}">
+<textarea name="ips" rows="3" class="ltr mono" placeholder="203.0.113.10&#10;203.0.113.11">{{ A.ips|join('\n') }}</textarea>
+<p><button class="ghost sm">{{ _('btn_save') }}</button></p></form>
+<p class="small muted">📡 {{ _('api_ws_status', c=A.streams.connected, t=A.streams.total, m=A.streams.marks) }}</p>
 <form method="post" action="/admin/servers/api-budget" class="inline-row" style="margin-top:10px"><input type="hidden" name="csrf" value="{{ csrf }}">
 <label class="small">{{ _('api_budget_label') }}</label><input type="number" name="pct" min="20" max="95" step="5" value="{{ '%g'|format(A.budget_pct) }}" style="width:90px"><button class="ghost sm">{{ _('btn_save') }}</button></form>
 <p class="small muted">{{ _('api_rules') }}</p>

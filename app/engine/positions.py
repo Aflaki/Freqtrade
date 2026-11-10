@@ -43,6 +43,7 @@ def normalize(raw: list[dict], market=None) -> list[dict]:
         entry = float(p.get("entryPrice") or 0)
         mark = float(p.get("markPrice") or 0) or entry
         lev = float(p.get("leverage") or 0)
+        lev_known = lev > 0  # stream updates don't carry the leverage
         notional = abs(float(p.get("notional") or 0)) or contracts * cs * mark
         margin = float(p.get("initialMargin") or p.get("collateral") or 0) or (notional / lev if lev else 0)
         if not lev and margin:
@@ -50,7 +51,7 @@ def normalize(raw: list[dict], market=None) -> list[dict]:
         out.append({"symbol": sym, "pair": sym.split(":")[0].upper(), "side": side, "contracts": contracts,
                     "contract_size": cs, "entry": entry, "mark": mark, "leverage": lev or 1.0,
                     "notional": round(notional, 4), "upnl": float(p.get("unrealizedPnl") or 0),
-                    "margin": round(margin, 4), "key": key_of(sym, side),
+                    "margin": round(margin, 4), "key": key_of(sym, side), "lev_known": lev_known,
                     "liq": float(p.get("liquidationPrice") or 0) or None})
     return out
 

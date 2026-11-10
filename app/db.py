@@ -148,6 +148,7 @@ class ExchangeAccount(Base):
     password_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
     # sha256 of exchange + API key: one key may be used by one portfolio only (the stored key itself is encrypted)
     api_key_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    out_ip: Mapped[str] = mapped_column(String(64), default="")  # outgoing IP of this portfolio (netips.py)
     sandbox: Mapped[bool] = mapped_column(default=False)
     dry_run: Mapped[bool] = mapped_column(default=True)
     enabled: Mapped[bool] = mapped_column(default=True)
@@ -507,7 +508,8 @@ class GlobalSettings(Base):
     entries_enabled: Mapped[bool] = mapped_column(default=True)
     stake_currency: Mapped[str] = mapped_column(String(10), default="USDT")
     tradable_balance_ratio: Mapped[float] = mapped_column(Float, default=0.9)
-    api_budget_pct: Mapped[float] = mapped_column(Float, default=80.0)  # share of each exchange's per-IP request limit we use
+    api_budget_pct: Mapped[float] = mapped_column(Float, default=80.0)
+    outbound_ips: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)  # extra outgoing IPs of the site server  # share of each exchange's per-IP request limit we use
     sizing_modes: Mapped[list[str]] = mapped_column(JSON, default=lambda: list(SIZING_MODES))
     default_max_open_trades: Mapped[int] = mapped_column(default=5)
     max_leverage: Mapped[int] = mapped_column(default=5)

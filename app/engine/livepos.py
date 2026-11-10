@@ -71,9 +71,13 @@ async def _open_time(ex, symbol: str, side: str, contracts: float) -> dt.datetim
 async def _read_account(acc: ExchangeAccount) -> dict[str, Any]:
     from .exchange import pool
     from .ratelimit import prio
+    from .streams import manager as streams
+    client = await pool.get(acc)
+    live = streams.positions(acc.id)
+    if live is not None:  # pushed by the exchange: no request at all
+        return {"rows": {p["key"]: p for p in normalize(live)}, "ex": client.ex}
     tok = prio.set("view")  # skipped (cache shown) when the request budget is busy with trading
     try:
-        client = await pool.get(acc)
         raw = await client.ex.fetch_positions()  # not via client._call: a page view is not a trading action
     finally:
         prio.reset(tok)
@@ -110,7 +114,7 @@ async def refresh(acc_id: int, max_age: float = MAX_AGE) -> dict[str, Any]:
                 tr.entry_price = p["entry"]
             if p["contracts"] and abs(p["contracts"] - tr.amount) > 1e-12:
                 tr.amount = p["contracts"]  # closed/added by hand on the exchange: follow the real size
-            if p["leverage"] and abs(p["leverage"] - tr.leverage) > 1e-9:
+            if p.get("lev_known") and abs(p["leverage"] - tr.leverage) > 1e-9:
                 tr.leverage = p["leverage"]
             if tr.adopted and (tr.id, tr.symbol, tr.side, tr.opened_at) not in _dated:
                 undated.append((tr.id, tr.symbol, tr.side, p["contracts"], tr.opened_at))

@@ -63,10 +63,13 @@ def server_ips() -> list[str]:
     with SessionLocal() as s:
         gs = get_global(s)
         manual, base = (gs.public_ip or "").strip(), gs.base_url or ""
+        extra = [ip for ip in (gs.outbound_ips or []) if ip]
     if manual:
-        return [x for x in re.split(r"[\s,;]+", manual) if x]
-    ip = ip_of_url(base)
-    return [ip] if ip else []
+        out = [x for x in re.split(r"[\s,;]+", manual) if x]
+    else:
+        ip = ip_of_url(base)
+        out = [ip] if ip else []
+    return out + [ip for ip in extra if ip not in out]
 
 
 def server_ip() -> str:

@@ -172,6 +172,7 @@ async def set_alias(request: Request):
 W_ENTRY = 15   # position check 5 + balance 5 + price 1 + margin mode/leverage 2 (first time per pair) + order 1 + fill 1
 W_EXIT = 4     # cancel stop 1 + order 1 + fill 1 + new stop after a partial exit 1
 W_VIEW = 20    # live numbers of one portfolio on an open page: 5 every 15 s
+W_ENTRY_WS = 2  # with the account's WebSocket: balance, positions and price are pushed; order + leverage only
 
 
 def api_model() -> dict:
@@ -186,29 +187,67 @@ def api_model() -> dict:
                                                             ExchangeAccount.dry_run.is_(False))))
         open_n = dict(s.execute(select(Trade.account_id, func.count(Trade.id)).where(Trade.status == "open")
                                 .group_by(Trade.account_id)).all())
+    from ..engine import netips
+    from ..engine.streams import manager as streams
+    ips = netips.configured()
     per: dict[str, dict] = {}
     for a in accs:
-        gid = ccxt_target(a.exchange, a.trading_mode)[0]
-        m = per.setdefault(gid, {"gid": gid, "accounts": 0, "open": 0, "pairs": {}})
+        gid = ccxt_target(a.exchange, a.trading_mode)[0] + (f"@{a.out_ip}" if a.out_ip in ips else "")
+        m = per.setdefault(gid, {"gid": gid, "accounts": 0, "open": 0, "pairs": {}, "streamed": 0})
         m["accounts"] += 1
+        m["streamed"] += 1 if streams.live(a.id) else 0
         m["open"] += open_n.get(a.id, 0)
         for p in a.pairs or {}:
             m["pairs"][p] = m["pairs"].get(p, 0) + 1
     snap = {g["gid"]: g for g in governor.snapshot()}
     out = []
     for gid in sorted(set(per) | set(snap)):
-        m = per.get(gid, {"gid": gid, "accounts": 0, "open": 0, "pairs": {}})
-        limit = LIMITS.get(gid, DEFAULT_LIMIT)
+        m = per.get(gid, {"gid": gid, "accounts": 0, "open": 0, "pairs": {}, "streamed": 0})
+        limit = LIMITS.get(gid.split("@")[0], DEFAULT_LIMIT)
         budget = limit * governor.budget_pct / 100
         top_pair, top_n = max(m["pairs"].items(), key=lambda kv: kv[1], default=("—", 0))
-        entry = top_n * W_ENTRY
-        view_all = m["accounts"] * W_VIEW
+        ws_share = m["streamed"] / m["accounts"] if m["accounts"] else 0
+        per_acc = W_ENTRY_WS * ws_share + W_ENTRY * (1 - ws_share)
+        entry = round(top_n * per_acc)
+        view_all = round(m["accounts"] * W_VIEW * (1 - ws_share))
         out.append({**m, "limit": limit, "budget": int(budget), "top_pair": top_pair, "top_n": top_n,
                     "entry": entry, "entry_pct": round(entry / budget * 100) if budget else 0,
                     "exit": top_n * W_EXIT, "signals_min": int(budget // entry) if entry else None,
                     "view_all": view_all, "view_pct": round(view_all / (budget * SHARE["view"]) * 100) if budget else 0,
-                    "max_accounts": int(budget * 0.5 // W_ENTRY), "live": snap.get(gid)})
-    return {"rows": out, "budget_pct": governor.budget_pct, "w_entry": W_ENTRY, "w_exit": W_EXIT, "w_view": W_VIEW}
+                    "max_accounts": int(budget * 0.5 // max(per_acc, 1)), "live": snap.get(gid),
+                    "per_acc": round(per_acc, 1)})
+    problems = {ip: netips.usable(ip) for ip in ips}
+    return {"rows": out, "budget_pct": governor.budget_pct, "w_entry": W_ENTRY, "w_exit": W_EXIT, "w_view": W_VIEW,
+            "ips": ips, "ip_problems": {k: v for k, v in problems.items() if v}, "streams": streams.summary(),
+            "ip_accounts": {ip: sum(1 for a in accs if a.out_ip == ip) for ip in ips}}
+
+
+@router.post("/outbound-ips")
+async def outbound_ips(request: Request):
+    """Extra outgoing IPs of the site server: each one has its own request budget at every exchange."""
+    require_admin(request)
+    f = await form_with_csrf(request)
+    import re
+    from ..engine import netips
+    ips = list(dict.fromkeys(x for x in re.split(r"[\s,;]+", str(f.get("ips", ""))) if x))[:16]
+    bad = {ip: netips.usable(ip) for ip in ips}
+    bad = {k: v for k, v in bad.items() if v}
+    if bad:
+        for ip, why in bad.items():
+            flash(request, f"{ip}: {why}", "error")
+        return RedirectResponse("/admin/servers#api", 303)
+    with SessionLocal() as s:
+        get_global(s).outbound_ips = ips or None
+        s.commit()
+    # reconnect everything: each portfolio picks its IP when its connection is made again
+    from ..engine.exchange import pool
+    from ..engine.streams import manager as streams
+    for acc_id in list(pool._clients):
+        await pool.drop(acc_id)
+    for acc_id in list(streams.accounts):
+        await streams.stop(acc_id)
+    flash(request, tr(request, "api_ips_saved", n=len(ips)))
+    return RedirectResponse("/admin/servers#api", 303)
 
 
 @router.post("/api-budget")

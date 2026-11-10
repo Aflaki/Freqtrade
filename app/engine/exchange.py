@@ -16,6 +16,7 @@ from .ratelimit import governor
 
 _shared_markets: dict[tuple, tuple[float, Any]] = {}  # (ccxt class, sandbox) -> (time, markets): one load for all
 MARKETS_TTL = 6 * 3600
+_prices: dict[tuple, tuple[float, float]] = {}  # ((ccxt class, sandbox), symbol) -> (time, last price)
 CACHE_S = 20  # an account's balance / positions read serves its other entries of the same moment
 
 log = logging.getLogger("relay.exchange")
@@ -105,7 +106,10 @@ class ExchangeClient:
         self.ex = klass(params)
         if acc.sandbox:
             self.ex.set_sandbox_mode(True)
-        governor.attach(self.ex)
+        from . import netips
+        self.ip = netips.ip_for(acc)
+        netips.bind(self.ex, self.ip)  # this portfolio's outgoing IP (REST and WebSocket)
+        governor.attach(self.ex, self.ip)
         self._mkey = (klass_id, bool(acc.sandbox))
         self._bal: tuple[float, dict] | None = None
         self._pos: tuple[float, list] | None = None
@@ -191,10 +195,18 @@ class ExchangeClient:
         return amount
 
     async def price(self, symbol: str, hint: float | None = None) -> float:
+        from .streams import manager as streams
+        mk = streams.mark(symbol)  # pushed by the exchange: costs no request
+        if mk:
+            return mk
+        hit = _prices.get((self._mkey, symbol))
+        if hit and time.monotonic() - hit[0] < 3:  # public: one read serves every account
+            return hit[1]
         try:
             t = await self.ex.fetch_ticker(symbol)
             p = t.get("last") or t.get("close")
             if p:
+                _prices[(self._mkey, symbol)] = (time.monotonic(), float(p))
                 return float(p)
         except Exception as e:
             if not hint:
@@ -210,6 +222,10 @@ class ExchangeClient:
         from it. Raises if the exchange can't list them."""
         if not getattr(self.ex, "has", {}).get("fetchPositions"):
             raise ValueError("this exchange can't list positions")
+        from .streams import manager as streams
+        live = streams.positions(self.account_id)
+        if live is not None:  # the account's WebSocket: up to date and free
+            return [p for p in live if not symbols or p.get("symbol") in symbols]
         if fresh or not self._pos or time.monotonic() - self._pos[0] > CACHE_S:
             raw = await self._call("fetch_positions", {}, self.ex.fetch_positions())
             self._pos = (time.monotonic(), list(raw or []))
@@ -231,9 +247,17 @@ class ExchangeClient:
         return bal
 
     async def wallet_balance(self, currency: str) -> float:
-        return wallet_of(await self._balance(), currency)
+        from .streams import manager as streams
+        w = streams.wallet(self.account_id, currency)
+        return w if w is not None else wallet_of(await self._balance(), currency)
 
-    async def free_balance(self, currency: str) -> float:
+    async def free_balance(self, currency: str, estimate_ok: bool = False) -> float:
+        """Free margin. estimate_ok: the WebSocket's estimate is enough (no request) when it isn't close."""
+        if estimate_ok:
+            from .streams import manager as streams
+            est = streams.free_estimate(self.account_id, currency)
+            if est is not None:
+                return est
         return float(((await self._balance()).get("free") or {}).get(currency) or 0)
 
     async def setup_leverage(self, symbol: str, leverage: int, margin_mode: str) -> None:
@@ -260,6 +284,8 @@ class ExchangeClient:
                 "symbol": symbol, "side": side, "amount": amount, "reduceOnly": reduce_only}, "response": {"price": px}})
             return Fill("dry-run", amount, px, 0.0, 0.0, "closed", simulated=True)
         params = {"reduceOnly": True} if reduce_only and not self.is_spot else {}
+        if getattr(self.ex, "id", "") == "binanceusdm":
+            params["newOrderRespType"] = "RESULT"  # the fill comes back with the order: no second request
         req = {"symbol": symbol, "type": "market", "side": side, "amount": amount, "params": params}
         if reduce_only:
             self._bal = None  # an exit frees margin: read it again next time
@@ -376,7 +402,7 @@ class SimClient:
         t = await SimClient._public.fetch_ticker(symbol.split(":")[0])
         return float(t["last"])
 
-    async def free_balance(self, currency: str) -> float:
+    async def free_balance(self, currency: str, estimate_ok: bool = False) -> float:
         return float("inf")
 
     async def setup_leverage(self, *a) -> None:
