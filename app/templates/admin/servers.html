@@ -28,7 +28,10 @@
 <thead><tr><th>{{ _('col_bot') }}</th><th>{{ _('col_status') }}</th>{% if with_agent %}<th>{{ _('srv_where') }}</th><th>{{ _('srv_uptime') }}</th><th>RAM</th><th>CPU</th>{% endif %}
 <th>{{ _('srv_heartbeat') }}</th><th>{{ _('live_open') }}</th><th>{{ _('live_pnl') }}</th><th></th></tr></thead><tbody>
 {% for r in rows %}<tr id="bot-{{ r.b.id }}" class="{{ 'srv-bad' if r.health not in ('ok', 'paused', 'stopped') }}">
-<td><a href="/admin/bots/{{ r.b.id }}"><b>{{ r.b.name }}</b></a><div class="muted mono">{{ (r.b.api_url or '').split('//')[-1] }}</div></td>
+<td><a href="/admin/bots/{{ r.b.id }}"><b>{{ r.b.name }}</b></a><div class="muted mono">{{ (r.b.api_url or '').split('//')[-1] }}</div>
+{% if r.agent.dups %}<div class="dupbox"><span class="badge err">🚨 {{ _('wd_dup_badge', n=r.agent.dups|length + 1) }}</span>
+{% for d in [r.agent.main] + r.agent.dups %}{% if d %}<div class="small mono">pid {{ d.pid }} · {{ _('wd_dup_parent') }} {{ d.ppid }} · {{ d.rss_mb }} MB · {{ d.origin }}</div>{% endif %}{% endfor %}
+<div class="small muted">{{ _('wd_dup_help') }}</div></div>{% endif %}</td>
 <td>{{ health_badge(r.health) }}{% if r.st.error and r.health == 'unreachable' %}<div class="muted small">{{ r.st.error[:60] }}</div>{% endif %}</td>
 {% if with_agent %}<td class="muted">{{ r.agent.session or r.agent.kind or '—' }}</td>
 <td class="tnum">{% if r.uptime_h is not none %}{% if r.uptime_h >= 24 %}{{ (r.uptime_h // 24)|int }}d {{ (r.uptime_h % 24)|int }}h{% else %}{{ '%.1f'|format(r.uptime_h) }}h{% endif %}{% else %}—{% endif %}</td>

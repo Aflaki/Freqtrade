@@ -119,6 +119,56 @@ def test_agent_restarts_a_real_killed_process(tmp_path):
                     pass
 
 
+def test_agent_reports_duplicates_not_children(tmp_path):
+    """The same config started twice is a duplicate (reported, with who started each); a bot's own forked child
+    is not; and while one copy still runs, the other is never started again."""
+    a = load_agent(tmp_path)
+    a["oom_killed"] = lambda pid: False
+    a["from_docker"] = lambda: ({}, set())
+    a["port_open"] = lambda ip, port: False
+    restarts = []
+    a["restart"] = lambda b: restarts.append(b["key"]) or (True, "")
+    bindir = tmp_path / "venv" / "bin"
+    bindir.mkdir(parents=True)
+    fake = bindir / "freqtrade"
+    fake.write_text("#!/usr/bin/env python3\nimport os, time\nif os.environ.get('FORK') and os.fork() == 0:\n"
+                    "    time.sleep(60)\nwhile True:\n    time.sleep(1)\n")
+    fake.chmod(0o755)
+    botdir = tmp_path / "bot2"
+    botdir.mkdir()
+    (botdir / "config.json").write_text('{"api_server": {"enabled": true, "listen_port": 18777}}')
+    cmd = [sys.executable, str(fake), "trade", "-c", "config.json"]
+    first = subprocess.Popen(cmd, cwd=botdir, env={**os.environ, "FORK": "1"}, start_new_session=True)
+    procs = [first]
+    try:
+        time.sleep(1.2)
+        found = a["from_processes"]()["port:18777"]
+        assert found["pid"] == first.pid and found["dups"] == []  # the forked child is the same bot
+        time.sleep(1.1)  # a later start time
+        second = subprocess.Popen(cmd, cwd=botdir, start_new_session=True)
+        procs.append(second)
+        time.sleep(0.8)
+        st = {"bots": {}, "pending": []}
+        ev = a["check"](st, {})
+        assert [e["action"] for e in ev] == ["duplicate"] and "pid %d" % second.pid in ev[0]["detail"]
+        found = a["from_processes"]()["port:18777"]
+        assert found["pid"] == first.pid and [d["pid"] for d in found["dups"]] == [second.pid]
+        assert a["check"](st, {}) == []  # reported once, not every minute
+        # the first copy dies while the second still runs: no restart (that would make it two again)
+        os.killpg(first.pid, signal.SIGKILL)  # with its child
+        first.wait()
+        time.sleep(0.3)
+        for _ in range(3):
+            a["check"](st, {})
+        assert restarts == [] and st["bots"]["port:18777"]["pid"] == second.pid
+    finally:
+        for p in procs:
+            try:
+                os.killpg(p.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+
 # ------------------------------------------------------------------ site: report endpoint + alerts
 @pytest.fixture
 def site(monkeypatch):

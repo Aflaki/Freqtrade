@@ -195,6 +195,9 @@ def _event_text(lang: str, ev: dict, bot_name: str, host: str) -> tuple[str, str
         return (t(lang, "push_wd_webhook", bot=bot_name), f"🔗 {where} " + t(lang, "wd_webhook_set", detail=esc(detail)))
     if action == "webhook_failed":
         return (t(lang, "push_wd_webhook_fail", bot=bot_name), f"⚠️ {where} " + t(lang, "wd_webhook_failed", detail=esc(detail)))
+    if action == "duplicate":
+        return (t(lang, "push_wd_duplicate", bot=bot_name),
+                f"🚨 {where} " + t(lang, "wd_duplicate") + f"\n<pre>{esc(detail[-900:])}</pre>")
     if action == "stopped":
         return (t(lang, "push_wd_stopped", bot=bot_name), f"⏸ {where} " + t(lang, "wd_stopped", detail=esc(detail)))
     return None
@@ -256,7 +259,8 @@ async def report(request: Request):
         if _event_text("en", ev, name, host) is None:
             continue
         monitor.notify_admins("monitoring", lambda L, ev=ev, name=name: _event_text(L, ev, name, label)[1],
-                              critical=ev.get("action") in ("restarted", "restart_failed", "gave_up", "webhook_failed"),
+                              critical=ev.get("action") in ("restarted", "restart_failed", "gave_up", "webhook_failed",
+                                                            "duplicate"),
                               title=lambda L, ev=ev, name=name: _event_text(L, ev, name, label)[0], tag=f"bot-{name}")
     if added:  # read the new bots' state + trade history right away
         from ..engine.botmonitor import monitor as mon

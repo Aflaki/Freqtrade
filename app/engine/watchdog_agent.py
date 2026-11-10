@@ -4,7 +4,7 @@ The agent source is AGENT below; the site fills in its address and token when it
 """
 from __future__ import annotations
 
-AGENT_VERSION = "1.4"
+AGENT_VERSION = "1.5"
 
 AGENT = r'''#!/usr/bin/env python3
 """
@@ -27,6 +27,9 @@ Stopping a bot yourself with Ctrl+C, or closing its tmux session/window, is resp
   python3 agent.py test            can this server reach the site?
   python3 agent.py scan            which Freqtrade bots are running right now
 Bots are identified by their API port. A bot that was never seen running is not known: start it once by hand.
+Two processes of the same bot (same config) are reported as a duplicate, with who started each one; a child
+process of a bot (same command line, its parent is the bot) is not a duplicate. A bot is never started while
+a process with the same config files is still running.
 Needs only Python 3.8+.
 """
 import hashlib
@@ -176,8 +179,10 @@ def read_proc(pid):
     if (r.st_dev, r.st_ino) != (me.st_dev, me.st_ino):
         return None  # inside a container: Docker handles it
     with open(base + "stat") as f:
-        if f.read().rsplit(")", 1)[-1].split()[0] == "Z":
-            return None  # zombie = dead
+        fields = f.read().rsplit(")", 1)[-1].split()
+    if fields[0] == "Z":
+        return None  # zombie = dead
+    ppid, start = int(fields[1]), BOOT + int(fields[19]) / TICKS
     cwd = os.readlink(base + "cwd")
     with open(base + "environ", "rb") as f:
         env = dict(x.decode("utf-8", "replace").split("=", 1) for x in f.read().split(b"\0") if b"=" in x)
@@ -188,15 +193,63 @@ def read_proc(pid):
                 uid = int(line.split()[1])
             elif line.startswith("Gid:"):
                 gid = int(line.split()[1])
-    unit = ""
+    unit, origin = "", "process"
     try:
         with open(base + "cgroup") as f:
             m = re.search(r"/([^/\s]+\.service)\s*$", f.read(), re.M)
-        if m and not m.group(1).startswith(("relay-watchdog", "relay-ft-", "user@", "session-")):
+        if m and m.group(1).startswith("relay-ft-"):
+            origin = "relay-watchdog (%s)" % m.group(1)
+        elif m and not m.group(1).startswith(("relay-watchdog", "user@", "session-")):
             unit = m.group(1)
+            origin = "systemd (%s)" % unit
     except OSError:
         pass
-    return {"argv": argv, "cwd": cwd, "env": env, "uid": uid, "gid": gid, "unit": unit}
+    if env.get("RELAY_LOG"):
+        origin = "relay-watchdog (%s)" % env["RELAY_LOG"]
+    return {"argv": argv, "cwd": cwd, "env": env, "uid": uid, "gid": gid, "unit": unit, "ppid": ppid,
+            "start": int(start), "origin": origin}
+
+
+def _boot_time():
+    try:
+        with open("/proc/stat") as f:
+            return int(next(x for x in f if x.startswith("btime")).split()[1])
+    except (OSError, StopIteration, ValueError):
+        return 0
+
+
+BOOT = _boot_time()
+TICKS = os.sysconf("SC_CLK_TCK") if hasattr(os, "sysconf") else 100
+
+
+def parent_of(pid):
+    try:
+        with open("/proc/%s/stat" % pid) as f:
+            return int(f.read().rsplit(")", 1)[-1].split()[1])
+    except (OSError, ValueError, IndexError):
+        return 0
+
+
+def descends_from(pid, ancestors, depth=8):
+    p = pid
+    for _ in range(depth):
+        p = parent_of(p)
+        if p <= 1:
+            return False
+        if p in ancestors:
+            return True
+    return False
+
+
+def rss_mb(pid):
+    try:
+        with open("/proc/%s/status" % pid) as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1]) // 1024
+    except (OSError, ValueError):
+        pass
+    return None
 
 
 def bot_key(port, argv, cwd):
@@ -251,31 +304,61 @@ def tmux_state(b):
 
 
 def from_processes():
-    found = {}
+    groups = {}
     for pid in os.listdir("/proc"):
         if not pid.isdigit():
             continue
         try:
             info = read_proc(pid)
-        except (OSError, ValueError):
+        except (OSError, ValueError, IndexError):
             continue
         if not info:
             continue
         ip, port = api_address(info["argv"], info["cwd"], info["env"])
         key = bot_key(port, info["argv"], info["cwd"])
-        shell = os.path.basename(info["argv"][0]) in SHELLS
-        prev = found.get(key)
-        if prev and (shell or not prev["_shell"]):  # keep the real python process, not its shell wrapper
-            continue
-        ex, mode = exchange_of(info["argv"], info["cwd"], info["env"])
-        found[key] = dict(info, kind="systemd" if info["unit"] else "process", pid=int(pid), port=port, ip=ip,
-                          exchange=ex, mode=mode, ft=bot_details(info["argv"], info["cwd"], info["env"]), _shell=shell)
-    for v in found.values():
+        groups.setdefault(key, []).append(dict(info, pid=int(pid), port=port, ip=ip,
+                                               _shell=os.path.basename(info["argv"][0]) in SHELLS))
+    found = {}
+    for key, procs in groups.items():
+        real = [p for p in procs if not p["_shell"]] or procs  # the python process, not its shell wrapper
+        pids = {p["pid"] for p in procs}
+        tops = [p for p in real if not descends_from(p["pid"], pids)]  # a bot's own child is not another bot
+        tops.sort(key=lambda p: (p["start"], p["pid"]))
+        main, dups = tops[0], tops[1:]
+        ex, mode = exchange_of(main["argv"], main["cwd"], main["env"])
+        v = dict(main, kind="systemd" if main["unit"] else "process", exchange=ex, mode=mode,
+                 ft=bot_details(main["argv"], main["cwd"], main["env"]))
         v.pop("_shell", None)
         t = tmux_info(v["env"], v["uid"])
         if t:
             v["kind"], v["tmux"] = "tmux", t
+            v["origin"] = "tmux %s" % t["session"]
+        v["dups"] = []
+        for d in dups:
+            td = tmux_info(d["env"], d["uid"])
+            v["dups"].append({"pid": d["pid"], "ppid": d["ppid"], "start": d["start"], "rss_mb": rss_mb(d["pid"]),
+                              "cwd": d["cwd"], "origin": ("tmux %s" % td["session"]) if td else d["origin"]})
+        if v["dups"]:
+            v["main"] = {"pid": v["pid"], "ppid": v["ppid"], "start": v["start"], "rss_mb": rss_mb(v["pid"]),
+                         "cwd": v["cwd"], "origin": v["origin"]}
+        found[key] = v
     return found
+
+
+def configs_running():
+    """Config files of every Freqtrade trade process running now (whatever its key)."""
+    out = set()
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        try:
+            with open("/proc/%s/cmdline" % pid, "rb") as f:
+                argv = [x.decode("utf-8", "replace") for x in f.read().split(b"\0") if x]
+            if argv and is_trade_cmd(argv):
+                out.update(config_args(argv, os.readlink("/proc/%s/cwd" % pid)))
+        except OSError:
+            continue
+    return out
 
 
 def docker(*args, timeout=30):
@@ -584,6 +667,7 @@ def report(st, events):
              "session": (b.get("tmux") or {}).get("session") or b.get("container") or b.get("unit") or "",
              "ip": b.get("ip"), "exchange": b.get("exchange"), "mode": b.get("mode"),
              "ft": {k: v for k, v in (b.get("ft") or {}).items() if k != "target"} if b.get("status") == "running" else {},
+             "dups": b.get("dups") or [], "main": b.get("main") or {}, "origin": b.get("origin", ""),
              "config": " ".join(x for x in config_args(b.get("argv") or [], b.get("cwd") or "/")[:3]) if b.get("argv") else ""}
             for k, b in sorted(st["bots"].items())]
     body = json.dumps({"host": platform.node(), "ips": host_ips(), "version": VERSION, "mem": mem_info(),
@@ -678,6 +762,14 @@ def check(st, cfg, verbose=False):
         b.update(info, key=key, status="running", missing=0, last_seen=now)
         prev = b.get("_cpu") if same else None
         b["rss_mb"], b["cpu"], b["_cpu"] = proc_usage(info.get("pid"), prev)
+        sig = sorted(d["pid"] for d in info.get("dups") or [])
+        if sig and sig != b.get("dup_sig"):
+            rows = [info["main"]] + info["dups"]
+            events.append({"key": key, "port": info.get("port"), "action": "duplicate", "at": now,
+                           "detail": "\n".join("pid %s (parent %s) started %s, %s MB, by %s, in %s" % (
+                               r["pid"], r["ppid"], time.strftime("%Y-%m-%d %H:%M", time.localtime(r["start"])),
+                               r["rss_mb"], r["origin"], r["cwd"]) for r in rows)})
+        b["dup_sig"] = sig
         st["bots"][key] = b
     for key, b in st["bots"].items():
         if key in procs:
@@ -715,6 +807,8 @@ def check(st, cfg, verbose=False):
             continue
         if port_open(b.get("ip"), b.get("port")):
             continue  # something answers on its port: probably restarted another way, it will be found next time
+        if b.get("argv") and set(config_args(b["argv"], b.get("cwd") or "/")) & configs_running():
+            continue  # a process with the same config runs (maybe without its API): starting another = duplicate
         recent = [t for t in b.get("restarts", []) if now - t < WINDOW]
         if len(recent) >= MAX_RESTARTS:
             b["status"] = "gave_up"
@@ -781,7 +875,14 @@ def main():
         for k, b in sorted(found.items()):
             where = ("tmux:" + (b.get("tmux") or {}).get("session", "")) if b.get("kind") == "tmux" else b.get("kind")
             print("%-12s %-14s pid=%-8s %s %s" % (k, where, b.get("pid"), b.get("exchange", ""), b.get("mode", "")))
+            for d in b.get("dups") or []:
+                print("   DUPLICATE pid=%s parent=%s started %s, %s MB, by %s" % (
+                    d["pid"], d["ppid"], time.strftime("%Y-%m-%d %H:%M", time.localtime(d["start"])), d["rss_mb"],
+                    d["origin"]))
         print("%d Freqtrade bot(s) running on this server" % len(found))
+        n = sum(len(b.get("dups") or []) for b in found.values())
+        if n:
+            print("%d duplicate process(es): the same config runs twice (see above)" % n)
         return
     if cmd == "status":
         for k, b in sorted(st["bots"].items()):

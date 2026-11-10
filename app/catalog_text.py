@@ -295,4 +295,12 @@ C: dict[str, tuple[str, str, str, str]] = {
     "rc_failed": ("{pair}: انجام نشد ({err})", "{pair}: failed ({err})", "{pair}: fehlgeschlagen ({err})", "{pair}: falló ({err})"),
     "rc_banner": ("ربات‌ها {bot} معامله باز دارند و صرافی {ex} پوزیشن؛ {n} اختلاف منتظر تصمیم شماست.", "The bots have {bot} open trades and the exchange {ex} positions; {n} difference(s) await your decision.", "Die Bots haben {bot} offene Trades, die Börse {ex} Positionen; {n} Abweichung(en) warten auf Ihre Entscheidung.", "Los bots tienen {bot} operaciones y el exchange {ex} posiciones; {n} diferencia(s) esperan tu decisión."),
     "rc_btn": ("مغایرت‌گیری با ربات‌ها", "Reconcile with the bots", "Abgleich mit den Bots", "Conciliar con los bots"),
+
+    # ---------------------------------------------------------------- watchdog: the same bot running twice
+    "wd_ev_duplicate": ("دوبار در حال اجرا", "running twice", "läuft doppelt", "duplicado"),
+    "push_wd_duplicate": ("{bot} دوبار اجرا شده", "{bot} is running twice", "{bot} läuft doppelt", "{bot} se ejecuta dos veces"),
+    "wd_duplicate": ("دو پردازش با یک config در حال اجراست: ممکن است هر دو معامله کنند (سفارش تکراری، Conflict تلگرام). قبل از بستن، ببینید کدام قدیمی‌تر و اصلی است:", "Two processes with the same config are running: both may trade (duplicate orders, Telegram Conflict). Before stopping one, check which is the older, real one:", "Zwei Prozesse mit derselben Config laufen: beide können handeln (doppelte Orders, Telegram-Conflict). Vor dem Stoppen prüfen, welcher der ältere, echte ist:", "Dos procesos con la misma config: ambos pueden operar (órdenes duplicadas, Conflict de Telegram). Antes de parar uno, mira cuál es el original:"),
+    "wd_dup_badge": ("{n} پردازش با یک config", "{n} processes, one config", "{n} Prozesse, eine Config", "{n} procesos, una config"),
+    "wd_dup_parent": ("والد", "parent", "Eltern", "padre"),
+    "wd_dup_help": ("اولی قدیمی‌ترین است. پردازش اضافه را خودتان روی سرور ببندید (kill PID)؛ پنل هیچ پردازشی را خودکار نمی‌کشد.", "The first is the oldest. Stop the extra one yourself on the server (kill PID); the panel never kills a process by itself.", "Der erste ist der älteste. Den zusätzlichen selbst auf dem Server beenden (kill PID); das Panel beendet nie selbst Prozesse.", "El primero es el más antiguo. Para el sobrante tú mismo (kill PID); el panel nunca mata procesos solo."),
 }
