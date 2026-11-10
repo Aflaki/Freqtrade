@@ -236,3 +236,5 @@ input.pc-ok{outline:2px solid var(--ok)}input.pc-err{outline:2px solid var(--err
 .pc-tablewrap{max-height:70vh;overflow:auto;border:1px solid var(--line);border-radius:10px}
 .pc-flat thead th{position:sticky;top:0;background:var(--card);z-index:1;cursor:pointer}
 .pc-flat td{vertical-align:middle}.pc-flat .pc-ex{white-space:normal;min-width:120px}.pc-flat .pc-ex .chip{font-size:11px;padding:1px 6px;margin:1px}
+
+.issues{border-color:var(--warn)}.issues h3{margin:0 0 4px}.issue{padding:8px 0;border-top:1px solid var(--line)}.issue label.check{display:inline-flex;margin:6px 12px 0 0}

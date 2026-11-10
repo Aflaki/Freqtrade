@@ -8,10 +8,15 @@ from __future__ import annotations
 
 from ..db import ExchangeAccount, GlobalSettings
 
+# with the pair catalog every user may choose: one total split equally, or an own amount per pair
+CATALOG_MODES = ("equal_split", "custom_amounts")
+
 
 def effective_mode(gs: GlobalSettings, acc: ExchangeAccount) -> str:
     allowed = gs.sizing_modes or ["equal_split"]
-    return acc.sizing_mode if acc.sizing_mode in allowed else allowed[0]
+    if acc.sizing_mode in allowed or acc.sizing_mode in CATALOG_MODES:
+        return acc.sizing_mode
+    return allowed[0]
 
 
 def effective_capital(gs: GlobalSettings, acc: ExchangeAccount) -> float:

@@ -244,7 +244,7 @@ def save(c, csrf, **fields):
 
 
 def test_form_rules(env):
-    """Catalog portfolios: the user only gives the total capital (split equally); leverage is the admin's/bot's."""
+    """Catalog portfolios: a total split equally (or an amount per pair, see below); leverage is the admin's/bot's."""
     a, b = env
     with SessionLocal() as s:
         get_global(s).tradable_balance_ratio = 0.9
@@ -256,7 +256,8 @@ def test_form_rules(env):
     c, csrf = login("cat-user@x.com")
     form = c.get("/accounts/new?kind=exchange").text
     assert 'class="catrow" data-p="BTC/USDT"' in form and "🔒" in form
-    assert 'name="max_open_trades"' not in form and 'class="pv"' not in form and 'type="number" name="leverage"' not in form
+    assert 'name="max_open_trades"' not in form and 'type="number" name="leverage"' not in form
+    assert 'value="custom_amounts"' in form and 'class="pv"' in form  # per-pair amounts are a choice
     errs = save(c, csrf, capital="300", **{"pair__BTC/USDT": "on"}).text
     assert "Choose which bot BTC/USDT" in errs and "ETH/USDT is mandatory" in errs
     # 60 x 90% / 3 pairs = 18 per pair: BTC at the bot's own 5x needs 20 (Binance min 100); SSV's admin minimum is 50
@@ -264,6 +265,18 @@ def test_form_rules(env):
                                                          "pair__ETH/USDT": "on", "pair__SSV/USDT": "on"}).text
     assert "BTC/USDT: margin per trade is 18.00 but the exchange needs at least 20.00 at 5x" in errs
     assert "SSV/USDT: this pair" in errs
+    # nothing typed is lost, and each problem pair is a question
+    assert 'name="capital" id="capital" value="60' in errs and 'name="api_key" autocomplete="off" value="k"' in errs
+    assert 'name="pfix__SSV/USDT" value="remove"' in errs and 'name="pfix__SSV/USDT" value="keep"' not in errs
+    errs = save(c, csrf, capital="60", **{"pair__BTC/USDT": "on", "pbot__BTC/USDT": str(a), "pair__ETH/USDT": "on",
+                                          "pair__SSV/USDT": "on", "pfix__SSV/USDT": "remove"}).text
+    assert "Removed from the portfolio: SSV/USDT" in errs and "SSV/USDT: this pair" not in errs
+    assert "margin per trade is 27.00" not in errs  # 60 x 90% / 2 = 27 now: BTC is fine
+    with SessionLocal() as s:  # ... so it was saved without SSV; start over for the next checks
+        saved = s.query(ExchangeAccount).filter_by(label="cat-p").one()
+        assert set(saved.pairs) == {"BTC/USDT", "ETH/USDT"}
+        s.delete(saved)
+        s.commit()
     FakeBinance.balance = 40.0
     errs = save(c, csrf, capital="100", **{"pair__BTC/USDT": "on", "pbot__BTC/USDT": str(a), "pair__ETH/USDT": "on"}).text
     assert "needs 100.00 USDT but the account holds 40.00" in errs
@@ -272,13 +285,13 @@ def test_form_rules(env):
     errs = save(c, csrf, capital="100", **{"pair__BTC/USDT": "on", "pbot__BTC/USDT": str(a), "pair__ETH/USDT": "on"}).text
     assert "Withdrawals are ENABLED" in errs
     FakeBinance.perms["enableWithdrawals"] = False
-    r = save(c, csrf, capital="100", max_open_trades="1", sizing_mode="custom_amounts",
+    r = save(c, csrf, capital="100", max_open_trades="1",
              **{"pair__BTC/USDT": "on", "pbot__BTC/USDT": str(b), "pair__ETH/USDT": "on"})
     assert r.status_code == 200
     with SessionLocal() as s:
         acc = s.query(ExchangeAccount).filter_by(label="cat-p").one()
         assert acc.pair_bot == {"BTC/USDT": b, "ETH/USDT": a} and set(acc.bots) == {a, b}
-        assert acc.sizing_mode == "equal_split" and acc.max_open_trades is None and acc.capital == 100  # user can't change
+        assert acc.sizing_mode == "equal_split" and acc.max_open_trades is None and acc.capital == 100  # no limit
         from app.engine.sizing import leverage_for, max_open_trades, pair_budget
         gs = get_global(s)
         assert leverage_for(gs, acc, "ETH/USDT", 5.0) == 3  # admin's fixed leverage wins over the bot's 5x
@@ -317,3 +330,38 @@ def test_catalog_bulk_apply(env):
         assert s.query(PairOffer).filter_by(pair="BTC/USDT", bot_id=a).one().leverage is None
     assert ap("explode", rows).status_code == 400 and ap("offer", []).status_code == 400
     assert c.post("/admin/pairs/apply", json={"csrf": "x", "action": "offer", "rows": rows}).status_code == 400
+
+
+def test_form_per_pair_amounts_and_closed_pair(env):
+    """The user may give each pair its own amount; a pair the exchange has closed for now can be kept or dropped."""
+    a, b = env
+    offer("BTC/USDT", a)
+    offer("ETH/USDT", a)
+    offer("SSV/USDT", b)
+    c, csrf = login("cat-user2@x.com")
+    pairs = {"pair__BTC/USDT": "on", "pair__ETH/USDT": "on", "value__BTC/USDT": "25", "value__ETH/USDT": "7"}
+    r = save(c, csrf, label="cat-p2", sizing_mode="custom_amounts", **pairs)
+    assert r.status_code == 200 and "cat-p2" in r.text
+    with SessionLocal() as s:
+        acc = s.query(ExchangeAccount).filter_by(label="cat-p2").one()
+        from app.engine.sizing import pair_budget
+        gs = get_global(s)
+        assert acc.sizing_mode == "custom_amounts" and acc.capital == 32 and acc.pairs == {"BTC/USDT": 25, "ETH/USDT": 7}
+        assert pair_budget(gs, acc, "BTC/USDT") == 25 and pair_budget(gs, acc, "ETH/USDT") == 7
+        acc_id = acc.id
+    MARKETS["SSV/USDT:USDT"]["active"] = False
+    try:
+        asyncio.run(markets.refresh(["binance"]))
+        more = {**pairs, "pair__SSV/USDT": "on", "value__SSV/USDT": "10"}
+        page = c.post(f"/accounts/{acc_id}/edit", data={"csrf": csrf, "kind": "exchange", "label": "cat-p2",
+                                                        "exchange": "binance", "trading_mode": "futures",
+                                                        "no_withdraw": "on", "sizing_mode": "custom_amounts", **more}).text
+        assert "SSV/USDT is not tradable" in page and 'name="pfix__SSV/USDT" value="keep"' in page
+        assert 'name="value__BTC/USDT" data-p="BTC/USDT" value="25' in page  # amounts kept
+        c.post(f"/accounts/{acc_id}/edit", data={"csrf": csrf, "kind": "exchange", "label": "cat-p2", "exchange": "binance",
+                                                 "trading_mode": "futures", "no_withdraw": "on",
+                                                 "sizing_mode": "custom_amounts", "pfix__SSV/USDT": "keep", **more})
+        with SessionLocal() as s:
+            assert s.get(ExchangeAccount, acc_id).pairs == {"BTC/USDT": 25, "ETH/USDT": 7, "SSV/USDT": 10}
+    finally:
+        MARKETS["SSV/USDT:USDT"]["active"] = True

@@ -211,4 +211,18 @@ C: dict[str, tuple[str, str, str, str]] = {
     "pos_apply": ("اعمال", "Apply", "Anwenden", "Aplicar"),
     "pos_confirm_close": ("{n} پوزیشن همین الان با قیمت بازار بسته شود؟", "Close {n} position(s) now at market price?", "{n} Position(en) jetzt zum Marktpreis schließen?", "¿Cerrar {n} posición(es) ahora a precio de mercado?"),
     "pos_none_other": ("پوزیشن بازی خارج از ارزهای انتخابی نیست.", "No open positions outside your chosen pairs.", "Keine offenen Positionen außerhalb Ihrer Paare.", "No hay posiciones fuera de tus pares."),
+
+    # ---------------------------------------------------------------- portfolio form: per-pair amounts, pair problems
+    "mode_cat_total": ("یک مبلغ کل؛ مساوی بین ارزها", "One total, split equally", "Ein Gesamtbetrag, gleich verteilt", "Un total, repartido por igual"),
+    "mode_cat_per_pair": ("مبلغ جدا برای هر ارز", "My own amount per pair", "Eigener Betrag je Paar", "Un importe propio por par"),
+    "mode_cat_total_help": ("{pct}٪ مبلغ کل بین ارزهای انتخابی مساوی تقسیم می‌شود.", "{pct}% of the total is split equally between the chosen pairs.", "{pct} % des Gesamtbetrags werden gleich auf die Paare verteilt.", "El {pct}% del total se reparte por igual entre los pares."),
+    "mode_cat_per_pair_help": ("جلوی هر ارز بنویسید هر معامله‌اش با چند USDT مارجین باز شود (مثلاً ۵). جمع این‌ها سرمایه سبد است.", "Type next to each pair the margin (USDT) for each of its trades, e.g. 5. Their sum is the portfolio's capital.", "Neben jedem Paar die Margin (USDT) je Trade eintragen, z. B. 5. Die Summe ist das Kapital.", "Escribe junto a cada par el margen (USDT) por operación, p. ej. 5. La suma es el capital."),
+    "pi_title": ("این ارزها مشکل دارند — شما تصمیم بگیرید", "These pairs have a problem — you decide", "Diese Paare haben ein Problem — Sie entscheiden", "Estos pares tienen un problema: tú decides"),
+    "pi_help": ("بقیه فرم همان‌طور که پر کرده بودید مانده است. برای هر ارز یک گزینه بزنید و دوباره «ذخیره» کنید.", "The rest of the form is kept as you filled it. Pick an option for each pair and press “Save” again.", "Der Rest des Formulars bleibt wie ausgefüllt. Je Paar eine Option wählen und erneut „Speichern“.", "El resto del formulario se conserva. Elige una opción por par y pulsa «Guardar» otra vez."),
+    "pi_keep": ("در سبد بماند (تا وقتی صرافی آن را بسته، معامله‌هایش رد می‌شوند)", "Keep it (its trades are skipped while the exchange has it closed)", "Behalten (Trades werden übersprungen, solange die Börse es geschlossen hat)", "Mantener (sus operaciones se omiten mientras esté cerrado)"),
+    "pi_remove": ("از سبد حذف شود", "Remove it from the portfolio", "Aus dem Portfolio entfernen", "Quitar de la cartera"),
+    "pi_mandatory": ("این ارز اجباری است و حذف نمی‌شود", "This pair is mandatory and can't be removed", "Dieses Paar ist Pflicht", "Este par es obligatorio"),
+    "pi_or_raise": ("یا مبلغ آن را در جدول پایین بیشتر کنید", "or raise its amount in the table below", "oder den Betrag unten erhöhen", "o sube su importe abajo"),
+    "err_pairs_decide": ("بعضی ارزها مشکل دارند؛ پایین‌تر برای هرکدام تصمیم بگیرید و دوباره ذخیره کنید.", "Some pairs have a problem; decide for each one below and save again.", "Einige Paare haben ein Problem; unten entscheiden und erneut speichern.", "Algunos pares tienen un problema; decide abajo y guarda de nuevo."),
+    "msg_pairs_removed": ("از سبد حذف شد: {pairs}", "Removed from the portfolio: {pairs}", "Aus dem Portfolio entfernt: {pairs}", "Quitados de la cartera: {pairs}"),
 }

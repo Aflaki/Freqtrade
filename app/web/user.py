@@ -94,7 +94,7 @@ def _public_bots() -> list[Bot]:
         return list(s.scalars(select(Bot).where(Bot.enabled.is_(True), Bot.public.is_(True)).order_by(Bot.sort, Bot.id)))
 
 
-def _form_ctx(gs, acc, kind):
+def _form_ctx(gs, acc, kind, draft=None, issues=None):
     bots = _public_bots()
     ids = [b.id for b in bots]
     _, groups = perf.visible_bots()
@@ -104,11 +104,13 @@ def _form_ctx(gs, acc, kind):
     rest = [b for b in bots if b.group_id not in gids]
     if rest:
         sections.append((None, rest))
+    src = draft or acc  # draft: what the user typed, shown again after an error
     return dict(gs=gs, acc=acc, kind=kind, key_mask=mask(acc.api_key_enc) if acc and not acc.is_signal else "",
                 stats_json=perf.stats_json(ids, 90), modes=[m for m in SIZING_MODES if m in (gs.sizing_modes or [])],
                 bots=bots, cards={m: perf.bot_summaries(ids, m, 90) for m in ("all", "long")},
-                followed=(acc.bots or []) if acc else (ids if len(ids) == 1 else []), sections=sections,
-                pair_bot=(acc.pair_bot or {}) if acc else {}, server_ip=_server_ip(), **_catalog_ctx(gs, bots))
+                followed=(src.bots or []) if src else (ids if len(ids) == 1 else []), sections=sections,
+                pair_bot=(src.pair_bot or {}) if src else {}, server_ip=_server_ip(), **_catalog_ctx(gs, bots),
+                draft=draft, issues=issues or [])
 
 
 def _catalog_ctx(gs, bots) -> dict:
@@ -151,7 +153,9 @@ def _rule_errors(request, gs, kind, exchange, mode, leverage, sizing, pairs, cap
                                                    gs.max_leverage))
         sel[pp] = {"margin": pair_budget(gs, tmp, pp), "leverage": lev, "bot": chosen_bot.get(pp)}
     items = check_pairs(exchange if kind == "exchange" else "", mode, sel, catalog)
-    return [t["text"] for t in check_texts(request, items)]
+    for i, x in zip(items, check_texts(request, items)):
+        i["text"] = x["text"]
+    return items
 
 
 async def _key_errors(request, gs, acc, exchange, mode, api_key, secret, password, sandbox, dry_run, capital,
@@ -233,8 +237,8 @@ async def _save_account(request: Request, acc_id: int | None):
         if not 1 <= leverage <= gs.max_leverage:
             errors.append(tr(request, "err_leverage", max=gs.max_leverage))
         sizing = str(f.get("sizing_mode", ""))
-        if simple:
-            sizing = "equal_split"
+        if simple:  # one total split equally, or the user's own amount per pair
+            sizing = "custom_amounts" if sizing == "custom_amounts" else "equal_split"
         elif sizing not in (gs.sizing_modes or []):
             sizing = (gs.sizing_modes or ["equal_split"])[0]
         pairs: dict[str, float] = {}
@@ -244,14 +248,21 @@ async def _save_account(request: Request, acc_id: int | None):
                 if sizing == "custom_amounts" and v <= 0:
                     errors.append(tr(request, "err_amount_pair", pair=p))
                 pairs[p] = v if v > 0 else 1.0
+        # pair catalog: each offered pair from exactly ONE of its offered bots; mandatory pairs must be included
+        from ..engine.offers import offers_by_pair, pair_rules
+        catalog = {pp: pair_rules(o) for pp, o in offers_by_pair().items()}
+        # the user's answers to earlier pair problems: drop a pair, or keep one that is only closed for now
+        removed = [pp for pp in pairs if f.get(f"pfix__{pp}") == "remove" and not (catalog.get(pp) or {}).get("mandatory")]
+        for pp in removed:
+            pairs.pop(pp)
+            errors = [e for e in errors if pp not in e]
+        if removed:
+            flash(request, tr(request, "msg_pairs_removed", pairs=", ".join(removed)), "warn")
         if not pairs:
             errors.append(tr(request, "err_pairs"))
         public_ids = {b.id for b in _public_bots()}
         bots = sorted({int(k.split("__", 1)[1]) for k in f.keys()
                        if k.startswith("bot__") and k.split("__", 1)[1].isdigit()} & public_ids)
-        # pair catalog: each offered pair from exactly ONE of its offered bots; mandatory pairs must be included
-        from ..engine.offers import offers_by_pair, pair_rules
-        catalog = {pp: pair_rules(o) for pp, o in offers_by_pair().items()}
         chosen_bot: dict[str, int] = {}
         for pp in pairs:
             rules = catalog.get(pp)
@@ -292,17 +303,35 @@ async def _save_account(request: Request, acc_id: int | None):
             if not f.get("no_withdraw"):
                 errors.append(tr(request, "err_no_withdraw"))
         # exchange rules per pair (listed? order big enough at this leverage?) + the admin's minimums
+        issues: list[dict] = []
         if not errors:
-            errors += _rule_errors(request, gs, kind, exchange, mode, leverage, sizing, pairs, capital, mot,
-                                   chosen_bot, catalog)
+            for it in _rule_errors(request, gs, kind, exchange, mode, leverage, sizing, pairs, capital, mot,
+                                   chosen_bot, catalog):
+                pp = it["params"].get("pair", "")
+                if it["key"] == "ck_pair_inactive" and f.get(f"pfix__{pp}") == "keep":
+                    continue  # the user keeps it: its trades are skipped while the exchange has it closed
+                issues.append({"pair": pp, "key": it["key"], "text": it["text"],
+                               "can_keep": it["key"] == "ck_pair_inactive",
+                               "mandatory": bool((catalog.get(pp) or {}).get("mandatory"))})
+            if issues:
+                errors.append(tr(request, "err_pairs_decide"))
         # the API key itself: works, may trade futures, withdrawals off, enough money
         if not errors and kind == "exchange":
             errors += await _key_errors(request, gs, acc, exchange, mode, api_key, secret, password,
                                         bool(f.get("sandbox")), bool(f.get("dry_run")), capital, sizing, pairs)
-        if errors:
+        if errors:  # show the form again with everything the user typed, and ask about problem pairs
             for e in errors:
                 flash(request, e, "error")
-            return RedirectResponse(back, 303)
+            from types import SimpleNamespace
+            draft = SimpleNamespace(
+                id=acc.id if acc else None, label=str(f.get("label", "")).strip()[:80], exchange=exchange,
+                trading_mode=mode, leverage=leverage, margin_mode="cross" if f.get("margin_mode") == "cross" else "isolated",
+                sizing_mode=sizing, pairs={**pairs, **{i["pair"]: pairs.get(i["pair"], 1.0) for i in issues}},
+                capital=_num(f.get("capital")) or (capital if sizing != "custom_amounts" else 0), max_open_trades=mot,
+                bots=bots, pair_bot=chosen_bot, stoploss_pct=sl, daily_loss_limit_pct=dll, dry_run=bool(f.get("dry_run")),
+                sandbox=bool(f.get("sandbox")), api_key=api_key, secret=secret, password=password,
+                no_withdraw=bool(f.get("no_withdraw")))
+            return render(request, "account_form.html", **_form_ctx(gs, acc, kind, draft, issues))
         if acc is None:
             acc = ExchangeAccount(user_id=user.id, kind=kind)
             s.add(acc)

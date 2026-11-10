@@ -1,18 +1,18 @@
 {% extends "base.html" %}{% block content %}
-{% set is_signal = kind == 'signal' %}
-{% set cur_mode = (acc.sizing_mode if acc and acc.sizing_mode in modes else modes[0]) %}
+{% set is_signal = kind == 'signal' %}{% set v = draft or acc %}
+{% set cur_mode = (v.sizing_mode if v and v.sizing_mode in modes else modes[0]) %}
 <h1>{{ (_('title_edit') if acc else _('title_new')) }} — {{ _('plan_signal_title') if is_signal else _('plan_auto_title') }}</h1>
 <form method="post" class="card" id="f"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="kind" value="{{ kind }}">
 {% if is_signal %}
 <div class="flash ok small">{{ _('signal_form_intro') }}</div>
-<label>{{ _('f_label') }}</label><input type="text" name="label" value="{{ acc.label if acc else '' }}">
+<label>{{ _('f_label') }}</label><input type="text" name="label" value="{{ v.label if v else '' }}">
 {% else %}
 <h2>{{ _('sec_exchange') }}</h2>
 <div class="flash warn small">{{ _('api_warning') }}</div>
 <div class="row">
-  <div><label>{{ _('f_label') }}</label><input type="text" name="label" value="{{ acc.label if acc else '' }}"></div>
+  <div><label>{{ _('f_label') }}</label><input type="text" name="label" value="{{ v.label if v else '' }}"></div>
   <div><label>{{ _('f_exchange') }}</label><select name="exchange" id="exchange">
-    {% for e in gs.allowed_exchanges %}<option value="{{ e }}" {{ 'selected' if acc and acc.exchange == e }}>{{ EXCHANGES.get(e, e) }}</option>{% endfor %}</select></div>
+    {% for e in gs.allowed_exchanges %}<option value="{{ e }}" {{ 'selected' if v and v.exchange == e }}>{{ EXCHANGES.get(e, e) }}</option>{% endfor %}</select></div>
 </div>
 <div class="api-help">📘 {{ _('g_api_help') }} <a id="api-guide" href="/guides/binance">{{ _('g_how') }} →</a>
 {% if server_ip %}<div style="margin-top:6px">{{ _('g_api_ip_hint') }} {% for one in server_ip.split(', ') %}<code class="ltr">{{ one }}</code>
@@ -22,11 +22,11 @@
   const upd = () => { a.href = sel.value === 'binance' ? '/guides/binance' : '/guides/exchanges#ex-' + sel.value; };
   sel.addEventListener('change', upd); upd(); })();</script>
 <div class="row">
-  <div><label>API Key</label><input class="ltr" type="text" name="api_key" autocomplete="off" placeholder="{{ key_mask ~ ' — ' ~ _('keep_blank') if acc else '' }}"></div>
-  <div><label>Secret Key</label><input class="ltr" type="password" name="secret" autocomplete="new-password" placeholder="{{ _('keep_blank') if acc else '' }}"></div>
-  <div id="pwbox"><label>Passphrase <span class="small muted">(OKX, Bitget, KuCoin)</span></label><input class="ltr" type="password" name="password" autocomplete="new-password"></div>
+  <div><label>API Key</label><input class="ltr" type="text" name="api_key" autocomplete="off" value="{{ draft.api_key if draft else '' }}" placeholder="{{ key_mask ~ ' — ' ~ _('keep_blank') if acc else '' }}"></div>
+  <div><label>Secret Key</label><input class="ltr" type="password" name="secret" autocomplete="new-password" value="{{ draft.secret if draft else '' }}" placeholder="{{ _('keep_blank') if acc else '' }}"></div>
+  <div id="pwbox"><label>Passphrase <span class="small muted">(OKX, Bitget, KuCoin)</span></label><input class="ltr" type="password" name="password" autocomplete="new-password" value="{{ draft.password if draft else '' }}"></div>
 </div>
-<label class="check"><input type="checkbox" name="no_withdraw" required> {{ _('f_no_withdraw') }}</label>
+<label class="check"><input type="checkbox" name="no_withdraw" required {{ 'checked' if draft and draft.no_withdraw }}> {{ _('f_no_withdraw') }}</label>
 <p><button type="button" class="ghost" id="ckbtn" data-acc="{{ acc.id if acc else '' }}">🔍 {{ _('ck_button') }}</button>
 <span class="small muted">{{ _('ck_button_help') }}</span></p>
 <div id="ckbox" class="ckbox" hidden></div>
@@ -35,15 +35,15 @@
 <h2 style="margin-top:22px">{{ _('sec_market') }}</h2>
 <div class="row">
   <div><label>{{ _('f_market') }}</label><select name="trading_mode" id="mode">
-    <option value="futures" {{ 'selected' if not acc or acc.trading_mode=='futures' }}>{{ _('mkt_futures_long') }}</option>
-    <option value="spot" {{ 'selected' if acc and acc.trading_mode=='spot' }}>{{ _('mkt_spot_long') }}</option></select></div>
+    <option value="futures" {{ 'selected' if not v or v.trading_mode=='futures' }}>{{ _('mkt_futures_long') }}</option>
+    <option value="spot" {{ 'selected' if v and v.trading_mode=='spot' }}>{{ _('mkt_spot_long') }}</option></select></div>
   {% if catalog %}<input type="hidden" name="leverage" id="lev" value="1"><input type="hidden" name="margin_mode" value="isolated">
   <div class="fut"><label>{{ _('col_leverage') }}</label><p class="small muted" style="margin:6px 0">🔒 {{ _('lev_by_admin', max=gs.max_leverage) }}</p></div>
   {% else %}
-  <div class="fut"><label>{{ _('f_leverage', max=gs.max_leverage) }}</label><input type="number" name="leverage" id="lev" min="1" max="{{ gs.max_leverage }}" value="{{ acc.leverage if acc else 1 }}"></div>
+  <div class="fut"><label>{{ _('f_leverage', max=gs.max_leverage) }}</label><input type="number" name="leverage" id="lev" min="1" max="{{ gs.max_leverage }}" value="{{ v.leverage if v else 1 }}"></div>
   {% if not is_signal %}<div class="fut"><label>{{ _('f_margin_mode') }}</label><select name="margin_mode">
-    <option value="isolated" {{ 'selected' if not acc or acc.margin_mode=='isolated' }}>Isolated</option>
-    <option value="cross" {{ 'selected' if acc and acc.margin_mode=='cross' }}>Cross</option></select></div>{% endif %}
+    <option value="isolated" {{ 'selected' if not v or v.margin_mode=='isolated' }}>Isolated</option>
+    <option value="cross" {{ 'selected' if v and v.margin_mode=='cross' }}>Cross</option></select></div>{% endif %}
   {% endif %}
 </div>
 
@@ -69,27 +69,37 @@
 <h2 style="margin-top:22px">{{ _('sec_basket') }}</h2>
 <p class="small muted">{{ _('basket_intro') }}</p>
 {% if catalog %}
-<input type="hidden" name="sizing_mode" id="sizing" value="equal_split"><input type="hidden" id="mot" value="">
-<div class="row"><div id="capbox"><label>{{ _('f_capital_total', cur=gs.stake_currency, min='%.0f'|format(gs.min_capital)) }}</label>
-  <input type="number" step="any" min="0" name="capital" id="capital" value="{{ acc.capital if acc else '' }}" required>
-  <div class="small muted">{{ _('capital_split_help', pct=(gs.tradable_balance_ratio*100)|round|int) }}</div><span id="modehelp" hidden></span></div></div>
+<input type="hidden" id="mot" value="">{% set cm = v.sizing_mode if v and v.sizing_mode == 'custom_amounts' else 'equal_split' %}
+<div class="row"><div><label>{{ _('f_sizing') }}</label><select name="sizing_mode" id="sizing">
+  <option value="equal_split" {{ 'selected' if cm == 'equal_split' }}>{{ _('mode_cat_total') }}</option>
+  <option value="custom_amounts" {{ 'selected' if cm == 'custom_amounts' }}>{{ _('mode_cat_per_pair') }}</option></select>
+  <div class="small muted" id="modehelp"></div></div>
+<div id="capbox"><label>{{ _('f_capital_total', cur=gs.stake_currency, min='%.0f'|format(gs.min_capital)) }}</label>
+  <input type="number" step="any" min="0" name="capital" id="capital" value="{{ (v.capital or '') if v else '' }}">
+  <div class="small muted">{{ _('capital_split_help', pct=(gs.tradable_balance_ratio*100)|round|int) }}</div></div></div>
 {% else %}
 <div class="row">
   <div><label>{{ _('f_sizing') }}</label><select name="sizing_mode" id="sizing">
     {% for m in modes %}<option value="{{ m }}" {{ 'selected' if m == cur_mode }}>{{ _('mode_' ~ m) }}</option>{% endfor %}</select>
     <div class="small muted" id="modehelp"></div></div>
   <div id="capbox"><label>{{ _('f_capital', cur=gs.stake_currency, min='%.0f'|format(gs.min_capital)) }}</label>
-    <input type="number" step="any" name="capital" id="capital" value="{{ acc.capital if acc else '' }}"></div>
+    <input type="number" step="any" name="capital" id="capital" value="{{ (v.capital or '') if v else '' }}"></div>
   <div id="motbox"><label>{{ _('f_max_open') }}</label>
-    <input type="number" name="max_open_trades" id="mot" min="1" max="50" value="{{ acc.max_open_trades if acc and acc.max_open_trades else '' }}" placeholder="{{ gs.default_max_open_trades }}"></div>
+    <input type="number" name="max_open_trades" id="mot" min="1" max="50" value="{{ v.max_open_trades if v and v.max_open_trades else '' }}" placeholder="{{ gs.default_max_open_trades }}"></div>
 </div>
 {% endif %}
 <div class="pills" style="margin-top:12px"><span class="small muted">{{ _('stats_window') }}</span></div>
+{% if issues %}<div class="card issues" id="issues"><h3>⚠️ {{ _('pi_title') }}</h3><p class="small muted">{{ _('pi_help') }}</p>
+{% for i in issues %}<div class="issue"><div class="neg">{{ i.text }}</div><div class="small">
+{% if i.can_keep %}<label class="check inline"><input type="radio" name="pfix__{{ i.pair }}" value="keep"> {{ _('pi_keep') }}</label>{% endif %}
+{% if not i.mandatory %}<label class="check inline"><input type="radio" name="pfix__{{ i.pair }}" value="remove" {{ 'checked' if not i.can_keep }}> {{ _('pi_remove') }}</label>
+{% else %}<span class="muted">🔒 {{ _('pi_mandatory') }}</span>{% endif %}
+{% if not i.can_keep %}<span class="muted">· {{ _('pi_or_raise') }}</span>{% endif %}</div></div>{% endfor %}</div>{% endif %}
 {% if catalog %}
 <div class="table-wrap"><table class="pairs cat">
 <tr><th></th><th>{{ _('col_pair') }}</th><th>{{ _('pair_from_bot') }}</th><th>{{ _('perf_trades') }}</th><th>{{ _('perf_win_rate') }}</th><th>{{ _('perf_total_abs') }}</th><th>{{ _('perf_avg') }}</th>
-<th>{{ _('col_leverage') }}</th><th>{{ _('col_margin_trade') }}</th><th title="{{ _('pc_need_help') }}">{{ _('pc_need') }}</th><th>{{ _('col_position_value') }}</th></tr>
-{% for c in catalog %}{% set p = c.pair %}{% set sel = (acc and p in acc.pairs) or (not acc and (c.mandatory or c.default_bot)) or c.mandatory %}
+<th>{{ _('col_leverage') }}</th><th class="pvcol">{{ _('col_amount_pair', cur=gs.stake_currency) }}</th><th>{{ _('col_margin_trade') }}</th><th title="{{ _('pc_need_help') }}">{{ _('pc_need') }}</th><th>{{ _('col_position_value') }}</th></tr>
+{% for c in catalog %}{% set p = c.pair %}{% set sel = (v and p in v.pairs) or (not v and (c.mandatory or c.default_bot)) or c.mandatory %}
 <tr class="catrow" data-p="{{ p }}" data-ex='{{ c.ex|tojson }}'>
 <td>{% if c.mandatory %}<input type="checkbox" class="pc" data-p="{{ p }}" checked disabled><input type="hidden" name="pair__{{ p }}" value="on">
 {% else %}<input type="checkbox" class="pc" name="pair__{{ p }}" data-p="{{ p }}" {{ 'checked' if sel }}>{% endif %}</td>
@@ -99,20 +109,21 @@
 {% for b in c.bots %}<option value="{{ b.id }}" data-lev="{{ b.lev or '' }}" data-blev="{{ b.blev or '' }}" data-min="{{ b.min or '' }}" {{ 'selected' if b.id == cur }}>{{ b.name }}</option>{% endfor %}</select></td>
 <td class="s-trades" data-p="{{ p }}">-</td><td class="s-wr" data-p="{{ p }}">-</td><td class="s-total" data-p="{{ p }}">-</td><td class="s-dd" data-p="{{ p }}">-</td>
 <td class="plev" data-p="{{ p }}">-</td>
+<td class="pvcol"><input type="number" class="pv" step="any" min="0" name="value__{{ p }}" data-p="{{ p }}" value="{{ v.pairs[p] if v and p in v.pairs and v.sizing_mode == 'custom_amounts' else '' }}" style="width:90px"></td>
 <td class="st" data-p="{{ p }}">-</td><td class="need" data-p="{{ p }}">-</td><td class="nt" data-p="{{ p }}">-</td></tr>{% endfor %}
-<tr><td></td><td><b>{{ _('total') }}</b></td><td colspan="6"></td><td id="tot_st"><b>-</b></td><td></td><td id="tot_nt"><b>-</b></td></tr>
+<tr><td></td><td><b>{{ _('total') }}</b></td><td colspan="6"></td><td class="pvcol"></td><td id="tot_st"><b>-</b></td><td></td><td id="tot_nt"><b>-</b></td></tr>
 </table></div>
 <p class="small" id="balline"></p>
 {% else %}
 <div class="table-wrap"><table class="pairs">
 <tr><th><input type="checkbox" id="all" title="all"></th><th>{{ _('col_pair') }}</th><th>{{ _('perf_trades') }}</th><th>{{ _('perf_win_rate') }}</th><th>{{ _('perf_total_abs') }}</th><th>{{ _('perf_avg') }}</th>
 <th>{{ _('pair_from_bot') }}</th><th id="valhead">{{ _('col_weight') }}</th><th>{{ _('col_margin_trade') }}</th><th>{{ _('col_position_value') }}</th></tr>
-{% for p in gs.allowed_pairs %}{% set sel = acc and p in acc.pairs %}
+{% for p in gs.allowed_pairs %}{% set sel = v and p in v.pairs %}
 <tr><td><input type="checkbox" class="pc" name="pair__{{ p }}" data-p="{{ p }}" {{ 'checked' if sel }}></td><td class="mono">{{ p }}</td>
 <td class="s-trades" data-p="{{ p }}">-</td><td class="s-wr" data-p="{{ p }}">-</td><td class="s-total" data-p="{{ p }}">-</td><td class="s-dd" data-p="{{ p }}">-</td>
 <td><select class="pb" name="pbot__{{ p }}" data-p="{{ p }}" style="width:auto;padding:4px 6px">
 <option value="">{{ _('pair_from_all') }}</option>{% for b in bots %}<option value="{{ b.id }}" {{ 'selected' if pair_bot.get(p) == b.id }}>{{ b.name }}</option>{% endfor %}</select></td>
-<td><input type="number" class="pv" step="any" min="0" name="value__{{ p }}" data-p="{{ p }}" value="{{ acc.pairs[p] if sel else '' }}" style="width:100px"></td>
+<td><input type="number" class="pv" step="any" min="0" name="value__{{ p }}" data-p="{{ p }}" value="{{ v.pairs[p] if sel else '' }}" style="width:100px"></td>
 <td class="st" data-p="{{ p }}">-</td><td class="nt" data-p="{{ p }}">-</td></tr>{% endfor %}
 <tr><td></td><td><b>{{ _('total') }}</b></td><td colspan="6"></td><td id="tot_st"><b>-</b></td><td id="tot_nt"><b>-</b></td></tr>
 </table></div>
@@ -120,15 +131,15 @@
 
 <h2 style="margin-top:22px">{{ _('sec_risk') }}</h2>
 <div class="row">
-  <div class="fut"><label>{{ _('f_stoploss') }}</label><input type="number" step="any" min="0" max="100" name="stoploss_pct" value="{{ acc.stoploss_pct if acc and acc.stoploss_pct else (gs.default_stoploss_pct or '') }}" placeholder="—">
+  <div class="fut"><label>{{ _('f_stoploss') }}</label><input type="number" step="any" min="0" max="100" name="stoploss_pct" value="{{ v.stoploss_pct if v and v.stoploss_pct else (gs.default_stoploss_pct or '') }}" placeholder="—">
     <div class="small muted">{{ _('f_stoploss_help') }}</div></div>
-  <div><label>{{ _('f_daily_loss') }}</label><input type="number" step="any" min="0" max="100" name="daily_loss_limit_pct" value="{{ acc.daily_loss_limit_pct if acc and acc.daily_loss_limit_pct else '' }}" placeholder="—"></div>
+  <div><label>{{ _('f_daily_loss') }}</label><input type="number" step="any" min="0" max="100" name="daily_loss_limit_pct" value="{{ v.daily_loss_limit_pct if v and v.daily_loss_limit_pct else '' }}" placeholder="—"></div>
 </div>
 
 {% if not is_signal %}
 <h2 style="margin-top:22px">{{ _('sec_mode') }}</h2>
-<label class="check"><input type="checkbox" name="dry_run" {{ 'checked' if not acc or acc.dry_run }}> <span>{{ _('f_dry_run') }}</span></label>
-<label class="check"><input type="checkbox" name="sandbox" {{ 'checked' if acc and acc.sandbox }}> <span>{{ _('f_sandbox') }}</span></label>
+<label class="check"><input type="checkbox" name="dry_run" {{ 'checked' if not v or v.dry_run }}> <span>{{ _('f_dry_run') }}</span></label>
+<label class="check"><input type="checkbox" name="sandbox" {{ 'checked' if v and v.sandbox }}> <span>{{ _('f_sandbox') }}</span></label>
 {% endif %}
 <p><button>{{ _('btn_save') }}</button> <a class="btn ghost" href="/accounts">{{ _('btn_cancel') }}</a></p>
 </form>
@@ -138,6 +149,8 @@
         balText={{ _('ck_bal_line')|tojson }}, ckWait={{ _('ck_wait')|tojson }}, ckAllOk={{ _('ck_all_ok')|tojson }}, ckFix={{ _('ck_fix')|tojson }};
   const ratio={{ gs.tradable_balance_ratio }}, defMot={{ gs.default_max_open_trades }}, maxStake={{ gs.max_stake_per_trade or 0 }},
         needPw={{ NEEDS_PASSWORD|list|tojson }}, stats={{ stats_json|safe }},
+        catHelp={equal_split:{{ _('mode_cat_total_help', pct=(gs.tradable_balance_ratio*100)|round|int)|tojson }},
+                 custom_amounts:{{ _('mode_cat_per_pair_help')|tojson }}},
         help={equal_split:{{ _('mode_help_equal_split', pct=(gs.tradable_balance_ratio*100)|round|int)|tojson }},
               pair_weights:{{ _('mode_help_pair_weights', pct=(gs.tradable_balance_ratio*100)|round|int)|tojson }},
               custom_amounts:{{ _('mode_help_custom_amounts')|tojson }}},
@@ -147,10 +160,12 @@
     const spot=$('#mode').value==='spot', mode=$('#sizing').value;
     $$('.fut').forEach(e=>e.style.display=spot?'none':'');
     const ex=$('#exchange'); if(ex) $('#pwbox').style.display=needPw.includes(ex.value)?'':'none';
-    if(!$('.catrow')) $('#capbox').style.display=mode==='custom_amounts'?'none':'';
+    $('#capbox').style.display=mode==='custom_amounts'?'none':'';
+    if($('.catrow')){ $$('.pvcol').forEach(e=>e.style.display=mode==='custom_amounts'?'':'none');
+      $$('.pv').forEach(i=>{const cb=$(`.pc[data-p="${i.dataset.p}"]`); i.disabled=!(cb&&cb.checked);}); }
     if($('#motbox')) $('#motbox').style.display=mode==='equal_split'?'':'none';
     if($('#valhead')) $('#valhead').textContent=heads[mode]||''; $$('.pv').forEach(i=>{i.style.display=mode==='equal_split'?'none':''; if(mode==='pair_weights'&&!i.value) i.value=1;});
-    $('#modehelp').textContent=help[mode]||'';
+    $('#modehelp').textContent=($('.catrow')?catHelp:help)[mode]||'';
     const mk=spot?'long':'all', bsel=$$('.bc').filter(c=>c.checked).map(c=>c.value), st={};
     const only={}; $$('.pb').forEach(s=>{ if(s.value) only[s.dataset.p]=s.value; });
     const srcs=new Set([...bsel, ...Object.values(only)]);
