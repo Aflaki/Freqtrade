@@ -50,6 +50,20 @@ async def install_sh(request: Request, t: str = ""):
                     headers={"Cache-Control": "no-store"})
 
 
+@router.get("/watchdog/webhooks.py")
+async def webhooks_py(request: Request, t: str = ""):
+    """The webhook script, fetched straight onto a bot server with the watchdog key:
+    curl -fsSL "<site>/watchdog/webhooks.py?t=<key>" | python3 - --apply"""
+    _check(t)
+    from .admin_bots import _all_bots, _webhook_template
+    from .export_script import build_script
+    bots, base = _all_bots()
+    with SessionLocal() as s:
+        site = get_global(s).site_name
+    return Response(build_script(site, site_url(request), bots, _webhook_template()), media_type="text/x-python",
+                    headers={"Cache-Control": "no-store"})
+
+
 @router.get("/watchdog/agent.py")
 async def agent_py(request: Request, t: str = ""):
     _check(t)

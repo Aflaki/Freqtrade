@@ -105,9 +105,8 @@ journalctl -u relay-watchdog -f</pre>
 <a class="btn" href="/admin/bots/export/freqtrade_webhooks.py">{{ ic('download') }}freqtrade_webhooks.py</a>
 <a class="btn ghost" href="/admin/bots/export/webhooks.json">{{ ic('download') }}webhooks.json</a></p>
 <ol class="small" style="line-height:2">
-<li>{{ _('export_step1') }}<pre>scp freqtrade_webhooks.py root@{{ base.split('//')[-1].split('/')[0].split(':')[0] }}:/root/</pre></li>
-<li>{{ _('export_step2') }}<pre>python3 /root/freqtrade_webhooks.py</pre></li>
-<li>{{ _('export_step3') }}<pre>python3 /root/freqtrade_webhooks.py --apply</pre></li>
+<li>{{ _('export_one_step1') }}<pre class="ltr copy" style="white-space:pre-wrap;word-break:break-all">{{ wd.hook_preview }}</pre></li>
+<li>{{ _('export_one_step2') }}<pre class="ltr copy" style="white-space:pre-wrap;word-break:break-all">{{ wd.hook_apply }}</pre></li>
 <li>{{ _('export_step4') }}
 <form method="post" style="display:inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button name="action" value="reload_all" class="sm" onclick="return confirm('{{ _('confirm_reload_all') }}')">{{ ic('refresh') }}{{ _('btn_reload_all') }}</button></form></li>
 </ol>
