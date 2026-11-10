@@ -649,7 +649,8 @@ def test_monitoring_alerts_not_silenced_by_muting_freqtrade_events(monkeypatch):
     got = []
 
     async def fake_send(chat_id, text, user_id=None, kind="reply"):
-        got.append((kind, text))
+        if str(chat_id) == "777":  # other admins may exist from other test modules
+            got.append((kind, text))
         return True
 
     async def fake_phone(user, title, text, url="/", tag=""):
