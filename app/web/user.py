@@ -106,7 +106,12 @@ def _form_ctx(gs, acc, kind):
                 stats_json=perf.stats_json(ids, 90), modes=[m for m in SIZING_MODES if m in (gs.sizing_modes or [])],
                 bots=bots, cards={m: perf.bot_summaries(ids, m, 90) for m in ("all", "long")},
                 followed=(acc.bots or []) if acc else (ids if len(ids) == 1 else []), sections=sections,
-                pair_bot=(acc.pair_bot or {}) if acc else {})
+                pair_bot=(acc.pair_bot or {}) if acc else {}, server_ip=_server_ip())
+
+
+def _server_ip() -> str:
+    from .guides import server_ip
+    return server_ip()
 
 
 @router.get("/accounts/new")
@@ -247,8 +252,15 @@ async def account_test(acc_id: int, request: Request):
         acc = _own(s, user, acc_id)
         ok, msg = await test_connection(acc, gs.stake_currency)
         acc.last_check_ok, acc.last_check_msg = ok, msg[:500]
+        exchange = acc.exchange
         s.commit()
     flash(request, msg, "ok" if ok else "error")
+    if not ok:  # say what the exchange's error means and how to fix it
+        from .guides import explain, server_ip
+        hint = explain(msg)
+        guide = "/guides/binance" if exchange == "binance" else f"/guides/exchanges#ex-{exchange}"
+        text = f"💡 {tr(request, 'g_err_what')} {tr(request, hint, ip=server_ip() or '—')}" if hint else "📘"
+        flash(request, text, "warn", guide, tr(request, "g_how") + " →")
     return RedirectResponse("/accounts", 303)
 
 

@@ -510,6 +510,9 @@ class GlobalSettings(Base):
     watchdog_token: Mapped[str] = mapped_column(String(64), default="")
     ban_auto_pause: Mapped[bool] = mapped_column(default=True)  # Binance bans a server's IP -> /stop its bots, /start later
     ban_resume_gap: Mapped[int] = mapped_column(default=30)  # seconds between bots when starting them again
+    # user guides
+    public_ip: Mapped[str] = mapped_column(String(64), default="")  # IP users whitelist in API keys ("" = from site address)
+    guide_videos: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)  # guide key -> video URL
     updated_at: Mapped[dt.datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 
 

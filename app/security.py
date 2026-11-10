@@ -72,8 +72,10 @@ async def form_with_csrf(request: Request) -> dict:
     return form
 
 
-def flash(request: Request, message: str, kind: str = "ok") -> None:
-    request.session.setdefault("flash", []).append([kind, message])
+def flash(request: Request, message: str, kind: str = "ok", link: str = "", link_text: str = "") -> None:
+    """A one-time message; `link` (a path on this site) is shown after it as a link."""
+    item = [kind, message] + ([link, link_text or "→"] if link.startswith("/") else [])
+    request.session.setdefault("flash", []).append(item)
 
 
 def pop_flashes(request: Request) -> list:

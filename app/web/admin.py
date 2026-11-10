@@ -107,8 +107,10 @@ async def admin_settings(request: Request):
         gs = get_global(s)
     from ..notify.alerts import alert_bot_username
     alert_name = await alert_bot_username() if gs.alert_bot_token_enc else ""
+    from .guides import GUIDES, ORDER, server_ip
     return render(request, "admin/settings.html", gs=gs, all_exchanges=EXCHANGES, sizing_all=SIZING_MODES,
-                  alert_bot_username=alert_name,
+                  alert_bot_username=alert_name, server_ip=server_ip(),
+                  guide_titles=[(k, GUIDES[k]["title"]) for k in ORDER],
                   tab="settings", bot_username=bot.username, bot_error=bot.last_error, has_custom_icon=bool(custom_icon()),
                   has_token=bool(gs.telegram_token_enc))
 
@@ -176,6 +178,13 @@ async def admin_settings_save(request: Request):
             gs.signal_source = "generic" if f.get("signal_source") == "generic" else "freqtrade"
             gs.allowed_ips = [x.strip() for x in str(f.get("allowed_ips", "")).replace("\n", ",").split(",") if x.strip()]
             gs.dedupe_seconds = max(0, int(_num(f, "dedupe_seconds", 30)))
+        elif section == "guides":
+            import re as _re
+            from .guides import ORDER
+            ip = str(f.get("public_ip", "")).strip()
+            gs.public_ip = ip if _re.fullmatch(r"[0-9a-fA-F:.]{0,64}", ip) else gs.public_ip
+            gs.guide_videos = {k: str(f.get(f"video__{k}", "")).strip()[:500] for k in ORDER
+                               if str(f.get(f"video__{k}", "")).strip().startswith(("https://", "http://"))}
         elif section == "alertbot":
             token = str(f.get("alert_bot_token", "")).strip()
             if f.get("remove"):

@@ -12,7 +12,7 @@
 <meta name="theme-color" content="#7c5cff">
 <meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="{{ site.site_name }}">
-<link rel="stylesheet" href="/static/style.css?v=17">
+<link rel="stylesheet" href="/static/style.css?v=19">
 <link rel="stylesheet" href="/static/themes.css?v=7">
 </head>
 <body>{{ sprite() }}
@@ -22,6 +22,7 @@
   <div class="links">
   <a href="/" class="{{ 'on' if p == '/' }}" title="{{ _('nav_performance') }}">{{ ic('chart') }}<span class="lbl">{{ _('nav_performance') }}</span></a>
   <a href="/compare" class="{{ 'on' if p == '/compare' }}" title="{{ _('nav_compare') }}">{{ ic('scale') }}<span class="lbl">{{ _('nav_compare') }}</span></a>
+  <a href="/guides" class="{{ 'on' if p.startswith('/guides') }}" title="{{ _('g_index_title') }}">{{ ic('file') }}<span class="lbl">{{ _('g_index_title') }}</span></a>
   {% if user %}
   <a href="/dashboard" class="{{ 'on' if p == '/dashboard' }}" title="{{ _('nav_dashboard') }}">{{ ic('grid') }}<span class="lbl">{{ _('nav_dashboard') }}</span></a>
   <a href="/accounts" class="{{ 'on' if p.startswith('/accounts') }}" title="{{ _('nav_portfolios') }}">{{ ic('wallet') }}<span class="lbl">{{ _('nav_portfolios') }}</span></a>
@@ -42,7 +43,7 @@
   </div>
 </div></nav>
 <main>
-{% for kind, msg in flashes %}<div class="flash {{ kind }}">{{ msg }}</div>{% endfor %}
+{% for f in flashes %}<div class="flash {{ f[0] }}">{{ f[1] }}{% if f|length > 2 and f[2].startswith('/') %} <a href="{{ f[2] }}">{{ f[3] if f|length > 3 else '→' }}</a>{% endif %}</div>{% endfor %}
 {% block content %}{% endblock %}
 </main>
 <script>

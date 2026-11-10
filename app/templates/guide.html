@@ -1,0 +1,43 @@
+{% extends "base.html" %}{% block title %}{{ _(g.title) }} · {{ site.site_name }}{% endblock %}{% block content %}
+<p class="small"><a href="/guides">← {{ _('g_index_title') }}</a></p>
+<h1>{{ g.icon }} {{ _(g.title) }}</h1>
+<p class="muted">{{ _(g.intro, bot=('@' ~ tg_bot) if tg_bot else '', ip=ip, min=('{:,.0f}'.format(min_cap)), cur=cur) }}</p>
+
+{% if video %}<div class="card guide-video">
+{% if video.kind == 'iframe' %}<div class="vwrap"><iframe src="{{ video.src }}" allowfullscreen loading="lazy" referrerpolicy="strict-origin-when-cross-origin" title="video"></iframe></div>
+{% elif video.kind == 'video' %}<video src="{{ video.src }}" controls preload="metadata" playsinline></video>
+{% else %}<a class="btn" href="{{ video.src }}" target="_blank" rel="noopener">▶ {{ _('g_watch_video') }}</a>{% endif %}
+</div>{% endif %}
+
+{% macro steps(list, start=1) %}
+<ol class="gsteps">
+{% for st in list %}<li class="card gstep"><div class="gnum">{{ loop.index0 + start }}</div><div class="gbody">
+<h2>{{ _(st.t) }}</h2>
+{% if st.path %}<div class="gpath {{ '' if st.path[0].startswith('_') else 'ltr' }}">{% for p in st.path %}<span>{{ _(p[1:]) if p.startswith('_') else p }}</span>{% if not loop.last %}<i>›</i>{% endif %}{% endfor %}</div>{% endif %}
+<p>{{ _(st.b, bot=('@' ~ tg_bot) if tg_bot else '@…', ip=ip or '—', min=('{:,.0f}'.format(min_cap)), cur=cur) }}</p>
+{% if st.perms %}<div class="gperms ltr">{% for label, on in st.perms %}<div class="{{ 'on' if on else 'off' }}"><span class="box">{{ '✔' if on else '' }}</span>{{ label }}
+<b>{{ _('g_tick') if on else _('g_no_tick') }}</b></div>{% endfor %}</div>{% endif %}
+{% if st.ip %}<div class="gip"><span>{{ _('g_our_ip') }}</span>{% if ip %}<code class="ltr" id="ourip">{{ ip }}</code>
+<button type="button" class="ghost sm" onclick="navigator.clipboard.writeText('{{ ip }}');this.textContent='✔'">{{ _('btn_copy') }}</button>{% else %}<span class="neg">{{ _('g_ip_unknown') }}</span>{% endif %}</div>{% endif %}
+{% if st.warn %}<p class="flash warn small">⚠️ {{ _(st.warn, ip=ip) }}</p>{% endif %}
+</div></li>{% endfor %}
+</ol>
+{% endmacro %}
+
+{{ steps(g.steps) }}
+
+{% if g.errors %}<div class="card"><h2>🧯 {{ _('g_errors_title') }}</h2><table class="small gtable"><tbody>
+{% for code, k in g.errors %}<tr><td class="mono ltr" style="white-space:nowrap">{{ code }}</td><td>{{ _(k, ip=ip) }}</td></tr>{% endfor %}
+</tbody></table></div>{% endif %}
+
+{% if g.notes %}<div class="card"><h2>📝 {{ _('g_ex_notes_title') }}</h2><table class="small gtable"><tbody>
+{% for ex in g.notes %}<tr id="ex-{{ ex }}"><td><b>{{ EX.get(ex, ex) }}</b>{% if ex in NEEDS_PASSWORD %}<div><span class="badge warn">Passphrase</span></div>{% endif %}</td>
+<td>{{ _('g_note_' ~ ex) }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
+
+{% if g.admin_steps and user and user.is_admin %}<h2 style="margin-top:28px">🛠 {{ _('g_tga_title') }}</h2>
+<p class="muted">{{ _('g_tga_intro') }}</p>
+{{ steps(g.admin_steps) }}{% endif %}
+
+<div class="card"><h2>🔒 {{ _('g_safety_title') }}</h2><p class="small">{{ _('g_safety') }}</p></div>
+<p class="small">{% for k in others %}<a class="btn ghost sm" href="/guides/{{ k }}">{{ _(GUIDE_TITLES[k]) }}</a> {% endfor %}</p>
+{% endblock %}

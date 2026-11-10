@@ -177,3 +177,22 @@ button:disabled,.btn[aria-disabled=true]{opacity:.45;cursor:not-allowed}
 tr.srv-bad td{background:var(--err-bg)}
 .srv-actions button{padding:2px 8px}.srv-host-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
 .tnum{font-variant-numeric:tabular-nums;white-space:nowrap}[dir=rtl] .tnum{direction:ltr;text-align:right}
+/* ---- guides ---- */
+.guide-grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+.guide-card{display:block;color:var(--text)}.guide-card:hover{text-decoration:none;border-color:var(--brand)}.gicon{font-size:30px}
+.gsteps{list-style:none;padding:0;margin:0}
+.gstep{display:flex;gap:14px;align-items:flex-start}.gstep h2{margin:2px 0 8px;font-size:17px}
+.gnum{flex:none;width:34px;height:34px;border-radius:50%;background:var(--brand);color:var(--brand-ink);display:grid;place-items:center;font-weight:800}
+.gbody{flex:1;min-width:0}.gbody p{margin:6px 0}
+.gpath{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin:4px 0 8px}
+.gpath span{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:2px 8px;font-size:13px;font-weight:600}
+.gpath i{color:var(--muted);font-style:normal}
+.gperms{border:1px solid var(--line);border-radius:10px;padding:6px 10px;background:var(--bg);margin:8px 0;max-width:520px}
+.gperms div{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:14px}.gperms b{margin-left:auto;font-size:12px;font-weight:600;white-space:nowrap}
+.gperms .box{width:18px;height:18px;border-radius:4px;border:2px solid var(--line);display:grid;place-items:center;font-size:12px;flex:none}
+.gperms .on .box{background:var(--ok);border-color:var(--ok);color:#fff}.gperms .on b{color:var(--ok)}.gperms .off b{color:var(--err)}
+.gip{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}.gip code{font-size:16px;padding:4px 10px;background:var(--bg);border-radius:6px}
+.guide-video .vwrap{position:relative;padding-top:56.25%}.guide-video iframe{position:absolute;inset:0;width:100%;height:100%;border:0;border-radius:8px}
+.guide-video video{width:100%;border-radius:8px}
+.api-help{background:var(--brand-soft);border-radius:10px;padding:10px 12px;margin:10px 0;font-size:14px}
+.gtable td{white-space:normal;vertical-align:top}

@@ -4,7 +4,7 @@
 {% if not bot_username %}<p class="muted">{{ _('tg_not_configured') }}</p>
 {% elif user.telegram_chat_id %}<p><span class="badge ok">{{ _('connected') }}</span> {% if user.telegram_username %}@{{ user.telegram_username }}{% endif %} — {{ _('tg_commands_hint') }}</p>
 <form method="post" action="/settings"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="telegram_unlink"><button class="ghost sm">{{ _('btn_unlink') }}</button></form>
-{% else %}<p>{{ _('tg_link_hint') }}</p>
+{% else %}<p>{{ _('g_tg_no_bot_needed') }} <a href="/guides/telegram">{{ _('g_how') }} →</a></p>
 <form method="post" action="/telegram/link" target="_blank"><input type="hidden" name="csrf" value="{{ csrf }}"><button>{{ _('btn_link_tg') }} (@{{ bot_username }})</button></form>
 <p class="small muted">{{ _('tg_refresh_hint') }}</p>{% endif %}
 </div>

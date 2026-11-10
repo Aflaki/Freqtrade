@@ -1144,6 +1144,12 @@ T: dict[str, tuple[str, str, str, str]] = {
     "push_test_none": ("هیچ کانالی فعال نیست: نوتیفیکیشن را روی گوشی فعال کنید یا در ربات هشدار Start بزنید.", "No channel is active: turn on notifications on a device or press Start in the alert bot.", "Kein Kanal aktiv: Mitteilungen auf einem Gerät aktivieren oder im Alarm-Bot Start drücken.", "Ningún canal activo: activa las notificaciones en un dispositivo o pulsa Start en el bot de alertas."),
 }
 
+from .guides_text import G as _GUIDES  # noqa: E402  (long guide texts live in their own file)
+
+_dupes = set(T) & set(_GUIDES)
+assert not _dupes, f"duplicate i18n keys: {_dupes}"
+T.update(_GUIDES)
+
 
 def t(lang: str, key: str, **kw) -> str:
     row = T.get(key)
