@@ -24,7 +24,7 @@ log = logging.getLogger("relay.trader")
 @dataclass
 class Outcome:
     account_id: int
-    status: str  # opened | added | closed | partial | skipped | error | none
+    status: str  # opened | added | adopted | closed | partial | skipped | error | none
     message: str = ""
 
 
@@ -135,6 +135,10 @@ async def _open(s: Session, acc: ExchangeAccount, user: User, gs: GlobalSettings
             return Outcome(acc.id, "none", "opposite position open")
         if open_trade_for(s, acc.id, pair, side):  # same pair already held for another bot
             return _skip(acc, user, pair, t(L, "why_other_bot"))
+        if not client.simulated and not client.dry_run and not acc.is_spot:
+            found = await _on_exchange(s, acc, user, client, sig, pair, side, bot_id, trade_ref)
+            if found is not None:
+                return found
         n_open = s.scalar(select(func.count(Trade.id)).where(Trade.account_id == acc.id, Trade.status == "open")) or 0
         mot = max_open_trades(gs, acc)
         if n_open >= mot:
@@ -209,6 +213,33 @@ async def _open(s: Session, acc: ExchangeAccount, user: User, gs: GlobalSettings
                 f"{t(L, 'tg_margin')}: {real_stake:,.2f} | {t(L, 'tg_leverage')}: {lev}x{sl_line}{tag_line}")
     bot.notify(user, "entry_fill", text)
     return Outcome(acc.id, "added" if is_dca else "opened", f"{side} {fill.amount} {symbol} @ {fill.price}")
+
+
+async def _on_exchange(s: Session, acc: ExchangeAccount, user: User, client, sig: Signal, pair: str, side: str,
+                       bot_id: int | None, trade_ref: list) -> Outcome | None:
+    """A position in this pair that we did not open is already on the exchange (by hand, or by an older bot copy):
+    same direction -> take it over and wait for this bot's exit; opposite -> leave it alone and skip."""
+    from .positions import adopt, normalize
+    symbol = client.resolve(pair)
+    try:
+        pos = [p for p in normalize(await client.positions([symbol])) if p["symbol"] == symbol]
+    except Exception as e:  # can't tell: carry on as before
+        log.info("[acc %s] position check for %s failed: %s", acc.id, pair, e)
+        return None
+    if not pos:
+        return None
+    p = pos[0]
+    L = user.lang
+    if p["side"] != side:
+        return _skip(acc, user, pair, t(L, "why_opposite_on_exchange", side=p["side"].upper()))
+    trade = adopt(s, acc, user, p, bot_id, sig.ft_trade_id, sig.stake)
+    acc.foreign_positions = [x for x in acc.foreign_positions or [] if x.get("key") != p["key"]] or None
+    trade_ref.append(trade.id)
+    await _refresh_stop(s, acc, user, client, trade)
+    s.commit()
+    bot.notify(user, "entry_fill", t(L, "pos_tg_adopted", acc=esc(_acc_name(acc)),
+                                     lines=f"• <b>{esc(pair)}</b> {_side(side)} @ {fmt_num(p['entry'])}"))
+    return Outcome(acc.id, "adopted", f"took over {side} {p['contracts']} {symbol} @ {p['entry']}")
 
 
 # ---------------------------------------------------------------------------- exits

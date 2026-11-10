@@ -164,6 +164,12 @@ class ExchangeClient:
             raise ValueError(f"no price for {symbol}")
         return float(hint)
 
+    async def positions(self, symbols: list[str] | None = None) -> list[dict]:
+        """Open positions on the exchange (futures). Raises if the exchange can't list them."""
+        if not getattr(self.ex, "has", {}).get("fetchPositions"):
+            raise ValueError("this exchange can't list positions")
+        return await self._call("fetch_positions", {"symbols": symbols}, self.ex.fetch_positions(symbols))
+
     async def free_balance(self, currency: str) -> float:
         bal = await self._call("fetch_balance", {}, self.ex.fetch_balance())
         return float((bal.get("free") or {}).get(currency) or 0)

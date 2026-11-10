@@ -160,10 +160,20 @@ class ExchangeAccount(Base):
     daily_loss_limit_pct: Mapped[float | None] = mapped_column(Float, nullable=True)  # % of capital
     last_check_ok: Mapped[bool | None] = mapped_column(nullable=True)
     last_check_msg: Mapped[str] = mapped_column(String(500), default="")
+    # positions found on the exchange that we did not open: those in the chosen pairs are taken over (wait for the
+    # bot's exit); the others are listed here until the user decides to close them or keep them ("SYMBOL|side")
+    foreign_positions: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
+    kept_positions: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    positions_checked_at: Mapped[dt.datetime | None] = mapped_column(nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[dt.datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 
     user: Mapped[User] = relationship(back_populates="accounts")
+
+    @property
+    def undecided_positions(self) -> list[dict]:
+        kept = set(self.kept_positions or [])
+        return [p for p in (self.foreign_positions or []) if p.get("key") not in kept]
 
     @property
     def is_spot(self) -> bool:
@@ -203,6 +213,7 @@ class Trade(Base):
     exit_reason: Mapped[str] = mapped_column(String(80), default="")
     dry_run: Mapped[bool] = mapped_column(default=False)
     is_signal: Mapped[bool] = mapped_column(default=False)
+    adopted: Mapped[bool] = mapped_column(default=False)  # was already open on the exchange; we only manage the exit
     opened_at: Mapped[dt.datetime] = mapped_column(default=utcnow)
     closed_at: Mapped[dt.datetime | None] = mapped_column(nullable=True)
 

@@ -16,6 +16,8 @@ def _mk(base, spot):
 class FakeExchange:
     instances = []
     spot = False
+    has = {"fetchPositions": True}
+    positions = []  # ccxt-style positions already on the account (shared, set by tests)
 
     def __init__(self, params):
         self.params = params
@@ -67,6 +69,11 @@ class FakeExchange:
             return {"id": oid, "status": "open"}
         px = PRICES[symbol]
         m = self.markets[symbol]
+        if params.get("reduceOnly"):  # closes (part of) a position that is on the account
+            for p in FakeExchange.positions:
+                if p["symbol"] == symbol and (p["side"] == "long") == (side == "sell"):
+                    p["contracts"] = max(0.0, p["contracts"] - amount)
+            FakeExchange.positions[:] = [p for p in FakeExchange.positions if p["contracts"] > 0]
         fee = {"cost": amount * 0.001, "currency": m["base"]} if m["spot"] and side == "buy" else \
               {"cost": amount * px * 0.0005, "currency": "USDT"}
         if m["spot"]:
@@ -82,6 +89,9 @@ class FakeExchange:
     async def fetch_order(self, oid, symbol):
         o = next(o for o in self.orders if o["id"] == oid)
         return {"id": oid, "status": "closed", "filled": o["amount"], "average": o["price"], "fee": o["fee"]}
+
+    async def fetch_positions(self, symbols=None):
+        return [dict(p) for p in FakeExchange.positions if not symbols or p["symbol"] in symbols]
 
     async def close(self):
         pass

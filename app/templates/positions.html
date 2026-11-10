@@ -1,0 +1,50 @@
+{% extends "base.html" %}{% block title %}{{ _('pos_title') }} · {{ site.site_name }}{% endblock %}{% block content %}
+<h1>{{ _('pos_title') }}</h1>
+<p class="muted"><a href="/accounts">← {{ _('nav_portfolios') }}</a> · <b>{{ acc.label or EXCHANGES.get(acc.exchange, acc.exchange) }}</b>
+{% if acc.positions_checked_at %} · {{ _('pos_checked') }} <span class="num">{{ acc.positions_checked_at|lt('%Y-%m-%d %H:%M') }}</span> {{ tz_label }}{% endif %}</p>
+<p class="small muted">{{ _('pos_intro') }}</p>
+<form method="post" action="/accounts/{{ acc.id }}/positions/scan" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost sm">🔄 {{ _('pos_rescan') }}</button></form>
+
+<div class="card" id="adopted"><h2>🤝 {{ _('pos_adopted_title') }} <span class="badge">{{ adopted|length }}</span></h2>
+<p class="small muted">{{ _('pos_adopted_help') }}</p>
+{% if adopted %}<div class="table-wrap"><table class="small">
+<tr><th>{{ _('col_pair') }}</th><th>{{ _('col_side') }}</th><th>{{ _('tg_amount') }}</th><th>{{ _('tg_entry') }}</th><th>{{ _('tg_leverage') }}</th><th>{{ _('pos_col_bot') }}</th><th>{{ _('pos_col_state') }}</th></tr>
+{% for r in adopted %}{% set t = r.t %}<tr><td class="mono">{{ coin(t.pair) }}{{ t.pair }}</td>
+<td><span class="{{ 'pos' if t.side == 'long' else 'neg' }}">{{ t.side|upper }}</span></td>
+<td class="tnum">{{ (t.amount * t.contract_size)|price }}</td><td class="tnum">{{ t.entry_price|price }}</td><td class="tnum">{{ t.leverage|int }}x</td>
+<td>{{ r.bot }}</td><td class="small">{{ _('pos_match_' ~ r.match) }}</td></tr>{% endfor %}
+</table></div>{% else %}<p class="muted small">{{ _('pos_none_adopted') }}</p>{% endif %}</div>
+
+<div class="card" id="other"><h2>❓ {{ _('pos_other_title') }} <span class="badge {{ 'warn' if foreign|rejectattr('kept')|list else '' }}">{{ foreign|length }}</span></h2>
+<p class="small muted">{{ _('pos_other_help') }}</p>
+{% if foreign %}
+<form method="post" action="/accounts/{{ acc.id }}/positions" id="posform"><input type="hidden" name="csrf" value="{{ csrf }}">
+<p class="small"><button type="button" class="ghost sm" data-all="keep">{{ _('pos_all_keep') }}</button>
+<button type="button" class="ghost sm" data-all="close">{{ _('pos_all_close') }}</button></p>
+<div class="table-wrap"><table class="small">
+<tr><th>{{ _('col_pair') }}</th><th>{{ _('col_side') }}</th><th>{{ _('pos_col_decision') }}</th><th>{{ _('pos_col_value') }}</th><th>{{ _('tg_entry') }}</th><th>{{ _('pos_col_mark') }}</th><th>{{ _('pos_col_upnl') }}</th></tr>
+{% for p in foreign %}<tr><td class="mono">{{ coin(p.pair) }}{{ p.pair }}</td>
+<td><span class="{{ 'pos' if p.side == 'long' else 'neg' }}">{{ p.side|upper }}</span> <span class="muted">{{ p.leverage|int }}x</span></td>
+<td><label class="inline"><input type="radio" name="d__{{ p.key }}" value="keep" {{ 'checked' if p.kept }}> {{ _('pos_keep') }}</label>
+<label class="inline"><input type="radio" name="d__{{ p.key }}" value="close"> {{ _('pos_close') }}</label>
+{% if p.kept %}<span class="badge ok">{{ _('pos_kept') }}</span>{% else %}<span class="badge warn">{{ _('pos_undecided') }}</span>{% endif %}</td><td class="tnum">{{ p.notional|money }} {{ gs.stake_currency }}</td><td class="tnum">{{ p.entry|price }}</td><td class="tnum">{{ p.mark|price }}</td>
+<td class="tnum {{ 'pos' if p.upnl >= 0 else 'neg' }}">{{ '%+.2f'|format(p.upnl) }}</td></tr>{% endfor %}
+</table></div>
+<p class="small muted">💡 {{ _('pos_add_hint') }}</p>
+<p><button>{{ _('pos_apply') }}</button></p></form>
+<script>
+(function () {
+  var f = document.getElementById('posform');
+  f.querySelectorAll('[data-all]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      f.querySelectorAll('input[type=radio][value=' + b.dataset.all + ']').forEach(function (r) { r.checked = true; });
+    });
+  });
+  f.addEventListener('submit', function (e) {
+    var n = f.querySelectorAll('input[type=radio][value=close]:checked').length;
+    if (n && !confirm({{ _('pos_confirm_close')|tojson }}.replace('{n}', n))) e.preventDefault();
+  });
+})();
+</script>
+{% else %}<p class="muted small">{{ _('pos_none_other') }}</p>{% endif %}</div>
+{% endblock %}

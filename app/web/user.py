@@ -82,7 +82,9 @@ async def accounts(request: Request):
                  "bots": [bot_names.get(i, f"#{i}") for i in (a.bots or [])],
                  "mode": effective_mode(gs, a), "capital": effective_capital(gs, a),
                  "tradable": tradable_capital(gs, a), "mot": max_open_trades(gs, a),
-                 "open": s.scalar(select(func.count(Trade.id)).where(Trade.account_id == a.id, Trade.status == "open"))}
+                 "open": s.scalar(select(func.count(Trade.id)).where(Trade.account_id == a.id, Trade.status == "open")),
+                 "adopted": s.scalar(select(func.count(Trade.id)).where(Trade.account_id == a.id, Trade.status == "open",
+                                                                        Trade.adopted.is_(True)))}
                 for a in accs]
     return render(request, "accounts.html", gs=gs, rows=rows)
 
@@ -332,6 +334,26 @@ async def _save_account(request: Request, acc_id: int | None):
         new_id = acc.id
     await pool.drop(new_id)
     flash(request, tr(request, "msg_saved_test" if kind == "exchange" else "msg_saved"))
+    return await _after_activation(request, new_id)
+
+
+async def _after_activation(request: Request, acc_id: int) -> RedirectResponse:
+    """Positions already open on the exchange: take over those in the chosen pairs, ask about the others."""
+    from ..engine.positions import can_scan, sync_account
+    with SessionLocal() as s:
+        acc = s.get(ExchangeAccount, acc_id)
+        scan = acc is not None and acc.enabled and can_scan(acc)
+    if not scan:
+        return RedirectResponse("/accounts", 303)
+    res = await sync_account(acc_id)
+    if res["error"]:
+        flash(request, tr(request, "pos_scan_failed", err=res["error"]), "warn")
+    if res["adopted"]:
+        flash(request, tr(request, "pos_adopted_n", n=len(res["adopted"]),
+                          pairs=", ".join(f"{p['pair']} {p['side'].upper()}" for p in res["adopted"])))
+    if res["undecided"]:
+        flash(request, tr(request, "pos_ask_n", n=len(res["undecided"])), "warn")
+        return RedirectResponse(f"/accounts/{acc_id}/positions", 303)
     return RedirectResponse("/accounts", 303)
 
 
@@ -374,8 +396,67 @@ async def account_toggle(acc_id: int, request: Request):
         acc = _own(s, user, acc_id)
         acc.enabled = not acc.enabled
         s.commit()
+        enabled = acc.enabled
         flash(request, tr(request, "msg_enabled" if acc.enabled else "msg_disabled"))
+    if enabled:
+        return await _after_activation(request, acc_id)
     return RedirectResponse("/accounts", 303)
+
+
+# ------------------------------------------------------------------ positions already on the exchange
+@router.get("/accounts/{acc_id}/positions")
+async def account_positions(acc_id: int, request: Request):
+    user = require_user(request)
+    from ..engine.positions import bot_trade, can_scan
+    with SessionLocal() as s:
+        gs = get_global(s)
+        acc = _own(s, user, acc_id)
+        if not can_scan(acc):
+            raise HTTPException(404)
+        bot_names = {b.id: b.name for b in s.scalars(select(Bot))}
+        adopted = []
+        for tr_ in s.scalars(select(Trade).where(Trade.account_id == acc.id, Trade.status == "open",
+                                                 Trade.adopted.is_(True)).order_by(Trade.id)):
+            bt = bot_trade(tr_.bot_id, tr_.pair, tr_.side)
+            match = "same" if bt and not bt.get("opposite") else ("opposite" if bt else "none")
+            adopted.append({"t": tr_, "bot": bot_names.get(tr_.bot_id, "—"), "match": match})
+        kept = set(acc.kept_positions or [])
+        foreign = [{**p, "kept": p["key"] in kept} for p in acc.foreign_positions or []]
+        s.expunge(acc)
+    return render(request, "positions.html", gs=gs, acc=acc, adopted=adopted, foreign=foreign)
+
+
+@router.post("/accounts/{acc_id}/positions/scan")
+async def account_positions_scan(acc_id: int, request: Request):
+    user = require_user(request)
+    await form_with_csrf(request)
+    from ..engine.positions import sync_account
+    with SessionLocal() as s:
+        _own(s, user, acc_id)
+    res = await sync_account(acc_id)
+    if res["error"]:
+        flash(request, tr(request, "pos_scan_failed", err=res["error"]), "error")
+    else:
+        flash(request, tr(request, "pos_scanned", a=len(res["adopted"]), n=len(res["foreign"])))
+    return RedirectResponse(f"/accounts/{acc_id}/positions", 303)
+
+
+@router.post("/accounts/{acc_id}/positions")
+async def account_positions_decide(acc_id: int, request: Request):
+    user = require_user(request)
+    f = await form_with_csrf(request)
+    from ..engine.positions import decide
+    with SessionLocal() as s:
+        _own(s, user, acc_id)
+    decisions = {k[3:]: str(v) for k, v in f.items() if k.startswith("d__") and str(v) in ("close", "keep")}
+    out = await decide(acc_id, decisions)
+    for p in out["closed"]:
+        flash(request, tr(request, "pos_closed_one", pair=p["pair"], side=p["side"].upper(), price=f"{p['price']:g}"))
+    if out["kept"]:
+        flash(request, tr(request, "pos_kept_n", n=len(out["kept"])))
+    for p in out["failed"]:
+        flash(request, tr(request, "pos_close_failed", pair=p["pair"], err=p["error"]), "error")
+    return RedirectResponse(f"/accounts/{acc_id}/positions" if out["failed"] else "/accounts", 303)
 
 
 @router.post("/accounts/{acc_id}/delete")
@@ -560,5 +641,8 @@ async def account_check(request: Request):
     sel = {str(p).upper(): v for p, v in (data.get("pairs") or {}).items() if isinstance(v, dict)}
     rules = {p: pair_rules(o) for p, o in offers_by_pair().items()}
     pair_items = check_pairs(exchange, mode, sel, rules)
+    from ..engine.account_check import position_items
+    pos_items = position_items(res.get("positions") or [], set(sel))
+    res["items"] += pos_items
     return JSONResponse({"ok": res["ok"] and not pair_items, "keys_ok": res["ok"], "reachable": res["reachable"],
                          "balance": res["balance"], "items": check_texts(request, res["items"] + pair_items)})

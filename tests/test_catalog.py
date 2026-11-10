@@ -178,7 +178,7 @@ def test_check_keys(env):
     FakeBinance.perms["enableFutures"] = True
     FakeBinance.hedged, FakeBinance.positions = True, [{"symbol": "XRP/USDT:USDT", "contracts": 3}]
     keys = {(i["status"], i["key"]) for i in run_check()["items"]}
-    assert ("warn", "ck_hedge") in keys and ("warn", "ck_positions") in keys
+    assert ("warn", "ck_hedge") in keys and ("ok", "ck_positions") in keys  # no complaint: taken over / asked
     FakeBinance.fail = exmod.ccxt.AuthenticationError('{"code":-2015,"msg":"Invalid API-key, IP, or permissions for action."}')
     r = run_check()
     assert not r["ok"] and r["items"][0]["key"] == "ck_key_bad" and r["items"][0]["params"]["hint"] == "g_err_2015"

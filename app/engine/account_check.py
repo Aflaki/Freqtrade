@@ -32,10 +32,11 @@ def _client(exchange: str, mode: str, api_key: str, secret: str, password: str =
 
 async def check_keys(exchange: str, mode: str, api_key: str, secret: str, password: str = "", sandbox: bool = False,
                      currency: str = "USDT") -> dict:
-    """{"ok": no blocking problem, "reachable": exchange answered, "items": [...], "balance": {...} | None}"""
+    """{"ok": no blocking problem, "reachable": exchange answered, "items": [...], "balance": {...} | None,
+    "positions": open positions already on the account (see positions.normalize)}"""
     from ..web.guides import explain
     items: list[dict] = []
-    out: dict[str, Any] = {"ok": False, "reachable": True, "items": items, "balance": None}
+    out: dict[str, Any] = {"ok": False, "reachable": True, "items": items, "balance": None, "positions": []}
     try:
         ex = _client(exchange, mode, api_key, secret, password, sandbox)
     except ValueError as e:
@@ -81,9 +82,11 @@ async def check_keys(exchange: str, mode: str, api_key: str, secret: str, passwo
                     pass
             if getattr(ex, "has", {}).get("fetchPositions"):
                 try:
-                    pos = [p for p in await ex.fetch_positions() if float(p.get("contracts") or 0)]
-                    items.append(_item(WARN, "ck_positions", n=len(pos), pairs=", ".join(
-                        str(p.get("symbol", "")).split(":")[0] for p in pos[:6])) if pos else _item(OK, "ck_no_positions"))
+                    from .positions import normalize
+                    pos = normalize(await ex.fetch_positions())
+                    out["positions"] = pos
+                    items.append(_item(OK, "ck_positions", n=len(pos), pairs=", ".join(
+                        p["pair"] for p in pos[:6])) if pos else _item(OK, "ck_no_positions"))
                 except Exception:
                     pass
         out["ok"] = not any(i["status"] == ERROR for i in items)
@@ -118,3 +121,9 @@ def check_pairs(exchange: str, mode: str, selection: dict[str, dict], offers: di
         if admin_min and margin and margin < admin_min:
             out.append(_item(ERROR, "ck_pair_below_admin", pair=pair, need=f"{admin_min:,.2f}", have=f"{margin:,.2f}"))
     return out
+
+
+def position_items(positions: list[dict], selected: set[str]) -> list[dict]:
+    """What will happen to each position already open on the account."""
+    return [_item(OK, "ck_pos_adopt", pair=p["pair"], side=p["side"].upper()) if p["pair"] in selected
+            else _item(WARN, "ck_pos_ask", pair=p["pair"], side=p["side"].upper()) for p in positions]

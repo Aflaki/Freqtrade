@@ -303,7 +303,7 @@ class BotMonitor:
         if str(raw.get("type", "")) not in ("entry", "entry_fill", "exit", "exit_fill"):
             return
         c = Counter(r.status for r in results)
-        icons = {"opened": "✅", "added": "➕", "closed": "✅", "partial": "✂️", "skipped": "⏭", "error": "⚠️", "none": "➖"}
+        icons = {"opened": "✅", "added": "➕", "closed": "✅", "partial": "✂️", "skipped": "⏭", "adopted": "🤝", "error": "⚠️", "none": "➖"}
         copied = " · ".join(f"{icons.get(k, '')}{k} {v}" for k, v in c.items())
         side = "🟢 LONG" if sig.action in ("long", "close_long") else "🔴 SHORT"
         price = raw.get("order_rate") or raw.get("close_rate") or ""
