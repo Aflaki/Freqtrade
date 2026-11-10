@@ -5,6 +5,6 @@
 {% for t in trades %}<tr><td>{{ t.id }}</td><td class="small mono"><a href="/admin/users/{{ t.user_id }}">{{ emails.get(t.user_id) }}</a></td>
 <td>{{ acc_names.get(t.account_id, '-') }}{% if t.is_signal %} <span class="badge brand">{{ _('badge_signal') }}</span>{% elif t.dry_run %} <span class="badge">{{ _('badge_paper') }}</span>{% endif %}</td>
 <td class="mono">{{ t.pair }}</td><td>{{ t.side|upper }}</td><td>{{ _('status_' ~ t.status) }}</td><td>{{ t.entry_price|price }}</td><td>{{ t.exit_price|price }}</td>
-<td>{{ t.stake|money }}</td><td class="{{ 'pos' if t.realized_pnl >= 0 else 'neg' }}">{{ t.realized_pnl|signed }}</td><td class="small muted">{{ t.opened_at.strftime('%m-%d %H:%M') }}</td></tr>
+<td>{{ t.stake|money }}</td><td class="{{ 'pos' if t.realized_pnl >= 0 else 'neg' }}">{{ t.realized_pnl|signed }}</td><td class="small muted">{{ t.opened_at|lt('%m-%d %H:%M') }}</td></tr>
 {% else %}<tr><td colspan="11" class="muted">—</td></tr>{% endfor %}</table></div>
 {% endblock %}

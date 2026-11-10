@@ -67,7 +67,7 @@
 <tr><th>{{ _('wd_server') }}</th><th>{{ _('col_status') }}</th><th>{{ _('wd_last_seen') }}</th><th>{{ _('wd_bots_seen') }}</th><th>{{ _('wd_memory') }}</th><th>{{ _('wd_load') }}</th><th>Binance</th></tr>
 {% for r in wd.hosts %}<tr><td><b>{{ r.h.alias or r.h.hostname }}</b><div class="muted mono">{{ (r.h.ips or [])|join(', ') }}</div></td>
 <td>{% if r.online %}<span class="badge ok">{{ _('wd_online') }}</span>{% else %}<span class="badge err">{{ _('wd_offline') }}</span>{% endif %}</td>
-<td class="muted"><span class="num">{{ r.h.last_seen.strftime('%m-%d %H:%M:%S') if r.h.last_seen }}</span></td><td>{{ r.n }}</td>
+<td class="muted"><span class="num">{{ r.h.last_seen|lt('%m-%d %H:%M:%S') if r.h.last_seen }}</span></td><td>{{ r.n }}</td>
 <td>{% if r.mem.MemTotal %}{% set pct = 100 * (1 - r.mem.MemAvailable / r.mem.MemTotal) %}<span class="{{ 'neg' if pct > 90 else '' }} num">{{ '%.0f'|format(pct) }}%</span> <span class="muted small">({{ r.mem.MemAvailable }} / {{ r.mem.MemTotal }} MB {{ _('wd_free') }})</span>{% endif %}</td>
 <td class="tnum">{{ r.load|map('round', 2)|join(' ') }}</td>
 <td>{% for kind, v in r.binance.items() %}<div class="small">{{ kind }}:
@@ -75,13 +75,13 @@
 {% elif v.status == 'limited' %}<span class="badge warn">429</span>
 {% elif v.status == 'ok' %}{% set w = (v.used_weight or 0) / (v.limit or 1) %}<span class="num {{ 'neg' if w >= 0.8 else '' }}">{{ v.used_weight if v.used_weight is not none else '?' }}/{{ v.limit }}</span>
 {% else %}<span class="muted">{{ v.error or '—' }}</span>{% endif %}</div>{% endfor %}
-{% if r.ban.active %}<div><span class="badge err">⏸ {{ _('ban_paused_until', until=r.ban.until[11:16] ~ ' UTC', n=(r.ban.bots or [])|length) }}</span></div>{% endif %}</td></tr>{% endfor %}
+{% if r.ban.active %}<div><span class="badge err">⏸ {{ _('ban_paused_until', until=r.ban.until|lt('%H:%M') ~ ' ' ~ tz_label, n=(r.ban.bots or [])|length) }}</span></div>{% endif %}</td></tr>{% endfor %}
 </table></div>
 {% if wd.unwatched %}<p class="small"><span class="badge warn">{{ _('wd_unwatched') }}</span> {{ wd.unwatched|map(attribute='name')|join(', ') }}</p>
 <p class="small muted">{{ _('wd_unwatched_help') }}</p>{% endif %}
 {% if wd.events %}<details class="more"><summary>{{ _('wd_events') }} ({{ wd.events|length }})</summary>
 <div class="table-wrap"><table class="small">
-{% for e in wd.events %}<tr><td class="muted tnum">{{ e.created_at.strftime('%m-%d %H:%M') }}</td><td>{{ wd.labels.get(e.host, e.host) }}</td>
+{% for e in wd.events %}<tr><td class="muted tnum">{{ e.created_at|lt('%m-%d %H:%M') }}</td><td>{{ wd.labels.get(e.host, e.host) }}</td>
 <td>{{ wd.names.get(e.bot_id) or (e.port or '') }}</td><td><span class="badge {{ 'ok' if e.action in ('restarted','recovered') else 'err' if e.action in ('restart_failed','gave_up') else 'warn' }}">{{ _('wd_ev_' ~ e.action) }}</span></td>
 <td class="small muted" style="white-space:pre-wrap;max-width:420px">{{ _('srv_oom_short') if e.detail == 'oom' else e.detail[:300] }}</td></tr>{% endfor %}
 </table></div></details>{% endif %}

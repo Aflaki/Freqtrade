@@ -93,7 +93,7 @@
 {% for tr in data.all_trades %}{% set hrs = ((tr.close_date - tr.open_date).total_seconds() / 3600) if tr.close_date and tr.open_date else 0 %}
 <tr><td class="mono">{{ coin(tr.pair) }}{{ tr.pair }}</td><td>{{ bot_names.get(tr.bot_id, '-') }}</td><td class="{{ 'pos' if tr.side=='long' else 'neg' }}">{{ tr.side|upper }}</td>
 <td data-v="{{ tr.leverage or 1 }}"><span class="num">{{ '%g'|format(tr.leverage or 1) }}x</span></td>
-<td class="muted">{{ tr.open_date.strftime('%Y-%m-%d %H:%M') }}</td><td class="muted">{{ tr.close_date.strftime('%Y-%m-%d %H:%M') if tr.close_date }}</td>
+<td class="muted">{{ tr.open_date|lt('%Y-%m-%d %H:%M') }}</td><td class="muted">{{ tr.close_date|lt('%Y-%m-%d %H:%M') if tr.close_date }}</td>
 <td data-v="{{ hrs }}">{{ '%.1f'|format(hrs) }}</td><td data-v="{{ tr.open_rate or 0 }}">{{ tr.open_rate|price }}</td><td data-v="{{ tr.close_rate or 0 }}">{{ tr.close_rate|price }}</td>
 <td data-v="{{ tr.profit_ratio or 0 }}" class="{{ 'pos' if (tr.profit_ratio or 0) >= 0 else 'neg' }}">{{ ((tr.profit_ratio or 0)*100)|pct }}</td>
 <td data-v="{{ tr.profit_abs or 0 }}" class="{{ 'pos' if (tr.profit_abs or 0) >= 0 else 'neg' }}">{{ tr.profit_abs|signed if tr.profit_abs is not none else '-' }}</td><td>{{ tr.exit_reason }}</td></tr>{% endfor %}

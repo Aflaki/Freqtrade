@@ -31,7 +31,7 @@
 <tr><th>Timeframe</th><td>{{ st.timeframe }}</td><th>{{ _('f_stake_currency') }}</th><td>{{ st.stake_currency }}</td></tr>
 <tr><th>{{ _('bot_last_process') }}</th><td class="mono">{{ st.last_process }}</td><th>Version</th><td>{{ st.version }} · {{ st.bot_name }}</td></tr>
 <tr><th>Whitelist</th><td colspan="3" class="mono" style="white-space:normal">{{ (st.whitelist or [])|join(', ') }}</td></tr>
-</table></div><p class="small muted">{{ _('bot_checked_at') }}: {{ st.checked_at }} UTC</p></div>
+</table></div><p class="small muted">{{ _('bot_checked_at') }}: {{ st.checked_at|lt('%Y-%m-%d %H:%M:%S') }} {{ tz_label }}</p></div>
 {% endif %}
 
 {% if diag %}
@@ -96,7 +96,7 @@
 
 <div class="card"><h2>{{ _('bot_events') }}</h2><div class="table-wrap"><table class="small">
 <tr><th>{{ _('col_time') }}</th><th>{{ _('col_type') }}</th><th>{{ _('col_status') }}</th><th>{{ _('col_pair') }}</th><th>{{ _('col_message') }}</th></tr>
-{% for e in events %}<tr><td class="muted">{{ e.received_at.strftime('%m-%d %H:%M:%S') }}</td><td>{{ e.msg_type }}</td>
+{% for e in events %}<tr><td class="muted">{{ e.received_at|lt('%m-%d %H:%M:%S') }}</td><td>{{ e.msg_type }}</td>
 <td><span class="badge {{ 'ok' if e.status=='accepted' else 'err' if e.status=='rejected' else 'brand' if e.status=='event' else '' }}">{{ e.status }}</span></td>
 <td class="mono">{{ e.pair }}</td>
 <td dir="auto" style="white-space:pre-wrap;min-width:280px">{{ (e.payload.get('status') or e.payload.get('msg') or e.payload.get('reason') or e.summary or e.error or '')|plain|truncate(400) }}</td></tr>

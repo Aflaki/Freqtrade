@@ -109,6 +109,60 @@ def get_lang(request: Request, user=None) -> str:
         return get_global(s).default_lang
 
 
+_ZONES: set[str] | None = None
+
+
+def zones() -> list[str]:
+    global _ZONES
+    if _ZONES is None:
+        from zoneinfo import available_timezones
+        _ZONES = {z for z in available_timezones() if "/" in z and not z.startswith(("Etc/", "SystemV/", "posix/", "right/"))}
+        _ZONES |= {"UTC"}
+    return sorted(_ZONES)
+
+
+def valid_tz(name) -> str:
+    name = str(name or "").strip()
+    return name if name and name in set(zones()) else ""
+
+
+def visitor_tz(request: Request, user=None, site=None) -> str:
+    """The user's own choice, else the browser's (cookie set by base.html), else the site default, else UTC."""
+    from urllib.parse import unquote
+    return (valid_tz(getattr(user, "timezone", "")) or valid_tz(unquote(request.cookies.get("tz") or ""))
+            or valid_tz(getattr(site, "default_timezone", "")) or "UTC")
+
+
+def _local(value, tz_name: str):
+    import datetime as _d
+    from zoneinfo import ZoneInfo
+    if value is None or value == "":
+        return None
+    if isinstance(value, str):
+        try:
+            value = _d.datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if not isinstance(value, _d.datetime):
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=_d.UTC)  # everything is stored in UTC
+    return value.astimezone(ZoneInfo(tz_name))
+
+
+from jinja2 import pass_context  # noqa: E402
+
+
+@pass_context
+def _lt(ctx, value, fmt: str = "%Y-%m-%d %H:%M") -> str:
+    """{{ some_utc_datetime|lt('%Y-%m-%d %H:%M') }} -> in the visitor's time zone."""
+    v = _local(value, ctx.get("tz_name") or "UTC")
+    return v.strftime(fmt) if v else ""
+
+
+templates.env.filters["lt"] = _lt
+
+
 def render(request: Request, name: str, status_code: int = 200, **ctx):
     user = ctx.setdefault("user", current_user(request))
     lang = get_lang(request, user)
@@ -119,6 +173,12 @@ def render(request: Request, name: str, status_code: int = 200, **ctx):
     if theme not in THEMES:
         theme = site.theme if site.theme in THEMES else "aurora"
     from .icons import icon_version
+    tz_name = visitor_tz(request, user, site)
+    from zoneinfo import ZoneInfo
+    import datetime as _d
+    abbr = _d.datetime.now(ZoneInfo(tz_name)).strftime("%Z")
+    tz_label = "UTC" if tz_name == "UTC" else (abbr if abbr and not abbr[0] in "+-" else tz_name.split("/")[-1].replace("_", " "))
+    ctx.update(tz_name=tz_name, tz_label=tz_label, tz_auto=not (user and valid_tz(user.timezone)))
     ctx.update(lang=lang, dir=LANGS[lang]["dir"], theme=theme, icon_v=icon_version(), csrf=csrf_token(request), flashes=pop_flashes(request),
                _=lambda key, **kw: t(lang, key, **kw))
     return templates.TemplateResponse(request, name, ctx, status_code=status_code)

@@ -474,3 +474,27 @@ def test_email_code_tries_and_no_gate_without_smtp(clean, monkeypatch):
         assert user("tries@x.com").email_verified is False  # 5 wrong tries: this code is dead, a new one is needed
         monkeypatch.setattr(mailer, "configured", lambda: False)  # no mail server: nobody can be blocked
         assert c.get("/dashboard", follow_redirects=False).status_code == 200
+
+
+# ------------------------------------------------------------------ time zones
+def test_time_zone_per_user_and_browser():
+    import datetime as dt
+
+    from app.web.common import _local
+    assert _local(dt.datetime(2026, 11, 10, 10, 0), "Asia/Tehran").strftime("%H:%M") == "13:30"
+    assert _local("2026-11-10T10:00:00", "Europe/Berlin").strftime("%H:%M") == "11:00"
+    with TestClient(app) as c:
+        register(c)
+        with SessionLocal() as s:
+            s.query(User).filter_by(email="neo@x.com").update({"last_login_at": dt.datetime(2026, 11, 10, 10, 0)})
+            s.commit()
+        assert "2026-11-10 10:00" in c.get("/settings/security?lang=en").text  # no choice, no browser info: UTC
+        c.cookies.set("tz", "Europe%2FBerlin")  # exactly what base.html stores (encodeURIComponent)
+        assert "2026-11-10 11:00" in c.get("/settings/security?lang=en").text
+        form = fields(c, "/settings")
+        c.post("/settings", data={**form, "action": "profile", "name": "Neo Anderson", "timezone": "Asia/Tehran"})
+        assert user().timezone == "Asia/Tehran"  # the user's choice beats the browser
+        page = c.get("/settings/security?lang=en").text
+        assert "2026-11-10 13:30" in page and "Tehran" in page
+        c.post("/settings", data={**form, "action": "profile", "name": "Neo Anderson", "timezone": "Mars/Olympus"})
+        assert user().timezone == ""  # unknown zone -> automatic

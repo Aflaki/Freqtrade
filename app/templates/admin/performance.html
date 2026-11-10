@@ -29,7 +29,7 @@
 <div class="card"><h2>{{ _('perf_recent') }}</h2><div class="table-wrap"><table class="small">
 <tr><th>{{ _('col_bot') }}</th><th>FT #</th><th>{{ _('col_pair') }}</th><th>{{ _('col_side') }}</th><th>{{ _('col_leverage') }}</th><th>{{ _('col_opened') }}</th><th>{{ _('col_closed') }}</th><th>{{ _('col_status') }}</th><th>{{ _('perf_result') }}</th><th>{{ _('perf_profit_abs') }}</th><th>{{ _('col_reason') }}</th><th>{{ _('col_source') }}</th></tr>
 {% for t in recent %}<tr><td>{{ names.get(t.bot_id, '-') }}</td><td>{{ t.ft_trade_id }}</td><td class="mono">{{ t.pair }}</td><td>{{ t.side|upper }}</td><td>{{ t.leverage }}x</td>
-<td class="muted">{{ t.open_date.strftime('%Y-%m-%d %H:%M') }}</td><td class="muted">{{ t.close_date.strftime('%Y-%m-%d %H:%M') if t.close_date }}</td>
+<td class="muted">{{ t.open_date|lt('%Y-%m-%d %H:%M') }}</td><td class="muted">{{ t.close_date|lt('%Y-%m-%d %H:%M') if t.close_date }}</td>
 <td>{{ _('status_open') if t.is_open else _('status_closed') }}</td><td>{{ ((t.profit_ratio or 0)*100)|pct }}</td><td>{{ t.profit_abs|signed if t.profit_abs is not none else '-' }}</td><td>{{ t.exit_reason }}</td><td>{{ t.source }}</td></tr>
 {% else %}<tr><td colspan="12" class="muted">—</td></tr>{% endfor %}</table></div></div>
 {% endblock %}

@@ -44,5 +44,5 @@
 <div class="mw-sub mw-ends"><span class="pos">Long <span class="num">{{ '%.1f'|format(f.long_pct) }}%</span></span><span class="neg">Short <span class="num">{{ '%.1f'|format(100 - f.long_pct) }}%</span></span></div>
 <div class="mw-src">Binance · BTCUSDT · 1h</div></div>{% endif %}{% endif %}
 </section>
-{% if mw.at %}<p class="small muted mw-foot">{{ _('mw_updated') }} <span class="num">{{ mw.at[11:16] }}</span> UTC</p>{% endif %}
+{% if mw.at %}<p class="small muted mw-foot">{{ _('mw_updated') }} <span class="num">{{ mw.at|lt('%H:%M') }}</span> {{ tz_label }}</p>{% endif %}
 {% endif %}

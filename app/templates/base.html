@@ -58,6 +58,14 @@ document.querySelectorAll('input.tsearch').forEach(inp => inp.addEventListener('
   document.getElementById(inp.dataset.t).tBodies[0].querySelectorAll('tr').forEach(r =>
     r.style.display = cols.some(c => r.cells[c] && r.cells[c].textContent.toUpperCase().replace('/', '').includes(q)) ? '' : 'none');
 }));
+// time zone of this browser -> cookie (the site shows times in it unless the user picked one)
+try { const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (tz && !document.cookie.split('; ').some(c => c === 'tz=' + encodeURIComponent(tz))) {
+    const first = !document.cookie.includes('tz=');
+    document.cookie = 'tz=' + encodeURIComponent(tz) + ';path=/;max-age=31536000;samesite=lax';
+    let once = false; try { once = sessionStorage.getItem('tzr') === '1'; sessionStorage.setItem('tzr', '1'); } catch (e) { once = true; }
+    if (first && !once && {{ 'true' if tz_auto else 'false' }} && '{{ tz_name }}' !== tz) location.reload();  // at most once
+  } } catch (e) {}
 // sticky offsets follow the real header height
 const setNavH = () => { const n = document.querySelector('.nav'); if (n) document.documentElement.style.setProperty('--navh', n.offsetHeight + 'px'); };
 setNavH(); window.addEventListener('resize', setNavH);

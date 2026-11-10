@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy import func, select
 
-from ..db import (
+from ..db import (utcnow, 
     ADMIN_NOTIFY,
     DEFAULT_NOTIFY,
     SIZING_MODES,
@@ -458,7 +458,11 @@ async def settings_page(request: Request):
     with SessionLocal() as s:
         devices = list(s.scalars(select(PushSubscription).where(PushSubscription.user_id == user.id)
                                  .order_by(PushSubscription.id)))
-    return render(request, "settings.html", notify={**DEFAULT_NOTIFY, **(user.notify or {})},
+    from .common import _local, visitor_tz, zones
+    with SessionLocal() as s:
+        now_local = _local(utcnow(), visitor_tz(request, user, get_global(s))).strftime("%Y-%m-%d %H:%M")
+    return render(request, "settings.html", tz_list=zones(), now_local=now_local,
+                  notify={**DEFAULT_NOTIFY, **(user.notify or {})},
                   notify_keys=keys, bot_username=bot.username, devices=devices,
                   alert_bot=await alert_bot_username() if user.is_admin else "")
 
@@ -477,6 +481,8 @@ async def settings_save(request: Request):
             from .common import THEMES
             u.theme = str(f.get("theme")) if f.get("theme") in THEMES else None
             u.phone = str(f.get("phone", u.phone)).strip()[:32]
+            from .common import valid_tz
+            u.timezone = valid_tz(f.get("timezone"))
             flash(request, tr(request, "msg_saved"))
         elif action == "telegram_unlink":
             u.telegram_chat_id = None

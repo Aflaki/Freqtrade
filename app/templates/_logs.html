@@ -1,6 +1,6 @@
 {% macro exec_table(rows, emails=None) %}<div class="table-wrap"><table class="small">
 <tr><th>#</th><th>{{ _('col_time') }}</th>{% if emails %}<th>{{ _('col_user') }}</th>{% endif %}<th>{{ _('col_action') }}</th><th>{{ _('col_pair') }}</th><th>{{ _('col_status') }}</th><th>{{ _('col_message') }}</th><th>ms</th><th>{{ _('col_details') }}</th></tr>
-{% for e in rows %}<tr><td>{{ e.id }}</td><td class="muted">{{ e.created_at.strftime('%m-%d %H:%M:%S') }}</td>
+{% for e in rows %}<tr><td>{{ e.id }}</td><td class="muted">{{ e.created_at|lt('%m-%d %H:%M:%S') }}</td>
 {% if emails %}<td class="mono"><a href="/admin/users/{{ e.user_id }}">{{ emails.get(e.user_id, '-') }}</a></td>{% endif %}
 <td>{{ e.action }}</td><td class="mono">{{ e.pair }}</td>
 <td><span class="badge {{ 'ok' if e.status in ('opened','added','closed','partial') else 'err' if e.status == 'error' else 'warn' if e.status == 'skipped' else '' }}">{{ e.status }}</span></td>
@@ -10,7 +10,7 @@
 
 {% macro note_table(rows, emails=None) %}<div class="table-wrap"><table class="small">
 <tr><th>#</th><th>{{ _('col_time') }}</th>{% if emails %}<th>{{ _('col_user') }}</th>{% endif %}<th>{{ _('col_kind') }}</th><th>{{ _('col_status') }}</th><th>{{ _('col_message') }}</th></tr>
-{% for n in rows %}<tr><td>{{ n.id }}</td><td class="muted">{{ n.created_at.strftime('%m-%d %H:%M:%S') }}</td>
+{% for n in rows %}<tr><td>{{ n.id }}</td><td class="muted">{{ n.created_at|lt('%m-%d %H:%M:%S') }}</td>
 {% if emails %}<td class="mono">{% if n.user_id %}<a href="/admin/users/{{ n.user_id }}">{{ emails.get(n.user_id, '-') }}</a>{% else %}{{ n.chat_id }}{% endif %}</td>{% endif %}
 <td>{{ n.kind }}</td><td>{% if n.ok %}<span class="badge ok">✓</span>{% else %}<span class="badge err" title="{{ n.error }}">✗</span> <span class="small muted">{{ n.error[:80] }}</span>{% endif %}</td>
 <td style="white-space:pre-wrap;min-width:260px">{{ n.text|striptags }}</td></tr>

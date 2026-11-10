@@ -19,7 +19,7 @@
 <p><button type="button" id="push-on">{{ _('phone_enable') }}</button>
 <span id="push-here" class="badge ok" hidden>✔ {{ _('phone_this_on') }}</span></p></div>
 {% if devices %}<table class="small"><tbody>{% for d in devices %}<tr><td>📲 {{ d.device or '—' }}</td>
-<td class="muted">{{ d.created_at.strftime('%Y-%m-%d') }}{% if d.last_ok_at %} · ✔ {{ d.last_ok_at.strftime('%m-%d %H:%M') }}{% endif %}{% if d.last_error %} · <span class="neg">{{ d.last_error }}</span>{% endif %}</td>
+<td class="muted">{{ d.created_at|lt('%Y-%m-%d') }}{% if d.last_ok_at %} · ✔ {{ d.last_ok_at|lt('%m-%d %H:%M') }}{% endif %}{% if d.last_error %} · <span class="neg">{{ d.last_error }}</span>{% endif %}</td>
 <td><form method="post" action="/push/remove/{{ d.id }}" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost sm">{{ _('btn_remove') }}</button></form></td></tr>{% endfor %}</tbody></table>{% endif %}
 {% if user.is_admin %}<h3 class="small" style="margin:14px 0 6px">2) {{ _('alertbot_title') }}</h3>
 {% if alert_bot %}<p class="small">{{ _('phone_alertbot_start') }} <a class="btn sm" href="https://t.me/{{ alert_bot }}?start=alerts" target="_blank" rel="noopener">@{{ alert_bot }}</a></p>
@@ -63,6 +63,10 @@
 <h2>{{ _('sec_profile') }}</h2>
 <div class="row"><div><label>{{ _('f_name') }}</label><input type="text" name="name" value="{{ user.name }}"></div>
 <div><label>{{ _('f_phone') }}</label><input class="ltr" type="text" name="phone" value="{{ user.phone }}"></div></div>
+<label>{{ _('f_timezone') }}</label>
+<select name="timezone" style="max-width:320px"><option value="">{{ _('tz_auto') }}{% if tz_auto %} — {{ tz_name }}{% endif %}</option>
+{% for z in tz_list %}<option value="{{ z }}" {{ 'selected' if user.timezone == z }}>{{ z.replace('_', ' ') }}</option>{% endfor %}</select>
+<div class="small muted">{{ _('tz_help', now=now_local) }}</div>
 <label>{{ _('f_theme_my') }}</label>
 {{ theme_picker('theme', user.theme, true) }}
 <label>{{ _('f_notify') }}</label>

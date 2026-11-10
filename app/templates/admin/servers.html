@@ -60,7 +60,7 @@
 {% if not ch.tg_bot %}<span class="neg">{{ _('tg_not_configured') }}</span>
 {% elif not ch.tg_linked %}<span class="neg">{{ _('srv_ch_tg_not_linked') }}</span> <a href="/settings">{{ _('nav_settings') }} →</a>
 {% elif not ch.wants %}<span class="neg">{{ _('srv_ch_off') }}</span> <a href="/settings">{{ _('nav_settings') }} →</a>
-{% else %}{{ _('srv_ch_on') }}{% if ch.last %} — {{ _('srv_ch_last') }} <span class="num">{{ ch.last.created_at.strftime('%m-%d %H:%M') }}</span>
+{% else %}{{ _('srv_ch_on') }}{% if ch.last %} — {{ _('srv_ch_last') }} <span class="num">{{ ch.last.created_at|lt('%m-%d %H:%M') }}</span>
 {% if ch.last.ok %}<span class="badge ok">✔</span>{% else %}<span class="badge err" title="{{ ch.last.error }}">✗ {{ ch.last.error[:80] }}</span>{% endif %}{% endif %}{% endif %}</li>
 <li class="{{ 'ok' if ch.alert_bot else '' }}">{{ '✔' if ch.alert_bot else '○' }} {{ _('alertbot_title') }}: {% if ch.alert_bot %}@{{ ch.alert_bot }}{% else %}<a href="/admin/settings#alertbot">{{ _('phone_alertbot_off') }}</a>{% endif %}</li>
 <li class="{{ 'ok' if ch.devices and ch.wants_phone else '' }}">{{ '✔' if ch.devices and ch.wants_phone else '○' }} {{ _('phone_push') }}: <span class="num">{{ ch.devices }}</span> <a href="/settings#phone">{{ _('nav_settings') }} →</a></li>
@@ -77,8 +77,8 @@
 {% for sv in servers %}
 <div class="card srv {{ 'srv-off' if not sv.online }}" id="host-{{ sv.h.hostname }}">
 <div class="srv-head"><h2>🖥 {{ sv.h.alias or sv.h.hostname }}{% if sv.h.alias %} <span class="muted small mono">{{ sv.h.hostname }}</span>{% endif %}
-{% if sv.online %}<span class="badge ok">{{ _('wd_online') }}</span>{% else %}<span class="badge err">{{ _('wd_offline') }} · {{ sv.h.last_seen.strftime('%H:%M') if sv.h.last_seen }}</span>{% endif %}
-{% if sv.ban.active %}<span class="badge err">🚫 {{ _('ban_paused_until', until=sv.ban.until[11:16] ~ ' UTC', n=(sv.ban.bots or [])|length) }}</span>{% endif %}</h2>
+{% if sv.online %}<span class="badge ok">{{ _('wd_online') }}</span>{% else %}<span class="badge err">{{ _('wd_offline') }} · {{ sv.h.last_seen|lt('%H:%M') if sv.h.last_seen }}</span>{% endif %}
+{% if sv.ban.active %}<span class="badge err">🚫 {{ _('ban_paused_until', until=sv.ban.until|lt('%H:%M') ~ ' ' ~ tz_label, n=(sv.ban.bots or [])|length) }}</span>{% endif %}</h2>
 <span class="muted mono small">{{ (sv.h.ips or [])|join(', ') }} · {{ sv.info.cores or '?' }} cores
 {% if sv.info.uptime_s %} · up {{ (sv.info.uptime_s // 86400)|int }}d {{ ((sv.info.uptime_s % 86400) // 3600)|int }}h{% endif %} · agent {{ sv.h.version }}</span>
 {% if sv.h.version != agent_version %}<span class="badge warn" title="{{ install_cmd }}">⬆ {{ _('srv_agent_update', v=agent_version) }}</span>{% endif %}</div>
@@ -113,7 +113,7 @@
 {# ---------------- timeline ---------------- #}
 <div class="card"><h2>🕑 {{ _('srv_timeline') }}</h2>
 {% if timeline %}<div class="table-wrap scroll-table"><table class="small"><tbody>
-{% for kind, at, e in timeline %}<tr><td class="muted tnum">{{ at.strftime('%m-%d %H:%M') }}</td>
+{% for kind, at, e in timeline %}<tr><td class="muted tnum">{{ at|lt('%m-%d %H:%M') }}</td>
 {% if kind == 'wd' %}<td>{{ host_names.get(e.host, e.host) }}</td><td>{{ names.get(e.bot_id) or (e.port or '') }}</td>
 <td><span class="badge {{ 'ok' if e.action in ('restarted','recovered') else 'err' if e.action in ('restart_failed','gave_up') else 'warn' }}">{{ _('wd_ev_' ~ e.action) }}</span></td>
 <td class="muted" style="white-space:pre-wrap;max-width:460px">{{ _('srv_oom_short') if e.detail == 'oom' else e.detail[:240] }}</td>

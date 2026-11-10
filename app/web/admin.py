@@ -108,7 +108,8 @@ async def admin_settings(request: Request):
     from ..notify.alerts import alert_bot_username
     alert_name = await alert_bot_username() if gs.alert_bot_token_enc else ""
     from .guides import GUIDES, ORDER, server_ip
-    return render(request, "admin/settings.html", gs=gs, all_exchanges=EXCHANGES, sizing_all=SIZING_MODES,
+    from .common import zones
+    return render(request, "admin/settings.html", gs=gs, all_exchanges=EXCHANGES, sizing_all=SIZING_MODES, tz_list=zones(),
                   alert_bot_username=alert_name, server_ip=server_ip(),
                   guide_titles=[(k, GUIDES[k]["title"]) for k in ORDER],
                   tab="settings", bot_username=bot.username, bot_error=bot.last_error, has_custom_icon=bool(custom_icon()),
@@ -144,6 +145,8 @@ async def admin_settings_save(request: Request):
                 except ValueError as e:
                     flash(request, str(e), "error")
             gs.default_lang = f.get("default_lang") if f.get("default_lang") in LANGS else "fa"
+            from .common import valid_tz
+            gs.default_timezone = valid_tz(f.get("default_timezone")) or gs.default_timezone or "UTC"
             gs.base_url = str(f.get("base_url", "")).strip().rstrip("/")[:200] or gs.base_url
             gs.public_performance = bool(f.get("public_performance"))
             gs.signal_only_enabled = bool(f.get("signal_only_enabled"))

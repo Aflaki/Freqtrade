@@ -90,6 +90,7 @@ class User(Base):
     recovery_codes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)  # sha256 of unused codes
     session_version: Mapped[int] = mapped_column(default=1)  # bump = log out everywhere
     anti_phishing: Mapped[str] = mapped_column(String(32), default="")
+    timezone: Mapped[str] = mapped_column(String(64), default="")  # IANA name; "" = automatic (browser)
     email_code_hash: Mapped[str] = mapped_column(String(64), default="")  # e-mail confirmation code (hashed)
     email_code_expires: Mapped[dt.datetime | None] = mapped_column(nullable=True)
     email_code_tries: Mapped[int] = mapped_column(default=0)
@@ -469,6 +470,7 @@ class GlobalSettings(Base):
     site_name: Mapped[str] = mapped_column(String(80), default="Signal Relay")
     theme: Mapped[str] = mapped_column(String(20), default="aurora")
     default_lang: Mapped[str] = mapped_column(String(5), default="fa")
+    default_timezone: Mapped[str] = mapped_column(String(64), default="UTC")  # for guests without browser info
     base_url: Mapped[str] = mapped_column(String(200), default="http://localhost:8000")
     hero: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)  # {"fa": {"title":..,"subtitle":..}, ...}
     public_performance: Mapped[bool] = mapped_column(default=True)

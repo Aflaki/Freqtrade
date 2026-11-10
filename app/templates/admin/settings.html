@@ -6,6 +6,7 @@
 <div class="row">
 <div><label>{{ _('f_site_name') }}</label><input type="text" name="site_name" value="{{ gs.site_name }}"></div>
 <div><label>{{ _('f_default_lang') }}</label><select name="default_lang">{% for c, l in LANGS.items() %}<option value="{{ c }}" {{ 'selected' if c == gs.default_lang }}>{{ l.name }}</option>{% endfor %}</select></div>
+<div><label>{{ _('f_default_timezone') }}</label><select name="default_timezone">{% for z in tz_list %}<option value="{{ z }}" {{ 'selected' if gs.default_timezone == z }}>{{ z.replace('_', ' ') }}</option>{% endfor %}</select></div>
 <div><label>{{ _('f_base_url') }}</label><input class="ltr" type="text" name="base_url" value="{{ gs.base_url }}"></div>
 <div><label>{{ _('f_trial_days') }}</label><input type="number" min="0" name="trial_days" value="{{ gs.trial_days }}"></div>
 <div><label>{{ _('f_report_hour') }}</label><input type="number" min="0" max="23" name="daily_report_hour_utc" value="{{ gs.daily_report_hour_utc }}"></div>

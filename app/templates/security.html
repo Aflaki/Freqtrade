@@ -56,7 +56,7 @@
 <table class="small"><tbody>
 <tr><td>🔑 {{ _('f_password') }}</td><td>{% if user.has_password %}<span class="badge ok">{{ _('on') }}</span>{% else %}<span class="badge">{{ _('not_set') }}</span>{% endif %}</td><td></td></tr>
 {% for i in idents %}<tr><td>{{ logo(i.provider) }} {{ PROVIDERS[i.provider].name if i.provider in PROVIDERS else i.provider }}</td>
-<td class="muted">{{ i.email or '' }} · {{ i.created_at.strftime('%Y-%m-%d') }}</td>
+<td class="muted">{{ i.email or '' }} · {{ i.created_at|lt('%Y-%m-%d') }}</td>
 <td><form method="post" action="/settings/security/unlink/{{ i.id }}" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost sm">{{ _('btn_unlink') }}</button></form></td></tr>{% endfor %}
 </tbody></table>
 {% set addable = providers|reject('in', linked)|list %}
@@ -80,7 +80,7 @@
 
 {# ---- sessions ---- #}
 <div class="card" id="sessions"><h2>{{ _('sessions_title') }}</h2>
-<p class="small">{% if user.last_login_at %}{{ _('last_login') }}: <span class="num">{{ user.last_login_at.strftime('%Y-%m-%d %H:%M') }} UTC</span> · <span class="mono">{{ user.last_login_ip }}</span>{% endif %}</p>
+<p class="small">{% if user.last_login_at %}{{ _('last_login') }}: <span class="num">{{ user.last_login_at|lt('%Y-%m-%d %H:%M') }} {{ tz_label }}</span> · <span class="mono">{{ user.last_login_ip }}</span>{% endif %}</p>
 <form method="post" action="/settings/security/logout-others"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost">{{ _('btn_logout_others') }}</button></form>
 <p class="small muted">{{ _('sessions_help') }}</p></div>
 {{ authjs() }}{% endblock %}

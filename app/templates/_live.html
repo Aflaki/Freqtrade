@@ -19,7 +19,7 @@
 <tr><td class="mono">{{ coin(r.pair) }}{{ r.pair }}{% if r.pending %} <span class="badge warn" title="{{ _('live_pending') }}">⏳</span>{% endif %}</td>
 <td>{{ r.bot }}</td><td class="{{ 'pos' if r.side == 'long' else 'neg' }}">{{ r.side|upper }}</td>
 <td><span class="num">{{ '%g'|format(r.leverage or 1) }}x</span></td>
-<td class="muted">{{ r.open_date.strftime('%Y-%m-%d %H:%M') if r.open_date }}</td>
+<td class="muted">{{ r.open_date|lt('%Y-%m-%d %H:%M') if r.open_date }}</td>
 <td class="muted"><span class="num">{% if h >= 24 %}{{ (h // 24)|int }}d {{ (h % 24)|int }}h{% else %}{{ h|int }}h {{ ((h * 60) % 60)|int }}m{% endif %}</span></td>
 <td>{{ r.open_rate|price }}</td><td>{{ r.current_rate|price if r.current_rate is not none else '—' }}</td>
 <td class="{{ 'pos' if (r.profit_ratio or 0) >= 0 else 'neg' }}">{{ (r.profit_ratio * 100)|pct if r.profit_ratio is not none else '—' }}</td>
@@ -27,6 +27,6 @@
 <td class="muted">{{ r.stop_loss|price if r.stop_loss else '' }}</td><td class="muted small">{{ r.enter_tag }}</td></tr>{% endfor %}
 </tbody></table></div>
 {% else %}<p class="muted">{{ _('live_none') }}</p>{% endif %}
-<p class="small muted">{% if L.updated %}{{ _('live_updated') }} <span class="num">{{ L.updated.strftime('%H:%M:%S') }} UTC</span> · {% endif %}{{ _('live_hint') }}
+<p class="small muted">{% if L.updated %}{{ _('live_updated') }} <span class="num">{{ L.updated|lt('%H:%M:%S') }} {{ tz_label }}</span> · {% endif %}{{ _('live_hint') }}
 {% if L.stale %}<br><span class="badge warn">{{ _('live_stale', bots=L.stale|join(', ')) }}</span>{% endif %}</p>
 </div></div>
