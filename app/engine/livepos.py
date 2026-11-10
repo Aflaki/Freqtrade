@@ -23,6 +23,8 @@ MAX_AGE = 15.0
 HISTORY_WEEKS = 12  # how far back to look for when a taken-over position was opened
 _cache: dict[int, dict[str, Any]] = {}  # account id -> {"at": monotonic, "rows": {key: position}, "error": str}
 _prices: dict[str, tuple[float, float]] = {}  # symbol -> (monotonic, price), for paper/signal trades
+_bg: set[asyncio.Task] = set()  # open-time lookups running in the background
+_date_lock: asyncio.Lock | None = None
 _dated: set[tuple] = set()  # (trade id, symbol, side, taken-over time): open time looked up (found or not)
 
 
@@ -102,18 +104,41 @@ async def refresh(acc_id: int, max_age: float = MAX_AGE) -> dict[str, Any]:
             if tr.adopted and (tr.id, tr.symbol, tr.side, tr.opened_at) not in _dated:
                 undated.append((tr.id, tr.symbol, tr.side, p["contracts"], tr.opened_at))
         s.commit()
-    for tid, symbol, side, contracts, was in undated:  # once per trade: when was it really opened?
-        when = await _open_time(got["ex"], symbol, side, contracts)
-        _dated.add((tid, symbol, side, when or was))
-        if when is not None:
+    if undated:  # once per trade, in the background: when was it really opened?
+        for u in undated:
+            _dated.add(u[:3] + (u[4],))
+        task = asyncio.get_running_loop().create_task(_date_trades(got["ex"], undated))
+        _bg.add(task)
+        task.add_done_callback(_bg.discard)
+    out = {"rows": rows, "error": "", "at": time.monotonic()}
+    _cache[acc_id] = out
+    return out
+
+
+async def _date_trades(ex, undated: list[tuple]) -> None:
+    global _date_lock
+    _date_lock = _date_lock or asyncio.Lock()
+    async with _date_lock:  # one account's history at a time: gentle on the exchange's rate limits
+        for tid, symbol, side, contracts, was in undated:
+            try:
+                when = await _open_time(ex, symbol, side, contracts)
+            except Exception as e:
+                log.info("open time of trade %s unknown: %s", tid, e)
+                continue
+            if when is None:
+                continue
+            _dated.add((tid, symbol, side, when))
             with SessionLocal() as s:
                 tr = s.get(Trade, tid)
                 if tr is not None:
                     tr.opened_at = when
                     s.commit()
-    out = {"rows": rows, "error": "", "at": time.monotonic()}
-    _cache[acc_id] = out
-    return out
+
+
+async def drain() -> None:
+    """Wait for the background lookups (tests)."""
+    while _bg:
+        await asyncio.gather(*list(_bg), return_exceptions=True)
 
 
 async def _price(acc: ExchangeAccount, symbol: str) -> float | None:
@@ -128,6 +153,25 @@ async def _price(acc: ExchangeAccount, symbol: str) -> float | None:
         return hit[1] if hit else None
     _prices[symbol] = (time.monotonic(), px)
     return px
+
+
+def cached_for_trades(trades: list[Trade]) -> dict[int, dict[str, Any]]:
+    """Like for_trades, but only from what was read before (no exchange call): pages open at once and the
+    browser asks /trades/live for fresh numbers right after."""
+    out: dict[int, dict[str, Any]] = {}
+    for t in trades:
+        st = _cache.get(t.account_id)
+        p = st["rows"].get(key_of(t.symbol, t.side)) if st else None
+        if p is not None:
+            margin = p["margin"] or t.stake
+            out[t.id] = {"mark": p["mark"], "upnl": p["upnl"], "pct": p["upnl"] / margin * 100 if margin else None,
+                         "liq": p.get("liq"), "entry": p["entry"], "live": True, "missing": False}
+        elif t.symbol in _prices:
+            px = _prices[t.symbol][1]
+            upnl = (px - t.entry_price) * t.amount * t.contract_size * (1 if t.side == "long" else -1)
+            out[t.id] = {"mark": px, "upnl": upnl, "pct": upnl / t.stake * 100 if t.stake else None, "liq": None,
+                         "entry": t.entry_price, "live": False, "missing": False}
+    return out
 
 
 async def for_trades(trades: list[Trade]) -> dict[int, dict[str, Any]]:

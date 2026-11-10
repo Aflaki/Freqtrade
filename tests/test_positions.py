@@ -186,8 +186,16 @@ def test_live_numbers_from_the_exchange_and_reconcile(env):
         s.commit()
         tid = tr.id
     livepos._cache.clear()
-    page = c.get("/dashboard").text
+    page = c.get("/dashboard").text  # opens at once, without asking the exchange
+    assert 'id="upnl-card"' in page and "…" in page
+
+    async def read_live():  # what /trades/live does, plus the background open-time lookup
+        await livepos.refresh(acc_id, max_age=0)
+        await livepos.drain()
+    run(read_live())
+    page = c.get("/dashboard").text  # now from what was read
     assert "+50.00" in page and "3,000" in page and "2,400" in page  # live price, P/L, liquidation
+    assert "1 in profit · 0 in loss" in page
     with SessionLocal() as s:
         tr = s.get(Trade, tid)
         assert tr.entry_price == 2900 and abs((dt.datetime.now(dt.UTC).replace(tzinfo=None) - tr.opened_at).days - 3) <= 1  # real open time

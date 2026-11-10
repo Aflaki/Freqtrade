@@ -18,6 +18,9 @@
   <div class="card stat"><div class="k">{{ _('st_capital') }}</div><div class="v">{{ total_capital|money }} <span class="small muted">{{ gs.stake_currency }}</span></div></div>
   <div class="card stat"><div class="k">{{ _('st_realized') }}</div><div class="v {{ 'pos' if pnl >= 0 else 'neg' }}">{{ pnl|signed }}</div></div>
   <div class="card stat"><div class="k">{{ _('st_open') }}</div><div class="v">{{ open_trades|length }}</div></div>
+  {% if open_trades %}<div class="card stat" id="upnl-card"><div class="k">{{ _('col_upnl') }}</div>
+    <div class="v {{ 'pos' if live_upnl >= 0 else 'neg' }}" id="upnl-total">{{ live_upnl|signed if live else '…' }}</div>
+    <div class="small muted" id="upnl-split">{% if live %}{{ _('st_upnl_split', w=live_win, l=live_loss) }}{% endif %}</div></div>{% endif %}
   <div class="card stat"><div class="k">{{ _('st_closed_wr') }}</div><div class="v">{{ n_closed }} <span class="small muted">/ {{ (wins / n_closed * 100)|round|int if n_closed else 0 }}%</span></div></div>
   <div class="card stat"><div class="k">{{ _('st_subscription') }}</div><div class="v small">{{ user.subscription_until|lt('%Y-%m-%d') if user.subscription_until else _('unlimited') }}</div></div>
 </div>
@@ -29,17 +32,16 @@
 {% for t in open_trades %}{% set L = live.get(t.id, {}) %}<tr data-id="{{ t.id }}"><td>{{ t.id }}</td><td class="mono">{{ coin(t.pair) }}{{ t.pair }}</td><td class="{{ 'pos' if t.side=='long' else 'neg' }}">{{ t.side|upper }}</td>
 <td>{{ acc_names.get(t.account_id) }}{% if t.is_signal %} <span class="badge brand">{{ _('badge_signal') }}</span>{% elif t.dry_run %} <span class="badge">{{ _('badge_paper') }}</span>{% endif %}{% if t.adopted %} <span class="badge" title="{{ _('adopted_title') }}">🤝</span>{% endif %}</td>
 <td class="tnum" data-k="entry">{{ t.entry_price|price }}</td>
-<td class="tnum" data-k="mark">{{ L.get('mark')|price if L.get('mark') else '—' }}</td>
+<td class="tnum" data-k="mark">{{ L.get('mark')|price if L.get('mark') else '…' }}</td>
 <td class="tnum {{ ('pos' if L.get('upnl') >= 0 else 'neg') if L.get('upnl') is not none else '' }}" data-k="upnl">{% if L.get('upnl') is not none %}{{ L.get('upnl')|signed }}{% if L.get('pct') is not none %} <span class="small">({{ '%+.2f'|format(L.get('pct')) }}%)</span>{% endif %}{% elif L.get('missing') %}<span class="badge err" title="{{ _('not_on_exchange_help') }}">{{ _('not_on_exchange') }}</span>{% else %}—{% endif %}</td>
 <td class="tnum">{{ (t.amount * t.contract_size)|price }}</td><td class="tnum">{{ t.stake|money }}</td><td>{{ t.leverage|int }}x</td>
 <td class="tnum" data-k="liq">{{ L.get('liq')|price if L.get('liq') else '—' }}</td><td class="tnum">{{ t.sl_price|price }}</td>
 <td class="small muted">{{ t.opened_at|lt('%Y-%m-%d %H:%M') }}</td>
 <td><form class="inline" method="post" action="/trades/{{ t.id }}/close" onsubmit="return confirm('{{ _('confirm_close') }}')"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger sm">{{ _('btn_close') }}</button></form></td></tr>{% endfor %}
-<tr><td colspan="6"><b>{{ _('total') }}</b></td><td class="tnum {{ 'pos' if live_upnl >= 0 else 'neg' }}" id="upnl-total"><b>{{ live_upnl|signed }}</b></td><td colspan="7"></td></tr>
 </table></div>
 <script>
 (function(){
-  const fmt=(v,d)=>v==null?'—':Number(v).toLocaleString('en',{maximumFractionDigits:d??8}), notOn={{ _('not_on_exchange')|tojson }};
+  const fmt=(v,d)=>v==null?'—':Number(v).toLocaleString('en',{maximumFractionDigits:d??8}), notOn={{ _('not_on_exchange')|tojson }}, splitText={{ _('st_upnl_split')|tojson }};
   const px=v=>v==null?'—':fmt(v, Math.abs(v)>=100?2:Math.abs(v)>=1?4:8);
   async function tick(){
     try{ const r=await fetch('/trades/live',{headers:{'Accept':'application/json'}}); if(!r.ok) return; const d=await r.json(); let tot=0;
@@ -50,10 +52,13 @@
         if(L.get('upnl')!=null){ tot+=L.get('upnl'); u.className='tnum '+(L.get('upnl')>=0?'pos':'neg');
           u.innerHTML=(L.get('upnl')>=0?'+':'')+fmt(L.get('upnl'),2)+(L.get('pct')!=null?' <span class="small">('+(L.get('pct')>=0?'+':'')+L.get('pct').toFixed(2)+'%)</span>':''); }
         else if(L.get('missing')){ u.innerHTML='<span class="badge err">'+notOn+'</span>'; } });
-      const t=document.getElementById('upnl-total'); t.className='tnum '+(tot>=0?'pos':'neg'); t.innerHTML='<b>'+(tot>=0?'+':'')+fmt(tot,2)+'</b>';
+      let w=0, l=0; Object.values(d).forEach(L=>{ if(L.upnl>0) w++; else if(L.upnl<0) l++; });
+      const t=document.getElementById('upnl-total'); if(t){ t.className='v '+(tot>=0?'pos':'neg'); t.textContent=(tot>=0?'+':'')+fmt(tot,2); }
+      const sp=document.getElementById('upnl-split'); if(sp) sp.textContent=splitText.replace('{w}',w).replace('{l}',l);
       document.getElementById('live-at').textContent='· '+new Date().toLocaleTimeString();
     }catch(e){}
   }
+  tick();  // fresh numbers right after the page is shown
   setInterval(()=>{ if(!document.hidden) tick(); }, 15000);
 })();
 </script>

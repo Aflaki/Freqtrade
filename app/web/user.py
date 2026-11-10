@@ -48,9 +48,6 @@ async def dashboard(request: Request):
     user = require_user(request)
     from ..engine import livepos
     with SessionLocal() as s:
-        mine = list(s.scalars(select(Trade).where(Trade.user_id == user.id, Trade.status == "open")))
-    live = await livepos.for_trades(mine)  # the exchange's numbers (and our trades brought in line with them)
-    with SessionLocal() as s:
         gs = get_global(s)
         accounts = s.scalars(select(ExchangeAccount).where(ExchangeAccount.user_id == user.id)).all()
         open_trades = s.scalars(select(Trade).where(Trade.user_id == user.id, Trade.status == "open")
@@ -63,9 +60,12 @@ async def dashboard(request: Request):
             Trade.user_id == user.id, Trade.status == "closed", Trade.realized_pnl > 0)) or 0
         acc_names = {a.id: a.label or a.exchange or "Signals" for a in accounts}
         total_capital = sum(effective_capital(gs, a) for a in accounts)
+    live = livepos.cached_for_trades(open_trades)  # no exchange call here: the page asks /trades/live right after
     return render(request, "dashboard.html", gs=gs, accounts=accounts, open_trades=open_trades, closed=closed,
                   pnl=pnl, n_closed=n_closed, wins=wins, acc_names=acc_names, total_capital=total_capital, live=live,
-                  live_upnl=sum(x.get("upnl") or 0 for x in live.values()))
+                  live_upnl=sum(x.get("upnl") or 0 for x in live.values()),
+                  live_win=sum(1 for x in live.values() if (x.get("upnl") or 0) > 0),
+                  live_loss=sum(1 for x in live.values() if (x.get("upnl") or 0) < 0))
 
 
 @router.get("/trades/live")
