@@ -50,7 +50,8 @@ def normalize(raw: list[dict], market=None) -> list[dict]:
         out.append({"symbol": sym, "pair": sym.split(":")[0].upper(), "side": side, "contracts": contracts,
                     "contract_size": cs, "entry": entry, "mark": mark, "leverage": lev or 1.0,
                     "notional": round(notional, 4), "upnl": float(p.get("unrealizedPnl") or 0),
-                    "margin": round(margin, 4), "key": key_of(sym, side)})
+                    "margin": round(margin, 4), "key": key_of(sym, side),
+                    "liq": float(p.get("liquidationPrice") or 0) or None})
     return out
 
 

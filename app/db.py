@@ -173,6 +173,9 @@ class ExchangeAccount(Base):
     wallet_balance: Mapped[float | None] = mapped_column(Float, nullable=True)
     wallet_balance_at: Mapped[dt.datetime | None] = mapped_column(nullable=True)
     foreign_positions: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
+    # bots vs exchange (reconcile.py): differences the user chose to leave as they are, and the last counts
+    recon_ack: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    recon_summary: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     kept_positions: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     positions_checked_at: Mapped[dt.datetime | None] = mapped_column(nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(default=utcnow)

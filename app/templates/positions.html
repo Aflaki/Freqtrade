@@ -1,17 +1,50 @@
 {% extends "base.html" %}{% block title %}{{ _('pos_title') }} · {{ site.site_name }}{% endblock %}{% block content %}
-<h1>{{ _('pos_title') }}</h1>
+<h1>{{ _('pos_title') }} · ⚖️ {{ _('rc_btn') }}</h1>
 <p class="muted"><a href="/accounts">← {{ _('nav_portfolios') }}</a> · <b>{{ acc.label or EXCHANGES.get(acc.exchange, acc.exchange) }}</b>
 {% if acc.positions_checked_at %} · {{ _('pos_checked') }} <span class="num">{{ acc.positions_checked_at|lt('%Y-%m-%d %H:%M') }}</span> {{ tz_label }}{% endif %}</p>
 <p class="small muted">{{ _('pos_intro') }}</p>
 <form method="post" action="/accounts/{{ acc.id }}/positions/scan" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost sm">🔄 {{ _('pos_rescan') }}</button></form>
 
+{% if recon %}<div class="card" id="recon"><h2>⚖️ {{ _('rcn_title') }}</h2>
+<div class="grid">
+<div class="stat"><div class="k">{{ _('rc_bot_open') }}</div><div class="v">{{ recon.bot_total }}</div><div class="small muted">{{ _('rc_bot_outside', n=recon.outside_bot) }}</div></div>
+<div class="stat"><div class="k">{{ _('rc_ex_open') }}</div><div class="v">{{ recon.exchange_total }}</div><div class="small muted">{{ _('rc_ex_outside', n=recon.outside_exchange) }}</div></div>
+<div class="stat"><div class="k">{{ _('rc_matched') }}</div><div class="v pos">{{ recon.matched }}</div></div>
+<div class="stat"><div class="k">{{ _('rc_diffs') }}</div><div class="v {{ 'neg' if recon.open else '' }}">{{ recon.diffs|length }}</div></div>
+</div>
+{% if recon.error %}<p class="small neg">{{ _('pos_scan_failed', err=recon.error) }}</p>{% endif %}
+{% if recon.bots_stale %}<p class="small warn">{{ _('rc_bot_stale') }}</p>{% endif %}
+<p class="small muted">{{ _('rcn_help') }}</p>
+{% if recon.diffs %}<form method="post" action="/accounts/{{ acc.id }}/reconcile" id="rcform"><input type="hidden" name="csrf" value="{{ csrf }}">
+<div class="table-wrap"><table class="small">
+<tr><th>{{ _('col_pair') }}</th><th>{{ _('rc_col_what') }}</th><th>{{ _('pos_col_decision') }}</th><th>{{ _('pos_col_bot') }}</th><th>{{ _('rc_col_bot_trade') }}</th><th>{{ _('rc_col_exchange') }}</th></tr>
+{% for r in recon.diffs %}<tr><td class="mono">{{ coin(r.pair) }}{{ r.pair }}</td>
+<td><span class="badge {{ 'warn' if r.kind != 'opposite' else 'err' }}">{{ _('rc_kind_' ~ r.kind) }}</span>{% if r.ack %} <span class="badge ok">{{ _('rc_acked') }}</span>{% endif %}</td>
+<td>{% if r.kind == 'bot_only' %}<label class="check inline"><input type="radio" name="r__{{ r.key }}" value="open"> {{ _('rc_open') }}</label>
+<label class="check inline"><input type="radio" name="r__{{ r.key }}" value="skip" {{ 'checked' if r.ack }}> {{ _('rc_skip') }}</label>
+{% else %}<label class="check inline"><input type="radio" name="r__{{ r.key }}" value="close"> {{ _('pos_close') }}</label>
+<label class="check inline"><input type="radio" name="r__{{ r.key }}" value="keep" {{ 'checked' if r.ack }}> {{ _('rc_keep') }}</label>{% endif %}</td>
+<td>{{ bot_names.get(r.bot_id, '—') }}</td>
+<td class="small">{% if r.bot %}<span class="{{ 'pos' if r.bot.side == 'long' else 'neg' }}">{{ r.bot.side|upper }}</span> @ {{ r.bot.open_rate|price }}{% if r.bot.open_date %} · {{ r.bot.open_date|lt('%m-%d %H:%M') }}{% endif %}{% else %}—{% endif %}</td>
+<td class="small">{% if r.pos %}<span class="{{ 'pos' if r.pos.side == 'long' else 'neg' }}">{{ r.pos.side|upper }}</span> {{ (r.pos.contracts * r.pos.contract_size)|price }} @ {{ r.pos.entry|price }} · <span class="{{ 'pos' if r.pos.upnl >= 0 else 'neg' }}">{{ r.pos.upnl|signed }}</span>{% else %}—{% endif %}</td></tr>{% endfor %}
+</table></div>
+<p class="small muted">{{ _('rc_open_note') }}</p>
+<p><button>{{ _('pos_apply') }}</button></p></form>
+<script>document.getElementById('rcform').addEventListener('submit',e=>{const f=e.target,
+  n=f.querySelectorAll('input[value=close]:checked').length, o=f.querySelectorAll('input[value=open]:checked').length;
+  if((n||o)&&!confirm({{ _('rc_confirm')|tojson }}.replace('{n}',n).replace('{o}',o))) e.preventDefault();});</script>
+{% else %}<p class="pos">✔ {{ _('rc_all_matched') }}</p>{% endif %}</div>{% endif %}
+
 <div class="card" id="adopted"><h2>🤝 {{ _('pos_adopted_title') }} <span class="badge">{{ adopted|length }}</span></h2>
 <p class="small muted">{{ _('pos_adopted_help') }}</p>
 {% if adopted %}<div class="table-wrap"><table class="small">
-<tr><th>{{ _('col_pair') }}</th><th>{{ _('col_side') }}</th><th>{{ _('tg_amount') }}</th><th>{{ _('tg_entry') }}</th><th>{{ _('tg_leverage') }}</th><th>{{ _('pos_col_bot') }}</th><th>{{ _('pos_col_state') }}</th></tr>
+<tr><th>{{ _('col_pair') }}</th><th>{{ _('col_side') }}</th><th>{{ _('tg_amount') }}</th><th>{{ _('tg_entry') }}</th><th>{{ _('col_mark') }}</th><th>{{ _('col_upnl') }}</th><th>{{ _('tg_leverage') }}</th><th>{{ _('col_opened') }}</th><th>{{ _('pos_col_bot') }}</th><th>{{ _('pos_col_state') }}</th></tr>
 {% for r in adopted %}{% set t = r.t %}<tr><td class="mono">{{ coin(t.pair) }}{{ t.pair }}</td>
 <td><span class="{{ 'pos' if t.side == 'long' else 'neg' }}">{{ t.side|upper }}</span></td>
-<td class="tnum">{{ (t.amount * t.contract_size)|price }}</td><td class="tnum">{{ t.entry_price|price }}</td><td class="tnum">{{ t.leverage|int }}x</td>
+<td class="tnum">{{ (t.amount * t.contract_size)|price }}</td><td class="tnum">{{ t.entry_price|price }}</td>
+<td class="tnum">{{ r.L.get('mark')|price if r.L.get('mark') else '—' }}</td>
+<td class="tnum {{ ('pos' if r.L.get('upnl') >= 0 else 'neg') if r.L.get('upnl') is not none else '' }}">{% if r.L.get('upnl') is not none %}{{ r.L.get('upnl')|signed }}{% if r.L.get('pct') is not none %} <span class="small">({{ '%+.2f'|format(r.L.get('pct')) }}%)</span>{% endif %}{% else %}—{% endif %}</td>
+<td class="tnum">{{ t.leverage|int }}x</td><td class="small muted">{{ t.opened_at|lt('%Y-%m-%d %H:%M') }}</td>
 <td>{{ r.bot }}</td><td class="small">{{ _('pos_match_' ~ r.match) }}</td></tr>{% endfor %}
 </table></div>{% else %}<p class="muted small">{{ _('pos_none_adopted') }}</p>{% endif %}</div>
 

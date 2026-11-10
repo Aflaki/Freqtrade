@@ -48,7 +48,9 @@ def env(monkeypatch):
         acc_id = acc.id
     yield c, csrf, acc_id, bot_id
     monitor.live.pop(bot_id, None)
-    fx.FakeExchange.positions = []
+    fx.FakeExchange.positions, fx.FakeExchange.fills = [], []
+    from app.engine import livepos
+    livepos._cache.clear()
     asyncio.run(pool.drop(acc_id))
     with SessionLocal() as s:
         s.query(Trade).filter_by(account_id=acc_id).delete()
@@ -62,6 +64,11 @@ def env(monkeypatch):
 
 def run(coro):
     return asyncio.run(coro)
+
+
+async def pos_sync(acc_id):
+    from app.engine.positions import sync_account
+    return await sync_account(acc_id, notify=False)
 
 
 def test_take_over_and_ask(env):
@@ -138,3 +145,75 @@ def test_entry_takes_over_position_on_exchange(env):
                               id="pos-e2"), None, bot_id))
     assert [o.status for o in out] == ["skipped"] and "SHORT" in out[0].message
     assert sum(len(i.orders) for i in fx.FakeExchange.instances) == n_orders
+
+
+def test_open_time_from_fills():
+    import datetime as dt
+
+    from app.engine.livepos import opened_at_from_fills
+    t = lambda h: int(dt.datetime(2026, 11, 1, h).replace(tzinfo=dt.UTC).timestamp() * 1000)  # noqa: E731
+    fills = [{"side": "buy", "amount": 1, "timestamp": t(1)}, {"side": "sell", "amount": 1, "timestamp": t(2)},  # old
+             {"side": "buy", "amount": 0.3, "timestamp": t(5)}, {"side": "buy", "amount": 0.2, "timestamp": t(7)}]
+    assert opened_at_from_fills(fills, "long", 0.5) == dt.datetime(2026, 11, 1, 5)
+    flip = [{"side": "buy", "amount": 1, "timestamp": t(1)}, {"side": "sell", "amount": 1.4, "timestamp": t(3)}]
+    assert opened_at_from_fills(flip, "short", 0.4) == dt.datetime(2026, 11, 1, 3)  # long flipped to short
+    assert opened_at_from_fills(fills[2:3], "long", 0.5) is None  # history too short: unknown
+
+
+def test_live_numbers_from_the_exchange_and_reconcile(env):
+    import datetime as dt
+    import time as _t
+
+    from app.engine import livepos, reconcile
+    c, csrf, acc_id, bot_id = env
+    with SessionLocal() as s:
+        acc = s.get(ExchangeAccount, acc_id)
+        acc.enabled = True
+        acc.pairs, acc.pair_bot = {"ETH/USDT": 1.0, "BTC/USDT": 1.0}, {"ETH/USDT": bot_id, "BTC/USDT": bot_id}
+        s.commit()
+    now = int(_t.time() * 1000)
+    eth = pos("ETH/USDT:USDT", "long", 0.5, 2900.0)
+    eth.update(markPrice=3000.0, unrealizedPnl=50.0, liquidationPrice=2400.0)
+    fx.FakeExchange.positions = [eth]
+    fx.FakeExchange.fills = [{"symbol": "ETH/USDT:USDT", "side": "buy", "amount": 0.5, "timestamp": now - 3 * 86400_000}]
+    monitor.live[bot_id] = {"at": dt.datetime.now(), "error": "", "trades": [
+        {"ft_trade_id": 7, "pair": "BTC/USDT", "side": "short", "stake_amount": 100.0, "leverage": 2,
+         "open_rate": 61000.0, "open_date": dt.datetime(2026, 11, 9)}]}
+    run(pos_sync(acc_id))  # takes ETH over (in the chosen pairs)
+    with SessionLocal() as s:
+        tr = s.query(Trade).filter_by(account_id=acc_id, pair="ETH/USDT").one()
+        tr.entry_price = 1.0  # our record drifted: the exchange is the truth
+        s.commit()
+        tid = tr.id
+    livepos._cache.clear()
+    page = c.get("/dashboard").text
+    assert "+50.00" in page and "3,000" in page and "2,400" in page  # live price, P/L, liquidation
+    with SessionLocal() as s:
+        tr = s.get(Trade, tid)
+        assert tr.entry_price == 2900 and abs((dt.datetime.now(dt.UTC).replace(tzinfo=None) - tr.opened_at).days - 3) <= 1  # real open time
+    live = c.get("/trades/live").json()
+    assert live[str(tid)]["upnl"] == 50 and live[str(tid)]["pct"] == pytest.approx(50 / 290 * 100)
+
+    # bots vs exchange: the bot is short BTC (account isn't), the account is long ETH (bot isn't)
+    res = run(reconcile.compare(acc_id))
+    kinds = {r["pair"]: r["kind"] for r in res["diffs"]}
+    assert kinds == {"BTC/USDT": "bot_only", "ETH/USDT": "exch_only"} and res["bot_total"] == 1
+    assert res["exchange_total"] == 1 and res["open"] == 2
+    page = c.get(f"/accounts/{acc_id}/positions").text
+    assert "The bot is in a trade; the account isn" in page and "Only on the exchange" in page
+    assert "2 difference(s) await your decision" in c.get("/accounts").text and "Reconcile with the bots" in c.get("/accounts").text
+    keys = {r["pair"]: r["key"] for r in res["diffs"]}
+    c.post(f"/accounts/{acc_id}/reconcile", data={"csrf": csrf, f"r__{keys['ETH/USDT']}": "keep",
+                                                  f"r__{keys['BTC/USDT']}": "open"})
+    with SessionLocal() as s:
+        btc = s.query(Trade).filter_by(account_id=acc_id, pair="BTC/USDT", status="open").one()
+        assert btc.side == "short" and btc.ft_trade_id == 7 and btc.bot_id == bot_id and btc.enter_tag == "catch-up"
+        assert s.get(ExchangeAccount, acc_id).recon_ack == [keys["ETH/USDT"]]
+    fx.FakeExchange.positions.append(pos("BTC/USDT:USDT", "short", btc.amount, 60000.0))
+    livepos._cache.clear()
+    res = run(reconcile.compare(acc_id))
+    assert [r["pair"] for r in res["diffs"]] == ["ETH/USDT"] and res["open"] == 0 and res["matched"] == 1
+    c.post(f"/accounts/{acc_id}/reconcile", data={"csrf": csrf, f"r__{keys['ETH/USDT']}": "close"})
+    assert [p["symbol"] for p in fx.FakeExchange.positions] == ["BTC/USDT:USDT"]  # ETH closed on the exchange
+    with SessionLocal() as s:
+        assert s.get(Trade, tid).status == "closed"

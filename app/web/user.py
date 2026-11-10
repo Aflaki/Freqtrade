@@ -46,6 +46,10 @@ def _num(v, default: float = 0.0) -> float:
 @router.get("/dashboard")
 async def dashboard(request: Request):
     user = require_user(request)
+    from ..engine import livepos
+    with SessionLocal() as s:
+        mine = list(s.scalars(select(Trade).where(Trade.user_id == user.id, Trade.status == "open")))
+    live = await livepos.for_trades(mine)  # the exchange's numbers (and our trades brought in line with them)
     with SessionLocal() as s:
         gs = get_global(s)
         accounts = s.scalars(select(ExchangeAccount).where(ExchangeAccount.user_id == user.id)).all()
@@ -60,7 +64,22 @@ async def dashboard(request: Request):
         acc_names = {a.id: a.label or a.exchange or "Signals" for a in accounts}
         total_capital = sum(effective_capital(gs, a) for a in accounts)
     return render(request, "dashboard.html", gs=gs, accounts=accounts, open_trades=open_trades, closed=closed,
-                  pnl=pnl, n_closed=n_closed, wins=wins, acc_names=acc_names, total_capital=total_capital)
+                  pnl=pnl, n_closed=n_closed, wins=wins, acc_names=acc_names, total_capital=total_capital, live=live,
+                  live_upnl=sum(x.get("upnl") or 0 for x in live.values()))
+
+
+@router.get("/trades/live")
+async def trades_live(request: Request):
+    """Live price and profit/loss of the user's open trades (polled by the dashboard)."""
+    from fastapi.responses import JSONResponse
+
+    from ..engine import livepos
+    user = require_user(request)
+    with SessionLocal() as s:
+        mine = list(s.scalars(select(Trade).where(Trade.user_id == user.id, Trade.status == "open")))
+    live = await livepos.for_trades(mine)
+    return JSONResponse({str(k): {kk: (vv.isoformat() if hasattr(vv, "isoformat") else vv) for kk, vv in v.items()}
+                         for k, v in live.items()})
 
 
 # ------------------------------------------------------------------ portfolios (exchange or signal-only)
@@ -496,7 +515,14 @@ async def account_toggle(acc_id: int, request: Request):
 @router.get("/accounts/{acc_id}/positions")
 async def account_positions(acc_id: int, request: Request):
     user = require_user(request)
+    from ..engine import livepos
     from ..engine.positions import bot_trade, can_scan
+    with SessionLocal() as s:
+        mine = list(s.scalars(select(Trade).where(Trade.account_id == acc_id, Trade.user_id == user.id,
+                                                  Trade.status == "open", Trade.adopted.is_(True))))
+    live = await livepos.for_trades(mine)  # also brings entry, size and open time in line with the exchange
+    from ..engine import reconcile
+    recon = await reconcile.compare(acc_id)
     with SessionLocal() as s:
         gs = get_global(s)
         acc = _own(s, user, acc_id)
@@ -508,11 +534,32 @@ async def account_positions(acc_id: int, request: Request):
                                                  Trade.adopted.is_(True)).order_by(Trade.id)):
             bt = bot_trade(tr_.bot_id, tr_.pair, tr_.side)
             match = "same" if bt and not bt.get("opposite") else ("opposite" if bt else "none")
-            adopted.append({"t": tr_, "bot": bot_names.get(tr_.bot_id, "—"), "match": match})
+            adopted.append({"t": tr_, "bot": bot_names.get(tr_.bot_id, "—"), "match": match, "L": live.get(tr_.id, {})})
         kept = set(acc.kept_positions or [])
         foreign = [{**p, "kept": p["key"] in kept} for p in acc.foreign_positions or []]
         s.expunge(acc)
-    return render(request, "positions.html", gs=gs, acc=acc, adopted=adopted, foreign=foreign)
+    return render(request, "positions.html", gs=gs, acc=acc, adopted=adopted, foreign=foreign, recon=recon,
+                  bot_names=bot_names)
+
+
+@router.post("/accounts/{acc_id}/reconcile")
+async def account_reconcile(acc_id: int, request: Request):
+    user = require_user(request)
+    f = await form_with_csrf(request)
+    from ..engine import reconcile
+    with SessionLocal() as s:
+        _own(s, user, acc_id)
+    decisions = {k[3:]: str(v) for k, v in f.items() if k.startswith("r__") and str(v) in ("close", "keep", "open", "skip")}
+    out = await reconcile.act(acc_id, user.id, decisions)
+    for r in out["closed"]:
+        flash(request, tr(request, "rc_closed", pair=r["pair"], side=r["side"].upper()))
+    for r in out["opened"]:
+        flash(request, tr(request, "rc_opened", pair=r["pair"], side=r["side"].upper()))
+    if out["kept"]:
+        flash(request, tr(request, "rc_kept", n=len(out["kept"])))
+    for r in out["failed"]:
+        flash(request, tr(request, "rc_failed", pair=r["pair"], err=r.get("error") or r.get("message") or "?"), "error")
+    return RedirectResponse(f"/accounts/{acc_id}/positions#recon", 303)
 
 
 @router.post("/accounts/{acc_id}/positions/scan")

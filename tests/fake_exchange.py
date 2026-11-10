@@ -18,6 +18,7 @@ class FakeExchange:
     spot = False
     has = {"fetchPositions": True}
     positions = []  # ccxt-style positions already on the account (shared, set by tests)
+    fills = []  # ccxt-style own trades (fetch_my_trades), set by tests
 
     def __init__(self, params):
         self.params = params
@@ -89,6 +90,11 @@ class FakeExchange:
     async def fetch_order(self, oid, symbol):
         o = next(o for o in self.orders if o["id"] == oid)
         return {"id": oid, "status": "closed", "filled": o["amount"], "average": o["price"], "fee": o["fee"]}
+
+    async def fetch_my_trades(self, symbol, since=None, limit=None, params=None):
+        end = (params or {}).get("endTime", 1e18)
+        return [dict(f) for f in FakeExchange.fills
+                if f["symbol"] == symbol and (since is None or f["timestamp"] >= since) and f["timestamp"] <= end]
 
     async def fetch_positions(self, symbols=None):
         return [dict(p) for p in FakeExchange.positions if not symbols or p["symbol"] in symbols]

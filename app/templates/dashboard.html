@@ -23,14 +23,40 @@
 </div>
 
 <div class="card"><h2>{{ _('open_positions') }}</h2>
-{% if open_trades %}<div class="table-wrap"><table>
-<tr><th>#</th><th>{{ _('col_pair') }}</th><th>{{ _('col_side') }}</th><th>{{ _('col_portfolio') }}</th><th>{{ _('col_entry') }}</th><th>{{ _('col_amount') }}</th><th>{{ _('col_margin') }}</th><th>{{ _('col_leverage') }}</th><th>{{ _('col_sl') }}</th><th>{{ _('col_opened') }}</th><th></th></tr>
-{% for t in open_trades %}<tr><td>{{ t.id }}</td><td class="mono">{{ t.pair }}</td><td class="{{ 'pos' if t.side=='long' else 'neg' }}">{{ t.side|upper }}</td>
-<td>{{ acc_names.get(t.account_id) }}{% if t.is_signal %} <span class="badge brand">{{ _('badge_signal') }}</span>{% elif t.dry_run %} <span class="badge">{{ _('badge_paper') }}</span>{% endif %}</td>
-<td>{{ t.entry_price|price }}</td><td>{{ (t.amount * t.contract_size)|price }}</td><td>{{ t.stake|money }}</td><td>{{ t.leverage|int }}x</td><td>{{ t.sl_price|price }}</td>
+{% if open_trades %}<p class="small muted">{{ _('live_note') }} <span id="live-at"></span></p>
+<div class="table-wrap"><table id="openpos">
+<tr><th>#</th><th>{{ _('col_pair') }}</th><th>{{ _('col_side') }}</th><th>{{ _('col_portfolio') }}</th><th>{{ _('col_entry') }}</th><th>{{ _('col_mark') }}</th><th>{{ _('col_upnl') }}</th><th>{{ _('col_amount') }}</th><th>{{ _('col_margin') }}</th><th>{{ _('col_leverage') }}</th><th>{{ _('col_liq') }}</th><th>{{ _('col_sl') }}</th><th>{{ _('col_opened') }}</th><th></th></tr>
+{% for t in open_trades %}{% set L = live.get(t.id, {}) %}<tr data-id="{{ t.id }}"><td>{{ t.id }}</td><td class="mono">{{ coin(t.pair) }}{{ t.pair }}</td><td class="{{ 'pos' if t.side=='long' else 'neg' }}">{{ t.side|upper }}</td>
+<td>{{ acc_names.get(t.account_id) }}{% if t.is_signal %} <span class="badge brand">{{ _('badge_signal') }}</span>{% elif t.dry_run %} <span class="badge">{{ _('badge_paper') }}</span>{% endif %}{% if t.adopted %} <span class="badge" title="{{ _('adopted_title') }}">🤝</span>{% endif %}</td>
+<td class="tnum" data-k="entry">{{ t.entry_price|price }}</td>
+<td class="tnum" data-k="mark">{{ L.get('mark')|price if L.get('mark') else '—' }}</td>
+<td class="tnum {{ ('pos' if L.get('upnl') >= 0 else 'neg') if L.get('upnl') is not none else '' }}" data-k="upnl">{% if L.get('upnl') is not none %}{{ L.get('upnl')|signed }}{% if L.get('pct') is not none %} <span class="small">({{ '%+.2f'|format(L.get('pct')) }}%)</span>{% endif %}{% elif L.get('missing') %}<span class="badge err" title="{{ _('not_on_exchange_help') }}">{{ _('not_on_exchange') }}</span>{% else %}—{% endif %}</td>
+<td class="tnum">{{ (t.amount * t.contract_size)|price }}</td><td class="tnum">{{ t.stake|money }}</td><td>{{ t.leverage|int }}x</td>
+<td class="tnum" data-k="liq">{{ L.get('liq')|price if L.get('liq') else '—' }}</td><td class="tnum">{{ t.sl_price|price }}</td>
 <td class="small muted">{{ t.opened_at|lt('%Y-%m-%d %H:%M') }}</td>
 <td><form class="inline" method="post" action="/trades/{{ t.id }}/close" onsubmit="return confirm('{{ _('confirm_close') }}')"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger sm">{{ _('btn_close') }}</button></form></td></tr>{% endfor %}
+<tr><td colspan="6"><b>{{ _('total') }}</b></td><td class="tnum {{ 'pos' if live_upnl >= 0 else 'neg' }}" id="upnl-total"><b>{{ live_upnl|signed }}</b></td><td colspan="7"></td></tr>
 </table></div>
+<script>
+(function(){
+  const fmt=(v,d)=>v==null?'—':Number(v).toLocaleString('en',{maximumFractionDigits:d??8}), notOn={{ _('not_on_exchange')|tojson }};
+  const px=v=>v==null?'—':fmt(v, Math.abs(v)>=100?2:Math.abs(v)>=1?4:8);
+  async function tick(){
+    try{ const r=await fetch('/trades/live',{headers:{'Accept':'application/json'}}); if(!r.ok) return; const d=await r.json(); let tot=0;
+      document.querySelectorAll('#openpos tr[data-id]').forEach(tr=>{ const L=d[tr.dataset.id]; if(!L) return;
+        const c=k=>tr.querySelector(`[data-k="${k}"]`);
+        if(L.entry) c('entry').textContent=px(L.entry); c('mark').textContent=px(L.get('mark')); c('liq').textContent=px(L.get('liq'));
+        const u=c('upnl');
+        if(L.get('upnl')!=null){ tot+=L.get('upnl'); u.className='tnum '+(L.get('upnl')>=0?'pos':'neg');
+          u.innerHTML=(L.get('upnl')>=0?'+':'')+fmt(L.get('upnl'),2)+(L.get('pct')!=null?' <span class="small">('+(L.get('pct')>=0?'+':'')+L.get('pct').toFixed(2)+'%)</span>':''); }
+        else if(L.get('missing')){ u.innerHTML='<span class="badge err">'+notOn+'</span>'; } });
+      const t=document.getElementById('upnl-total'); t.className='tnum '+(tot>=0?'pos':'neg'); t.innerHTML='<b>'+(tot>=0?'+':'')+fmt(tot,2)+'</b>';
+      document.getElementById('live-at').textContent='· '+new Date().toLocaleTimeString();
+    }catch(e){}
+  }
+  setInterval(()=>{ if(!document.hidden) tick(); }, 15000);
+})();
+</script>
 <form method="post" action="/trades/close-all" onsubmit="return confirm('{{ _('confirm_close_all') }}')" style="margin-top:10px"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger sm">{{ _('btn_close_all') }}</button></form>
 {% else %}<p class="muted">{{ _('no_open') }}</p>{% endif %}</div>
 
