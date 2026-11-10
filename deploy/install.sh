@@ -10,6 +10,10 @@
 #  Ports 80 and 443 must be free and open.
 #
 #  Safe to run again: it updates the code and keeps your data.
+#
+#  Moving from another server (make the file there with: bash backup.sh --stop):
+#      bash install.sh --restore /root/signal-relay-backup-XXXX.tar.gz
+#      bash install.sh panel.example.com --restore /root/signal-relay-backup-XXXX.tar.gz
 # =============================================================================
 set -euo pipefail
 
@@ -18,11 +22,26 @@ BRANCH="${BRANCH:-main}"
 APP_DIR=/opt/signal-relay
 APP_USER=relay
 PORT=8000
-DOMAIN="${1:-}"
 
 say()  { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
 ok()   { printf '\033[1;32m✔ %s\033[0m\n' "$*"; }
 die()  { printf '\033[1;31m✘ %s\033[0m\n' "$*" >&2; exit 1; }
+
+DOMAIN=""; RESTORE=""; FORCE=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --restore) RESTORE="${2:?--restore needs the backup file}"; shift 2 ;;
+    --restore=*) RESTORE="${1#*=}"; shift ;;
+    --force) FORCE=1; shift ;;
+    -*) die "unknown option: $1" ;;
+    *) DOMAIN="$1"; shift ;;
+  esac
+done
+if [[ -n "$RESTORE" ]]; then
+  RESTORE="$(readlink -f "$RESTORE")"
+  [[ -f "$RESTORE" ]] || die "backup file not found: $RESTORE"
+  tar -tzf "$RESTORE" ./relay.db ./secrets.json >/dev/null 2>&1 || die "$RESTORE is not a Signal Relay backup (relay.db / secrets.json missing)"
+fi
 
 [[ $EUID -eq 0 ]] || die "Run as root (log in as root, or: su -  then  bash install.sh $DOMAIN)"
 [[ -r /etc/os-release ]] && . /etc/os-release
@@ -81,6 +100,19 @@ else
   chown -R "$APP_USER:$APP_USER" "$APP_DIR"
 fi
 install -d -o "$APP_USER" -g "$APP_USER" -m 700 "$APP_DIR/data"
+if [[ -n "$RESTORE" ]]; then
+  say "Restoring the data from $(basename "$RESTORE")"
+  if [[ -f "$APP_DIR/data/relay.db" ]]; then
+    [[ $FORCE == 1 ]] || die "This server already has Signal Relay data. To replace it with the backup add --force (the current data is kept in $APP_DIR/data.before-restore-*)."
+    systemctl stop signal-relay 2>/dev/null || true
+    mv "$APP_DIR/data" "$APP_DIR/data.before-restore-$(date +%Y%m%d-%H%M%S)"
+    install -d -o "$APP_USER" -g "$APP_USER" -m 700 "$APP_DIR/data"
+  fi
+  tar -xzf "$RESTORE" -C "$APP_DIR/data"
+  chown -R "$APP_USER:$APP_USER" "$APP_DIR/data"
+  chmod 600 "$APP_DIR/data/secrets.json"
+  ok "data restored ($(grep -E '^(created|site|users)=' "$APP_DIR/data/MANIFEST.txt" 2>/dev/null | tr '\n' ' '))"
+fi
 ok "code at $(runuser -u "$APP_USER" -- git -C "$APP_DIR" log -1 --format='%h %s')"
 
 say "Installing Python dependencies (takes a minute)"
@@ -105,7 +137,20 @@ from app.db import SessionLocal, get_global, init_db
 init_db()
 with SessionLocal() as s:
     gs = get_global(s)
+    old = gs.base_url
     gs.base_url = sys.argv[1]
+    if old and old.rstrip("/") != sys.argv[1].rstrip("/"):
+        print("moved from:", old)
+        from app.db import WatchdogHost
+        for h in s.query(WatchdogHost):  # their agents still report to the old address: no false "server down" alerts
+            h.silent_alerted = True
+        from app.web.guides import ip_of_url
+        old_ip = ip_of_url(old)
+        if old_ip and gs.public_ip:  # the transition list "old, new" -> only the new IP(s) from now on
+            import re
+            keep = [x for x in re.split(r"[\s,;]+", gs.public_ip) if x and x != old_ip]
+            gs.public_ip = ", ".join(keep)
+            print("IP list for users:", gs.public_ip or "(from the site address)")
     s.commit()
 print("base URL:", sys.argv[1])
 PY
@@ -191,6 +236,24 @@ for _ in $(seq 1 30); do   # wait for the certificate
   sleep 2
 done
 curl -fsS --max-time 5 "$URL/health" >/dev/null 2>&1 || printf '\033[1;33m! HTTPS not ready yet. Check that ports 80 and 443 are open in your provider firewall, then: journalctl -u caddy -n 50\033[0m\n'
+
+if [[ -n "$RESTORE" ]]; then
+cat <<MOVED
+
+=====================================================================
+  Moved.  The site with all its data now runs at:  $URL
+  Server IP: $PUBLIC_IP
+=====================================================================
+  Still to do (the full checklist is in $APP_DIR/deploy/MOVE-fa.md):
+  1. Bots' webhooks -> new address: Admin -> Bot status -> download freqtrade_webhooks.py,
+     on EACH bot server:  python3 freqtrade_webhooks.py --apply   then "Reload config on all bots".
+  2. Watchdog -> new address: run the install command from Admin -> Servers & monitoring on EACH bot server.
+  3. Users' API keys: they must allow the new IP $PUBLIC_IP at their exchange (see MOVE-fa.md).
+  4. Google/Apple/... sign-in: new callback URLs (Admin -> Sign-in & security); Telegram login: /setdomain.
+  5. Phone notifications: each device turns them on again (new address = new web app).
+  6. Old server: bash /opt/signal-relay/deploy/uninstall.sh
+MOVED
+fi
 
 cat <<DONE
 

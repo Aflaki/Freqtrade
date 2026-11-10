@@ -15,8 +15,9 @@
     {% for e in gs.allowed_exchanges %}<option value="{{ e }}" {{ 'selected' if acc and acc.exchange == e }}>{{ EXCHANGES.get(e, e) }}</option>{% endfor %}</select></div>
 </div>
 <div class="api-help">📘 {{ _('g_api_help') }} <a id="api-guide" href="/guides/binance">{{ _('g_how') }} →</a>
-{% if server_ip %}<div style="margin-top:6px">{{ _('g_api_ip_hint') }} <code class="ltr">{{ server_ip }}</code>
-<button type="button" class="ghost sm" onclick="navigator.clipboard.writeText('{{ server_ip }}');this.textContent='✔'">{{ _('btn_copy') }}</button></div>{% endif %}</div>
+{% if server_ip %}<div style="margin-top:6px">{{ _('g_api_ip_hint') }} {% for one in server_ip.split(', ') %}<code class="ltr">{{ one }}</code>
+<button type="button" class="ghost sm" onclick="navigator.clipboard.writeText('{{ one }}');this.textContent='✔'">{{ _('btn_copy') }}</button> {% endfor %}
+{% if ', ' in server_ip %}<div class="small muted">{{ _('g_ip_both') }}</div>{% endif %}</div>{% endif %}</div>
 <script>(() => { const sel = document.getElementById('exchange'), a = document.getElementById('api-guide'); if (!sel || !a) return;
   const upd = () => { a.href = sel.value === 'binance' ? '/guides/binance' : '/guides/exchanges#ex-' + sel.value; };
   sel.addEventListener('change', upd); upd(); })();</script>

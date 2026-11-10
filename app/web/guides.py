@@ -58,13 +58,22 @@ GUIDES: dict[str, dict] = {
 ORDER = ("telegram", "binance", "exchanges")
 
 
-def server_ip() -> str:
-    """The IP our server trades from (users whitelist it in their API key). Admin setting, else the site's address."""
+def server_ips() -> list[str]:
+    """IPs users must allow in their API keys. Admin setting (several while moving servers), else the site's address."""
     with SessionLocal() as s:
         gs = get_global(s)
         manual, base = (gs.public_ip or "").strip(), gs.base_url or ""
     if manual:
-        return manual
+        return [x for x in re.split(r"[\s,;]+", manual) if x]
+    ip = ip_of_url(base)
+    return [ip] if ip else []
+
+
+def server_ip() -> str:
+    return ", ".join(server_ips())
+
+
+def ip_of_url(base: str) -> str:
     host = urlparse(base).hostname or ""
     if not host:
         return ""
@@ -112,7 +121,7 @@ async def guide(key: str, request: Request):
         videos = dict(gs.guide_videos or {})
         min_cap, cur = gs.min_capital, gs.stake_currency
     return render(request, "guide.html", key=key, g=GUIDES[key], others=[k for k in ORDER if k != key],
-                  ip=server_ip(), video=video_embed(videos.get(key, "")), tg_bot=bot.username, min_cap=min_cap,
+                  ip=server_ip(), ips=server_ips(), video=video_embed(videos.get(key, "")), tg_bot=bot.username, min_cap=min_cap,
                   cur=cur, EX=EXCHANGES, NEEDS_PASSWORD=NEEDS_PASSWORD,
                   GUIDE_TITLES={k: GUIDES[k]["title"] for k in ORDER})
 

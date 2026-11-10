@@ -109,3 +109,13 @@ def test_failed_connection_test_explains_and_links(monkeypatch):
             s.query(ExchangeAccount).filter_by(id=aid).delete()
             s.query(User).filter_by(id=uid).delete()
             s.commit()
+
+
+def test_two_ips_while_moving_servers():
+    with SessionLocal() as s:
+        get_global(s).public_ip = "65.109.188.248, 5.6.7.8"
+        s.commit()
+    assert guides.server_ips() == ["65.109.188.248", "5.6.7.8"]
+    html = TestClient(app).get("/guides/binance?lang=en").text
+    assert "65.109.188.248" in html and "5.6.7.8" in html and "add both IPs" in html
+    assert guides.ip_of_url("https://5-6-7-8.sslip.io") == "5.6.7.8" and guides.ip_of_url("https://9.9.9.9") == "9.9.9.9"

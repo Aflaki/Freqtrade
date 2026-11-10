@@ -186,7 +186,7 @@ async def admin_settings_save(request: Request):
             import re as _re
             from .guides import ORDER
             ip = str(f.get("public_ip", "")).strip()
-            gs.public_ip = ip if _re.fullmatch(r"[0-9a-fA-F:.]{0,64}", ip) else gs.public_ip
+            gs.public_ip = ip if _re.fullmatch(r"[0-9a-fA-F:., ;]{0,200}", ip) else gs.public_ip
             gs.guide_videos = {k: str(f.get(f"video__{k}", "")).strip()[:500] for k in ORDER
                                if str(f.get(f"video__{k}", "")).strip().startswith(("https://", "http://"))}
         elif section == "alertbot":

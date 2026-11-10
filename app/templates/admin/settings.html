@@ -68,7 +68,8 @@
 <p><button>{{ _('btn_save') }}</button> {% if has_token %}<button class="ghost" name="remove" value="1">{{ _('btn_remove') }}</button>{% endif %}</p></form>
 <form method="post" class="card" id="guides"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="section" value="guides">
 <h2>📘 {{ _('g_adm_title') }}</h2><p class="small muted">{{ _('g_adm_intro') }} <a href="/guides" target="_blank">/guides ↗</a></p>
-<label>{{ _('g_adm_ip') }}</label><input class="ltr" type="text" name="public_ip" value="{{ gs.public_ip }}" placeholder="65.109.188.248" style="max-width:260px">
+<label>{{ _('g_adm_ip') }}</label><input class="ltr" type="text" name="public_ip" value="{{ gs.public_ip }}" placeholder="65.109.188.248" style="max-width:360px">
+<p class="small muted">{{ _('g_adm_ip_move') }}</p>
 <p class="small muted">{{ _('g_adm_ip_now') }} <code class="ltr">{{ server_ip or '—' }}</code></p>
 {% for k, title in guide_titles %}<label>🎬 {{ _(title) }}</label><input class="ltr" type="url" name="video__{{ k }}" value="{{ (gs.guide_videos or {}).get(k, '') }}" placeholder="https://youtu.be/…  ·  https://www.aparat.com/v/…  ·  https://…/video.mp4">{% endfor %}
 <p><button>{{ _('btn_save') }}</button></p></form>

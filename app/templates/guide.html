@@ -17,8 +17,9 @@
 <p>{{ _(st.b, bot=('@' ~ tg_bot) if tg_bot else '@…', ip=ip or '—', min=('{:,.0f}'.format(min_cap)), cur=cur) }}</p>
 {% if st.perms %}<div class="gperms ltr">{% for label, on in st.perms %}<div class="{{ 'on' if on else 'off' }}"><span class="box">{{ '✔' if on else '' }}</span>{{ label }}
 <b>{{ _('g_tick') if on else _('g_no_tick') }}</b></div>{% endfor %}</div>{% endif %}
-{% if st.ip %}<div class="gip"><span>{{ _('g_our_ip') }}</span>{% if ip %}<code class="ltr" id="ourip">{{ ip }}</code>
-<button type="button" class="ghost sm" onclick="navigator.clipboard.writeText('{{ ip }}');this.textContent='✔'">{{ _('btn_copy') }}</button>{% else %}<span class="neg">{{ _('g_ip_unknown') }}</span>{% endif %}</div>{% endif %}
+{% if st.ip %}<div class="gip"><span>{{ _('g_our_ip') }}</span>{% if ip %}{% for one in ips %}<code class="ltr">{{ one }}</code>
+<button type="button" class="ghost sm" onclick="navigator.clipboard.writeText('{{ one }}');this.textContent='✔'">{{ _('btn_copy') }}</button>{% endfor %}
+{% if ips|length > 1 %}<span class="small muted">{{ _('g_ip_both') }}</span>{% endif %}{% else %}<span class="neg">{{ _('g_ip_unknown') }}</span>{% endif %}</div>{% endif %}
 {% if st.warn %}<p class="flash warn small">⚠️ {{ _(st.warn, ip=ip) }}</p>{% endif %}
 </div></li>{% endfor %}
 </ol>

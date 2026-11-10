@@ -206,5 +206,10 @@ G: dict[str, tuple[str, str, str, str]] = {
                     "Las guías ya están incluidas. Si grabas un vídeo (YouTube, Aparat o mp4), pega aquí el enlace y aparecerá arriba en esa guía."),
     "g_adm_ip": ("IP سرور برای قفل کلیدهای API (خالی = از آدرس سایت)", "Server IP for API key IP locks (empty = from the site address)",
                  "Server-IP für die IP-Sperre der API-Schlüssel (leer = aus der Seitenadresse)", "IP del servidor para bloquear claves API (vacío = de la dirección del sitio)"),
+    "g_ip_both": ("سایت در حال انتقال به سرور جدید است: هر دو IP را اضافه کنید.", "The site is moving to a new server: add both IPs.", "Die Seite zieht auf einen neuen Server um: beide IPs eintragen.", "El sitio se muda a un servidor nuevo: añade ambas IPs."),
+    "g_adm_ip_move": ("قبل از انتقال سایت به سرور جدید، IP قدیم و جدید را با کاما بنویسید تا کاربران هر دو را در کلید API خود اضافه کنند. بعد از انتقال، IP قدیم خودکار حذف می‌شود.",
+                      "Before moving the site to a new server, enter the old and the new IP separated by a comma, so users add both to their API keys. After the move the old IP is removed automatically.",
+                      "Vor dem Umzug alte und neue IP mit Komma eintragen, damit Nutzer beide hinzufügen. Nach dem Umzug wird die alte IP automatisch entfernt.",
+                      "Antes de mudar el sitio, escribe la IP antigua y la nueva separadas por coma para que los usuarios añadan ambas. Tras la mudanza la antigua se quita sola."),
     "g_adm_ip_now": ("الان به کاربران نشان داده می‌شود:", "Shown to users now:", "Wird Nutzern jetzt gezeigt:", "Se muestra ahora:"),
 }
