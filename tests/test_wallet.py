@@ -63,7 +63,8 @@ def test_form_wallet_mode_and_caps(catalog_env):
     # a small wallet: 50 x 60% / 2 = 15 per trade, below BTC's minimum (100 at the bot's 5x = 20); a low floor
     # doesn't help, so it is a pair problem to decide
     FakeBinance.balance = 50.0
-    page = save(c, csrf, label="cat-w2", sizing_mode="wallet_pct", wallet_pct="60", min_stake="5", **pairs).text
+    page = save(c, csrf, label="cat-w2", api_key="k2", sizing_mode="wallet_pct", wallet_pct="60", min_stake="5",
+                **pairs).text
     assert "BTC/USDT: margin per trade is 15.00" in page and 'name="pfix__BTC/USDT"' in page
 
 
@@ -125,3 +126,37 @@ def test_compounding_at_entry(live):
     with SessionLocal() as s:
         t3 = s.query(Trade).filter_by(account_id=acc_id, ft_trade_id=3).one()
         assert t3.stake == pytest.approx(1000, abs=5)
+
+
+def test_one_key_one_portfolio_and_delete_with_open(catalog_env):
+    a, b = catalog_env
+    offer("BTC/USDT", a, leverage=5)
+    c, csrf = login("cat-dup@x.com")
+    pairs = {"pair__BTC/USDT": "on"}
+    assert save(c, csrf, label="cat-d1", api_key="DUPKEY", capital="100", **pairs).status_code == 200
+    page = save(c, csrf, label="cat-d2", api_key="DUPKEY", capital="100", **pairs).text
+    assert "already used by the portfolio “cat-d1”" in page
+    res = c.post("/accounts/check", json={"csrf": csrf, "exchange": "binance", "trading_mode": "futures",
+                                          "api_key": "DUPKEY", "secret": "s"}).json()
+    assert not res["ok"] and "cat-d1" in res["items"][0]["text"]
+    with SessionLocal() as s:  # a duplicate saved before this check existed, holding an open position
+        d1 = s.query(ExchangeAccount).filter_by(label="cat-d1").one()
+        assert d1.api_key_hash
+        d2 = ExchangeAccount(user_id=d1.user_id, kind="exchange", label="cat-d2", exchange="binance",
+                             api_key_enc=d1.api_key_enc, api_key_hash=d1.api_key_hash, pairs={"BTC/USDT": 1})
+        s.add(d2)
+        s.commit()
+        s.add(Trade(user_id=d1.user_id, account_id=d2.id, pair="BTC/USDT", symbol="BTC/USDT:USDT", side="long",
+                    amount=0.01, entry_price=100000, adopted=True))
+        s.commit()
+        d1_id, d2_id = d1.id, d2.id
+    page = c.get("/accounts").text
+    assert "same API key as “cat-d1”" in page and "Futures 5x" in page  # the pairs' real leverage, not 1x
+    c.post(f"/accounts/{d2_id}/delete", data={"csrf": csrf})
+    with SessionLocal() as s:
+        assert s.get(ExchangeAccount, d2_id) is not None  # open position: asks what to do first
+    c.post(f"/accounts/{d2_id}/delete", data={"csrf": csrf, "open": "leave"})
+    with SessionLocal() as s:
+        assert s.get(ExchangeAccount, d2_id) is None and s.query(Trade).filter_by(account_id=d2_id).count() == 0
+        assert s.get(ExchangeAccount, d1_id) is not None
+    assert "same API key" not in c.get("/accounts").text

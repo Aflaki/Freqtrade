@@ -86,7 +86,24 @@ async def accounts(request: Request):
                  "adopted": s.scalar(select(func.count(Trade.id)).where(Trade.account_id == a.id, Trade.status == "open",
                                                                         Trade.adopted.is_(True)))}
                 for a in accs]
+        by_hash: dict[str, list] = {}
+        for a in accs:
+            if a.api_key_hash:
+                by_hash.setdefault(a.api_key_hash, []).append(a)
+        for r in rows:
+            twins = [o for o in by_hash.get(r["acc"].api_key_hash or "", []) if o.id != r["acc"].id]
+            r["same_key"] = ", ".join(o.label or o.exchange for o in twins)
     return render(request, "accounts.html", gs=gs, rows=rows)
+
+
+def _key_owner(s, h: str | None, exclude_id: int | None):
+    """Another portfolio (of anyone) that already uses this API key."""
+    if not h:
+        return None
+    q = select(ExchangeAccount).where(ExchangeAccount.api_key_hash == h)
+    if exclude_id is not None:
+        q = q.where(ExchangeAccount.id != exclude_id)
+    return s.scalars(q).first()
 
 
 def _public_bots() -> list[Bot]:
@@ -322,6 +339,16 @@ async def _save_account(request: Request, acc_id: int | None):
                 errors.append(tr(request, "err_passphrase"))
             if not f.get("no_withdraw"):
                 errors.append(tr(request, "err_no_withdraw"))
+        new_hash = None
+        if kind == "exchange" and not errors:
+            from ..db import key_hash
+            from ..security import decrypt
+            eff_key = api_key or (decrypt(acc.api_key_enc) if acc and acc.exchange == exchange else "") or ""
+            new_hash = key_hash(exchange, eff_key) if eff_key else None
+            other = _key_owner(s, new_hash, acc.id if acc else None)
+            if other is not None:
+                errors.append(tr(request, "err_key_in_use", name=other.label or other.exchange)
+                              if other.user_id == user.id else tr(request, "err_key_in_use_other"))
         # the API key itself: works, may trade futures, withdrawals off, enough money (and the balance)
         bal = None
         if not errors and kind == "exchange":
@@ -384,6 +411,7 @@ async def _save_account(request: Request, acc_id: int | None):
             acc.dry_run = bool(f.get("dry_run"))
             if api_key:
                 acc.api_key_enc = encrypt(api_key)
+            acc.api_key_hash = new_hash or acc.api_key_hash
             if secret:
                 acc.secret_enc = encrypt(secret)
             if password:
@@ -524,12 +552,25 @@ async def account_positions_decide(acc_id: int, request: Request):
 async def account_delete(acc_id: int, request: Request):
     user = require_user(request)
     await form_with_csrf(request)
+    f = await request.form()
+    how = str(f.get("open", ""))  # what to do with open positions: "leave" on the exchange, or "close" them
     with SessionLocal() as s:
         acc = _own(s, user, acc_id)
-        if s.scalar(select(func.count(Trade.id)).where(Trade.account_id == acc.id, Trade.status == "open")):
-            flash(request, tr(request, "err_delete_open"), "error")
+        open_ids = list(s.scalars(select(Trade.id).where(Trade.account_id == acc.id, Trade.status == "open")))
+    if open_ids and how == "close":
+        for tid in open_ids:
+            await force_exit(tid, user.id)
+        with SessionLocal() as s:
+            left = s.scalar(select(func.count(Trade.id)).where(Trade.account_id == acc_id, Trade.status == "open"))
+        if left:
+            flash(request, tr(request, "err_delete_close_failed", n=left), "error")
             return RedirectResponse("/accounts", 303)
-        s.delete(acc)
+    elif open_ids and how != "leave":
+        flash(request, tr(request, "err_delete_open"), "error")
+        return RedirectResponse("/accounts", 303)
+    with SessionLocal() as s:
+        acc = _own(s, user, acc_id)
+        s.delete(acc)  # its trades and orders go with it (the positions themselves stay on the exchange)
         s.commit()
     await pool.drop(acc_id)
     flash(request, tr(request, "msg_deleted"))
@@ -698,6 +739,13 @@ async def account_check(request: Request):
         cur = gs.stake_currency
     if not key or not secret:
         return JSONResponse({"ok": False, "items": [{"status": "error", "text": tr(request, "err_keys")}]})
+    from ..db import key_hash
+    with SessionLocal() as s:
+        other = _key_owner(s, key_hash(exchange, key), int(acc_id) if str(acc_id or "").isdigit() else None)
+        if other is not None:
+            text = (tr(request, "err_key_in_use", name=other.label or other.exchange) if other.user_id == user.id
+                    else tr(request, "err_key_in_use_other"))
+            return JSONResponse({"ok": False, "items": [{"status": "error", "text": text}]})
     res = await check_keys(exchange, mode, key, secret, pw, bool(data.get("sandbox")), cur)
     sel = {str(p).upper(): v for p, v in (data.get("pairs") or {}).items() if isinstance(v, dict)}
     rules = {p: pair_rules(o) for p, o in offers_by_pair().items()}

@@ -86,8 +86,10 @@ def leverage_for(gs: GlobalSettings, acc: ExchangeAccount, pair: str | None = No
 
 def allocation_table(gs: GlobalSettings, acc: ExchangeAccount) -> list[dict]:
     out = []
+    from .offers import bot_leverage
     for p, v in (acc.pairs or {}).items():
-        stake, lev = pair_budget(gs, acc, p), leverage_for(gs, acc, p)
+        b = (acc.pair_bot or {}).get(p)  # no fixed leverage: the bot's usual one (what its signals will carry)
+        stake, lev = pair_budget(gs, acc, p), leverage_for(gs, acc, p, bot_leverage(b) if b else None)
         out.append({"pair": p, "value": v, "stake": stake, "notional": stake * lev, "leverage": lev})
     return out
 

@@ -27,7 +27,7 @@ input.ltr,textarea.ltr,.ltr{direction:ltr;text-align:left}
 button,.btn{display:inline-block;background:var(--btn);color:var(--brand-ink);border:0;border-radius:8px;padding:9px 16px;
 font:inherit;font-weight:600;cursor:pointer;text-align:center}
 .btn.ghost,button.ghost{background:transparent;color:var(--text);border:1px solid var(--line)}
-button.danger{background:var(--err)}button.sm,.btn.sm{padding:4px 10px;font-size:13px}
+button.danger,.btn.danger{background:var(--err)}button.sm,.btn.sm{padding:4px 10px;font-size:13px}
 form.inline{display:inline}
 .table-wrap{overflow-x:auto}
 table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
@@ -238,3 +238,5 @@ input.pc-ok{outline:2px solid var(--ok)}input.pc-err{outline:2px solid var(--err
 .pc-flat td{vertical-align:middle}.pc-flat .pc-ex{white-space:normal;min-width:120px}.pc-flat .pc-ex .chip{font-size:11px;padding:1px 6px;margin:1px}
 
 .issues{border-color:var(--warn)}.issues h3{margin:0 0 4px}.issue{padding:8px 0;border-top:1px solid var(--line)}.issue label.check{display:inline-flex;margin:6px 12px 0 0}
+
+details.inline-details{display:inline-block;vertical-align:top}details.inline-details>summary{list-style:none;cursor:pointer}details.inline-details>summary::-webkit-details-marker{display:none}

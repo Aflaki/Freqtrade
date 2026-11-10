@@ -6,12 +6,14 @@
 <div class="card">
   <h2>{{ a.label or (EXCHANGES.get(a.exchange, a.exchange) if not a.is_signal else _('plan_signal_title')) }}
     {% if a.is_signal %}<span class="badge brand">{{ _('badge_signal') }}</span>{% else %}<span class="badge">{{ exch(a.exchange, 14) }}{{ EXCHANGES.get(a.exchange, a.exchange) }}</span>{% endif %}
-    <span class="badge">{{ _('mkt_spot') if a.is_spot else _('mkt_futures') ~ ' ' ~ a.leverage ~ 'x' }}</span>
+    {% set levs = r.alloc|map(attribute='leverage')|unique|sort|list %}
+    <span class="badge">{% if a.is_spot %}{{ _('mkt_spot') }}{% else %}{{ _('mkt_futures') }} {{ (levs[0] ~ 'x') if levs|length == 1 else (levs[0] ~ '–' ~ levs[-1] ~ 'x') if levs else (a.leverage ~ 'x') }}{% endif %}</span>
     <span class="badge">{{ _('mode_' ~ r.mode) }}{% if r.mode == 'wallet_pct' and a.wallet_pct %} · {{ '%g'|format(a.wallet_pct) }}%{% endif %}</span>
     {% if a.dry_run and not a.is_signal %}<span class="badge warn">{{ _('badge_paper') }}</span>{% endif %}
     {% if not a.enabled %}<span class="badge err">{{ _('badge_disabled') }}</span>{% endif %}
     {% if a.last_check_ok %}<span class="badge ok">{{ _('badge_conn_ok') }}</span>{% elif a.last_check_ok == false %}<span class="badge err">{{ _('badge_conn_fail') }}</span>{% endif %}
   </h2>
+  {% if r.same_key %}<div class="flash error">{{ _('warn_same_key', names=r.same_key) }}</div>{% endif %}
   {% set und = a.undecided_positions %}
   {% if und and a.enabled and not a.dry_run %}<div class="flash warn">{{ _('pos_banner', n=und|length) }} <a href="/accounts/{{ a.id }}/positions">{{ _('pos_decide') }} →</a></div>{% endif %}
   <p class="small">🤖 {{ _('sec_bots') }}: <b>{{ r.bots|join(', ') or '—' }}</b></p>
@@ -33,7 +35,12 @@
     <a class="btn ghost sm" href="/accounts/{{ a.id }}/edit">{{ _('btn_edit') }}</a>
     {% if not a.is_signal and not a.is_spot and not a.dry_run %}<a class="btn ghost sm" href="/accounts/{{ a.id }}/positions">{{ _('pos_btn') }}{% if r.adopted %} ({{ r.adopted }}){% endif %}</a>{% endif %}
     <form class="inline" method="post" action="/accounts/{{ a.id }}/toggle"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost sm">{{ _('btn_disable') if a.enabled else _('btn_enable') }}</button></form>
-    <form class="inline" method="post" action="/accounts/{{ a.id }}/delete" onsubmit="return confirm('{{ _('confirm_delete') }}')"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger sm">{{ _('btn_delete') }}</button></form>
+    {% if r.open %}<details class="inline-details"><summary class="btn danger sm">{{ _('btn_delete') }}</summary>
+    <div class="card small" style="margin-top:8px"><p>{{ _('del_open_q', n=r.open) }}</p>
+    <form method="post" action="/accounts/{{ a.id }}/delete" onsubmit="return confirm({{ _('confirm_delete')|tojson }})"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <p><button class="danger sm" name="open" value="leave">{{ _('del_leave') }}</button> <span class="muted">{{ _('del_leave_help') }}</span></p>
+    <p><button class="danger sm ghost" name="open" value="close">{{ _('del_close') }}</button> <span class="muted">{{ _('del_close_help') }}</span></p></form></div></details>
+    {% else %}<form class="inline" method="post" action="/accounts/{{ a.id }}/delete" onsubmit="return confirm({{ _('confirm_delete')|tojson }})"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger sm">{{ _('btn_delete') }}</button></form>{% endif %}
   </p>
 </div>
 {% else %}<div class="card muted">{{ _('no_portfolios') }}</div>{% endfor %}

@@ -146,6 +146,8 @@ class ExchangeAccount(Base):
     api_key_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
     secret_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
     password_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # sha256 of exchange + API key: one key may be used by one portfolio only (the stored key itself is encrypted)
+    api_key_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     sandbox: Mapped[bool] = mapped_column(default=False)
     dry_run: Mapped[bool] = mapped_column(default=True)
     enabled: Mapped[bool] = mapped_column(default=True)
@@ -637,3 +639,22 @@ def init_db() -> None:
     _migrate_multi_bot()
     from .engine.offers import migrate_offers
     migrate_offers()
+    _backfill_key_hashes()
+
+
+def key_hash(exchange: str, api_key: str) -> str:
+    import hashlib
+    return hashlib.sha256(f"{exchange}:{api_key.strip()}".encode()).hexdigest()
+
+
+def _backfill_key_hashes() -> None:
+    """Portfolios saved before keys had a fingerprint get one (needed to find a key used twice)."""
+    from .security import decrypt
+    with SessionLocal() as s:
+        for acc in s.scalars(select(ExchangeAccount).where(ExchangeAccount.api_key_hash.is_(None),
+                                                           ExchangeAccount.api_key_enc.is_not(None))):
+            try:
+                acc.api_key_hash = key_hash(acc.exchange, decrypt(acc.api_key_enc) or "")
+            except RuntimeError:  # MASTER_KEY changed: can't read it
+                continue
+        s.commit()
