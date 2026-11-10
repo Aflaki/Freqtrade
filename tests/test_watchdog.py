@@ -630,3 +630,42 @@ def test_servers_dashboard(site, monkeypatch):
             s.query(User).filter_by(id=uid).delete()
             s.commit()
         wd._tasks.clear()
+
+
+def test_monitoring_alerts_not_silenced_by_muting_freqtrade_events(monkeypatch):
+    import asyncio
+
+    from app.engine.botmonitor import monitor
+    from app.notify import alerts as al
+    from app.security import hash_password
+    from app.telegram import bot as tg
+    init_db()
+    with SessionLocal() as s:
+        u = User(email="mute@x.com", name="M", password_hash=hash_password("Xy-12345678-zz"), is_admin=True,
+                 status="active", telegram_chat_id="777", notify={"bot_status": False, "bot_trades": False})
+        s.add(u)
+        s.commit()
+        uid = u.id
+    got = []
+
+    async def fake_send(chat_id, text, user_id=None, kind="reply"):
+        got.append((kind, text))
+        return True
+
+    async def fake_phone(user, title, text, url="/", tag=""):
+        return {"push": 0, "alert_bot": False}
+    monkeypatch.setattr(tg, "send", fake_send)
+    monkeypatch.setattr(al, "phone", fake_phone)
+
+    async def run():
+        monitor._alert_changes("V1_8015", {"api": "ok", "state": "running"}, {"api": "unreachable", "error": "x"})
+        monitor.notify_admins("bot_status", lambda L: "freqtrade chatter")
+        await asyncio.sleep(0.05)
+    try:
+        asyncio.run(run())
+        kinds = [k for k, _ in got]
+        assert kinds == ["monitoring"], got  # the down alert arrives, the muted Freqtrade message does not
+    finally:
+        with SessionLocal() as s:
+            s.query(User).filter_by(id=uid).delete()
+            s.commit()

@@ -54,6 +54,20 @@
   <div class="kpi"><div class="k">{{ _('srv_events_24h') }}</div><div class="v"><span class="num">{{ kpi.events }}</span></div></div>
 </div>
 
+<div class="card" id="channels"><h2>🔔 {{ _('srv_channels') }}</h2>
+<ul class="checklist" style="flex-direction:column;gap:6px">
+<li class="{{ 'ok' if ch.tg_linked and ch.wants else '' }}">{{ '✔' if ch.tg_linked and ch.wants else '✗' }} Telegram {% if ch.tg_bot %}(@{{ ch.tg_bot }}){% endif %}:
+{% if not ch.tg_bot %}<span class="neg">{{ _('tg_not_configured') }}</span>
+{% elif not ch.tg_linked %}<span class="neg">{{ _('srv_ch_tg_not_linked') }}</span> <a href="/settings">{{ _('nav_settings') }} →</a>
+{% elif not ch.wants %}<span class="neg">{{ _('srv_ch_off') }}</span> <a href="/settings">{{ _('nav_settings') }} →</a>
+{% else %}{{ _('srv_ch_on') }}{% if ch.last %} — {{ _('srv_ch_last') }} <span class="num">{{ ch.last.created_at.strftime('%m-%d %H:%M') }}</span>
+{% if ch.last.ok %}<span class="badge ok">✔</span>{% else %}<span class="badge err" title="{{ ch.last.error }}">✗ {{ ch.last.error[:80] }}</span>{% endif %}{% endif %}{% endif %}</li>
+<li class="{{ 'ok' if ch.alert_bot else '' }}">{{ '✔' if ch.alert_bot else '○' }} {{ _('alertbot_title') }}: {% if ch.alert_bot %}@{{ ch.alert_bot }}{% else %}<a href="/admin/settings#alertbot">{{ _('phone_alertbot_off') }}</a>{% endif %}</li>
+<li class="{{ 'ok' if ch.devices and ch.wants_phone else '' }}">{{ '✔' if ch.devices and ch.wants_phone else '○' }} {{ _('phone_push') }}: <span class="num">{{ ch.devices }}</span> <a href="/settings#phone">{{ _('nav_settings') }} →</a></li>
+</ul>
+<form method="post" action="/admin/servers/test-alert" style="margin-top:10px"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost sm">{{ _('phone_test') }}</button></form>
+</div>
+
 {% if not servers %}<div class="card"><h2>🛟 {{ _('srv_no_agent') }}</h2><p class="muted">{{ _('wd_intro') }}</p>
 <pre class="ltr copy" style="white-space:pre-wrap;word-break:break-all">{{ install_cmd }}</pre>
 <p class="small muted">{{ _('wd_install_wget') }}</p>

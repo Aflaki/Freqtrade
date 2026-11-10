@@ -108,7 +108,7 @@ def _view(admin_id: int) -> dict:
         events = list(s.scalars(select(WatchdogEvent).where(WatchdogEvent.created_at >= since)
                                 .order_by(WatchdogEvent.id.desc()).limit(60)))
         alerts = list(s.scalars(select(NotificationLog).where(NotificationLog.user_id == admin_id,
-                                                              NotificationLog.kind == "bot_status",
+                                                              NotificationLog.kind == "monitoring",
                                                               NotificationLog.created_at >= since)
                                 .order_by(NotificationLog.id.desc()).limit(60)))
         gs = get_global(s)
@@ -128,12 +128,57 @@ def _view(admin_id: int) -> dict:
             "stall_min": STALL_MINUTES}
 
 
+async def _channels(admin) -> dict:
+    """Where this admin's monitoring alerts go, and whether the last one got through."""
+    from ..db import PushSubscription
+    from ..notify.alerts import alert_bot_username
+    from ..telegram import bot
+    with SessionLocal() as s:
+        last = s.scalars(select(NotificationLog).where(NotificationLog.user_id == admin.id,
+                                                       NotificationLog.kind == "monitoring")
+                         .order_by(NotificationLog.id.desc()).limit(1)).first()
+        devices = s.query(PushSubscription).filter_by(user_id=admin.id).count()
+    return {"tg_bot": bot.username, "tg_linked": bool(admin.telegram_chat_id), "wants": admin.wants("monitoring"),
+            "wants_phone": admin.wants("phone_alerts"), "last": last, "alert_bot": await alert_bot_username(),
+            "devices": devices}
+
+
 @router.get("")
 async def page(request: Request):
     admin = require_admin(request)
     v = _view(admin.id)
     cmd = f'curl -fsSL "{site_url(request)}/watchdog/install.sh?t={token()}" | sh'
-    return render(request, "admin/servers.html", tab="servers", install_cmd=cmd, **v)
+    return render(request, "admin/servers.html", tab="servers", install_cmd=cmd, ch=await _channels(admin), **v)
+
+
+@router.post("/test-alert")
+async def test_alert(request: Request):
+    """Send one monitoring alert through every channel and say which ones worked (and why not)."""
+    from ..notify import alerts
+    from ..telegram import bot
+    admin = require_admin(request)
+    await form_with_csrf(request)
+    title, text = tr(request, "push_test_title"), "🔔 " + tr(request, "srv_test_text")
+    lines = []
+    if not admin.telegram_chat_id:
+        lines.append(("error", "Telegram: " + tr(request, "srv_ch_tg_not_linked")))
+    else:
+        ok = await bot.send(admin.telegram_chat_id, text, admin.id, "monitoring")
+        with SessionLocal() as s:
+            last = s.scalars(select(NotificationLog).where(NotificationLog.user_id == admin.id)
+                             .order_by(NotificationLog.id.desc()).limit(1)).first()
+        lines.append(("ok", "Telegram ✔") if ok else ("error", "Telegram ✗ " + (last.error if last else "")[:200]))
+    if alerts.alert_bot_token():
+        ok, err = await alerts.send_alert_bot(admin.telegram_chat_id, f"🚨 <b>{title}</b>\n{text}")
+        lines.append(("ok", tr(request, "alertbot_title") + " ✔") if ok else
+                     ("error", tr(request, "alertbot_title") + " ✗ " + err + (
+                         " — " + tr(request, "srv_ch_press_start") if "chat not found" in err.lower() else "")))
+    from ..notify import webpush
+    n = await webpush.send_to_user(admin.id, title, text, "/admin/servers", "test")
+    lines.append(("ok", tr(request, "push_test_ok", n=n)) if n else ("warn", tr(request, "srv_ch_no_push")))
+    for kind, msg in lines:
+        flash(request, msg, kind)
+    return RedirectResponse("/admin/servers#channels", 303)
 
 
 async def _start_slowly(ids: list[int], gap: int) -> None:

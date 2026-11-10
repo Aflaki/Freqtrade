@@ -160,14 +160,14 @@ async def report(request: Request):
         s.commit()
     from ..engine.botmonitor import monitor
     if was_silent:
-        monitor.notify_admins("bot_status", lambda L: "✅ " + t(L, "wd_host_back", host=host), critical=True,
+        monitor.notify_admins("monitoring", lambda L: "✅ " + t(L, "wd_host_back", host=host), critical=True,
                               title=lambda L: t(L, "wd_host_back", host=host), tag=f"host-{host}")
     for ev in events:
         port = ev.get("port") if isinstance(ev.get("port"), int) else None
         name = names.get(port) or (f"port {port}" if port else str(ev.get("key", "?")))
         if _event_text("en", ev, name, host) is None:
             continue
-        monitor.notify_admins("bot_status", lambda L, ev=ev, name=name: _event_text(L, ev, name, host)[1],
+        monitor.notify_admins("monitoring", lambda L, ev=ev, name=name: _event_text(L, ev, name, host)[1],
                               critical=ev.get("action") != "stopped",  # stopped by hand: Telegram only, no phone push
                               title=lambda L, ev=ev, name=name: _event_text(L, ev, name, host)[0], tag=f"bot-{name}")
     await handle_binance(host, binance, list(bot_ids.values()))
@@ -186,7 +186,7 @@ def check_silent_hosts() -> None:
         s.commit()
         hosts = [(h.hostname, h.last_seen) for h in silent]
     for name, seen in hosts:
-        monitor.notify_admins("bot_status", lambda L, n=name, w=seen: "🚨 " + t(L, "wd_host_silent", host=n,
+        monitor.notify_admins("monitoring", lambda L, n=name, w=seen: "🚨 " + t(L, "wd_host_silent", host=n,
                                                                                  since=w.strftime("%H:%M UTC")),
                               critical=True, title=lambda L, n=name: t(L, "push_wd_host", host=n), tag=f"host-{name}")
 
@@ -284,13 +284,13 @@ async def handle_binance(host: str, binance: dict, host_bot_ids: list[int]) -> N
                 if b.enabled and b.api_url and (b.state or {}).get("state") == "running":
                     running.append(b.id)
     if do_warn:
-        monitor.notify_admins("bot_status", lambda L: "⚠️ " + t(L, "ban_weight_warn", host=esc(host), w=esc(", ".join(warn))))
+        monitor.notify_admins("monitoring", lambda L: "⚠️ " + t(L, "ban_weight_warn", host=esc(host), w=esc(", ".join(warn))))
     if start:
         until_dt = dt.datetime.fromisoformat(ban["until"])
         resume_at = until_dt + dt.timedelta(seconds=BAN_COOLDOWN)
         key = "ban_paused" if auto else "ban_alert_only"
         monitor.notify_admins(
-            "bot_status", lambda L: "🚫 " + t(L, key, host=esc(host), until=_fmt(until_dt), resume=_fmt(resume_at),
+            "monitoring", lambda L: "🚫 " + t(L, key, host=esc(host), until=_fmt(until_dt), resume=_fmt(resume_at),
                                               n=len(running), why=t(L, "ban_why_" + reason)),
             critical=True, title=lambda L: t(L, "push_ban", host=host), tag=f"ban-{host}")
         if running:
@@ -342,7 +342,7 @@ async def resume_due_hosts() -> None:
             due.append((h.hostname, ids))
         s.commit()
     for host, ids in due:
-        monitor.notify_admins("bot_status", lambda L, h=host, n=len(ids): "✅ " + t(L, "ban_resume", host=esc(h), n=n,
+        monitor.notify_admins("monitoring", lambda L, h=host, n=len(ids): "✅ " + t(L, "ban_resume", host=esc(h), n=n,
                                                                                     gap=gap),
                               critical=True, title=lambda L, h=host: t(L, "push_ban_over", host=h), tag=f"ban-{host}")
         if ids:

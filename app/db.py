@@ -45,9 +45,11 @@ DEFAULT_NOTIFY: dict[str, bool] = {
     "entry_fill": True, "exit_fill": True, "partial_exit": True,
     "skipped": True, "errors": True, "daily_report": True,
     "bot_status": True, "bot_trades": True,  # admins only: Freqtrade events / bot trades + copy summary
+    "monitoring": True,  # admins only: servers & bots health (down, restarted, stuck, Binance ban) - separate from
+                         # Freqtrade's own chatter (bot_status), so muting that never silences these
     "phone_alerts": True,  # admins only: critical alerts (bot down / restarted) also to phone push + alert bot
 }
-ADMIN_NOTIFY = ("bot_status", "bot_trades", "phone_alerts")
+ADMIN_NOTIFY = ("bot_status", "bot_trades", "monitoring", "phone_alerts")
 SIZING_MODES = ("equal_split", "pair_weights", "custom_amounts")
 
 

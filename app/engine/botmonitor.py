@@ -387,16 +387,16 @@ class BotMonitor:
     def _alert_changes(self, name: str, old: dict, new: dict) -> None:
         p = f"[{esc(name)}] "
         if old.get("api") == "ok" and new.get("api") != "ok":
-            self.notify_admins("bot_status", lambda L: p + t(L, "bot_alert_down", err=esc(new.get("error", ""))),
+            self.notify_admins("monitoring", lambda L: p + t(L, "bot_alert_down", err=esc(new.get("error", ""))),
                                critical=True, title=lambda L: t(L, "push_bot_down", bot=name), tag=f"bot-{name}")
         elif old.get("api") not in (None, "ok", "not_configured") and new.get("api") == "ok":
-            self.notify_admins("bot_status", lambda L: p + t(L, "bot_alert_up", state=esc(new.get("state"))),
+            self.notify_admins("monitoring", lambda L: p + t(L, "bot_alert_up", state=esc(new.get("state"))),
                                critical=True, title=lambda L: t(L, "push_bot_up", bot=name), tag=f"bot-{name}")
         if old.get("api") == "ok" and new.get("api") == "ok" and old.get("state") != new.get("state"):
             self.notify_admins("bot_status", lambda L: p + t(L, "bot_alert_state", old=esc(old.get("state")),
                                                               new=esc(new.get("state"))))
         if new.get("stalled") and not old.get("stalled"):
-            self.notify_admins("bot_status", lambda L: p + t(L, "bot_alert_stalled", min=STALL_MINUTES,
+            self.notify_admins("monitoring", lambda L: p + t(L, "bot_alert_stalled", min=STALL_MINUTES,
                                                               ts=esc(new.get("last_process"))),
                                critical=True, title=lambda L: t(L, "push_bot_stalled", bot=name), tag=f"bot-{name}")
         # still down: remind every 2 hours, so a dead bot is never forgotten overnight
@@ -410,7 +410,7 @@ class BotMonitor:
                 due = False
             if due:
                 new["down_reminded"] = utcnow().isoformat(timespec="seconds")
-                self.notify_admins("bot_status", lambda L: p + t(L, "bot_alert_still_down", since=esc(since)),
+                self.notify_admins("monitoring", lambda L: p + t(L, "bot_alert_still_down", since=esc(since)),
                                    critical=True, title=lambda L: t(L, "push_bot_down", bot=name), tag=f"bot-{name}")
         else:
             new.pop("down_since", None)
