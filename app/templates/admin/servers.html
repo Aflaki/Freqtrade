@@ -80,7 +80,8 @@
 {% if sv.online %}<span class="badge ok">{{ _('wd_online') }}</span>{% else %}<span class="badge err">{{ _('wd_offline') }} · {{ sv.h.last_seen.strftime('%H:%M') if sv.h.last_seen }}</span>{% endif %}
 {% if sv.ban.active %}<span class="badge err">🚫 {{ _('ban_paused_until', until=sv.ban.until[11:16] ~ ' UTC', n=(sv.ban.bots or [])|length) }}</span>{% endif %}</h2>
 <span class="muted mono small">{{ (sv.h.ips or [])|join(', ') }} · {{ sv.info.cores or '?' }} cores
-{% if sv.info.uptime_s %} · up {{ (sv.info.uptime_s // 86400)|int }}d {{ ((sv.info.uptime_s % 86400) // 3600)|int }}h{% endif %} · agent {{ sv.h.version }}</span></div>
+{% if sv.info.uptime_s %} · up {{ (sv.info.uptime_s // 86400)|int }}d {{ ((sv.info.uptime_s % 86400) // 3600)|int }}h{% endif %} · agent {{ sv.h.version }}</span>
+{% if sv.h.version != agent_version %}<span class="badge warn" title="{{ install_cmd }}">⬆ {{ _('srv_agent_update', v=agent_version) }}</span>{% endif %}</div>
 
 <div class="srv-gauges">
   {{ spark(sv.hist.mem_pct, 100, _('wd_memory') ~ (' · swap ' ~ sv.swap_pct ~ '%' if sv.swap_pct else ''), '%', 90) }}

@@ -531,6 +531,8 @@ class GlobalSettings(Base):
     watchdog_token: Mapped[str] = mapped_column(String(64), default="")
     ban_auto_pause: Mapped[bool] = mapped_column(default=True)  # Binance bans a server's IP -> /stop its bots, /start later
     ban_resume_gap: Mapped[int] = mapped_column(default=30)  # seconds between bots when starting them again
+    auto_register_bots: Mapped[bool] = mapped_column(default=True)  # bots found by the watchdog are added by themselves
+    auto_webhooks: Mapped[bool] = mapped_column(default=True)  # the watchdog writes each bot's webhook into its config
     offers_migrated: Mapped[bool] = mapped_column(default=False)  # allowed_pairs -> pair_offers done once
     market_cache: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)  # exchange rules per pair
     market_widgets: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)  # home page market overview

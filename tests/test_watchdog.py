@@ -690,3 +690,90 @@ def test_server_alias_in_page_and_alerts(site):
         with SessionLocal() as s:
             s.query(User).filter_by(id=uid).delete()
             s.commit()
+
+
+def test_agent_registers_bot_and_writes_webhook(site, tmp_path, monkeypatch):
+    """A bot nobody added in the panel: the agent finds it, the site adds it, the agent writes its webhook + reloads."""
+    import json as _json
+    import socket as _socket
+    from app.security import decrypt
+    sent, _ = site
+    with _socket.socket() as so:
+        so.bind(("127.0.0.1", 0))
+        port = so.getsockname()[1]
+    a = load_agent(tmp_path)
+    a["from_docker"] = lambda: ({}, set())
+    a["host_ips"] = lambda: ["65.109.188.248"]
+    botdir = tmp_path / "ft"
+    botdir.mkdir()
+    cfg = botdir / "config.json"
+    cfg.write_text(_json.dumps({"bot_name": "V9_9015", "strategy": "MyStrat", "dry_run": True,
+                                "api_server": {"enabled": True, "listen_ip_address": "127.0.0.1", "listen_port": port,
+                                               "username": "ftuser", "password": "ftpass"}}))
+    marker = tmp_path / "reloaded.txt"
+    fake = tmp_path / "freqtrade"  # answers POST /api/v1/reload_config like Freqtrade
+    fake.write_text(f"""#!{sys.executable}
+import http.server, sys
+class H(http.server.BaseHTTPRequestHandler):
+    def log_message(self, *a): pass
+    def do_POST(self):
+        open({str(marker)!r}, "w").write(self.path + " " + self.headers.get("Authorization", ""))
+        self.send_response(200); self.end_headers(); self.wfile.write(b'{{"status":"Reloading config ..."}}')
+http.server.HTTPServer(("127.0.0.1", {port}), H).serve_forever()
+""")
+    fake.chmod(0o755)
+    p = subprocess.Popen([sys.executable, str(fake), "trade", "-c", "config.json"], cwd=botdir, start_new_session=True)
+    client = TestClient(app)
+
+    class Resp:
+        def __init__(self, r):
+            self.r = r
+
+        def read(self):
+            return self.r.content
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *e):
+            return False
+
+    def urlopen(req, timeout=0):
+        if req.full_url.startswith("http://site.test"):  # the agent's report -> our app
+            return Resp(client.post(req.full_url.replace("http://site.test", ""), content=req.data,
+                                    headers=dict(req.header_items())))
+        return real_urlopen(req, timeout=timeout)  # the bot's own API (reload_config)
+    real_urlopen = a["urllib"].request.urlopen
+    monkeypatch.setattr(a["urllib"].request, "urlopen", urlopen)
+    a["TOKEN"] = "wd-token-123"
+    try:
+        time.sleep(0.6)
+        st = {"bots": {}, "pending": []}
+        a["check"](st, {})
+        b = st["bots"][f"port:{port}"]
+        assert b["ft"]["bot_name"] == "V9_9015" and b["ft"]["api_user"] == "ftuser" and b["ft"]["webhook_url"] == ""
+        ans = a["report"](st, [])
+        with SessionLocal() as s:
+            bot = s.query(Bot).filter_by(name="V9_9015").one()
+            assert bot.api_url == f"http://65.109.188.248:{port}" and bot.api_user == "ftuser"
+            assert decrypt(bot.api_pass_enc) == "ftpass" and bot.group_id is None  # grouping stays with the admin
+            secret = bot.webhook_secret
+        assert any("V9_9015" in m["text"] for m in sent)  # admins are told
+        hook = ans["webhooks"][str(port)]
+        assert hook["url"].endswith("/webhook/" + secret) and hook["enabled"]
+        ev = a["apply_webhooks"](st, ans)
+        assert [e["action"] for e in ev] == ["webhook_set"], ev
+        written = _json.loads(cfg.read_text())
+        assert written["webhook"]["url"] == hook["url"] and written["api_server"]["password"] == "ftpass"
+        assert list(botdir.glob("config.json.bak-relay-*"))  # backup kept
+        assert marker.read_text().startswith("/api/v1/reload_config Basic ")  # reloaded with the bot's own login
+        a["check"](st, {})
+        assert a["apply_webhooks"](st, ans) == []  # already set: nothing more to do
+        a["report"](st, [])
+        with SessionLocal() as s:
+            assert s.query(Bot).filter_by(name="V9_9015").count() == 1  # not added twice
+    finally:
+        os.kill(p.pid, signal.SIGKILL)
+        with SessionLocal() as s:
+            s.query(Bot).filter_by(name="V9_9015").delete()
+            s.commit()

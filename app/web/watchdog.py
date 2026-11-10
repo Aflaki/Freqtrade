@@ -121,6 +121,60 @@ def _sample(host: str, rep: dict) -> ServerSample:
                         bots_running=sum(1 for b in rep.get("bots") or [] if b.get("status") == "running"))
 
 
+PRIVATE = ("10.", "192.168.", "172.16.", "172.17.", "172.18.", "172.19.", "172.2", "172.30.", "172.31.", "127.", "169.254.")
+
+
+def _register(s, host: str, ips: list[str], reported: list[dict], by_port: dict) -> list[str]:
+    """Bots running on the server but unknown to the site are added (no group: the admin groups them).
+    Known bots get their missing API login filled in. Returns the names of the new bots."""
+    from ..security import encrypt
+    gs = get_global(s)
+    public_ip = next((i for i in ips if ":" not in i and not i.startswith(PRIVATE)), ips[0] if ips else "")
+    taken = {b.name for b in s.scalars(select(Bot))}
+    added = []
+    for r in reported:
+        port, ft = r.get("port"), r.get("ft") or {}
+        if not isinstance(port, int) or r.get("status") != "running" or not ft:
+            continue
+        b = by_port.get(port)
+        if b is not None:  # known bot: only fill in what is missing
+            if not b.api_user and ft.get("api_user"):
+                b.api_user = str(ft["api_user"])[:80]
+            if not b.api_pass_enc and ft.get("api_pass"):
+                b.api_pass_enc = encrypt(str(ft["api_pass"]))
+            continue
+        if not gs.auto_register_bots:
+            continue
+        ip = str(r.get("ip") or "")
+        api_host = ip if ip and ip not in ("0.0.0.0", "::", "127.0.0.1", "localhost") else public_ip
+        base = ft.get("bot_name") if ft.get("bot_name") not in ("", "freqtrade", None) else (r.get("session") or "")
+        name = (str(base) or f"{host}-{port}")[:70]
+        if name in taken:
+            name = f"{name}-{port}"
+        taken.add(name)
+        b = Bot(name=name, api_url=f"http://{api_host}:{port}" if api_host else "", api_user=str(ft.get("api_user", ""))[:80],
+                api_pass_enc=encrypt(str(ft["api_pass"])) if ft.get("api_pass") else None,
+                description=" · ".join(x for x in (str(ft.get("strategy") or ""), host) if x)[:500])
+        s.add(b)
+        s.flush()
+        by_port[port] = b
+        added.append(name)
+        s.add(WatchdogEvent(host=host, port=port, bot_id=b.id, action="registered",
+                            detail=f"{b.api_url} · {ft.get('strategy', '')}"))
+    return added
+
+
+def _webhook_blocks(request: Request, by_port: dict) -> dict:
+    """{port: the webhook block the agent writes into that bot's config}."""
+    from .admin_bots import _webhook_template, webhook_url
+    with SessionLocal() as s:
+        if not get_global(s).auto_webhooks:
+            return {}
+    tpl = {k: v for k, v in _webhook_template().items() if k not in ("url", "enabled")}
+    site = site_url(request)
+    return {str(p): {**tpl, "enabled": True, "url": webhook_url(site, b)} for p, b in by_port.items() if b.enabled}
+
+
 def _event_text(lang: str, ev: dict, bot_name: str, host: str) -> tuple[str, str] | None:
     """(title, message) for an event the admins should hear about; None for quiet ones."""
     from ..telegram import esc
@@ -137,6 +191,10 @@ def _event_text(lang: str, ev: dict, bot_name: str, host: str) -> tuple[str, str
                 + (f"\n<pre>{esc(detail[-700:])}</pre>" if detail else ""))
     if action == "gave_up":
         return (t(lang, "push_wd_gave_up", bot=bot_name), f"⛔ {where} " + t(lang, "wd_gave_up", detail=esc(detail)))
+    if action == "webhook_set":
+        return (t(lang, "push_wd_webhook", bot=bot_name), f"🔗 {where} " + t(lang, "wd_webhook_set", detail=esc(detail)))
+    if action == "webhook_failed":
+        return (t(lang, "push_wd_webhook_fail", bot=bot_name), f"⚠️ {where} " + t(lang, "wd_webhook_failed", detail=esc(detail)))
     if action == "stopped":
         return (t(lang, "push_wd_stopped", bot=bot_name), f"⏸ {where} " + t(lang, "wd_stopped", detail=esc(detail)))
     return None
@@ -174,9 +232,11 @@ async def report(request: Request):
         if utcnow().minute == 0:  # once an hour: keep 7 days of samples
             s.query(ServerSample).filter(ServerSample.at < utcnow() - dt.timedelta(days=7)).delete()
         by_port = bots_on_host(ips, s)
+        added = _register(s, host, ips, h.report["bots"], by_port)
         names = {p: b.name for p, b in by_port.items()}
         bot_ids = {p: b.id for p, b in by_port.items()}
         disabled = sorted(p for p, b in by_port.items() if not b.auto_restart)
+        hooks = _webhook_blocks(request, by_port)
         for ev in events:
             port = ev.get("port") if isinstance(ev.get("port"), int) else None
             s.add(WatchdogEvent(host=host, port=port, bot_id=bot_ids.get(port), action=str(ev.get("action", ""))[:20],
@@ -187,16 +247,24 @@ async def report(request: Request):
     if was_silent:
         monitor.notify_admins("monitoring", lambda L: "✅ " + t(L, "wd_host_back", host=label), critical=True,
                               title=lambda L: t(L, "wd_host_back", host=label), tag=f"host-{host}")
+    if added:
+        monitor.notify_admins("monitoring", lambda L: "🆕 " + t(L, "wd_registered", host=label, n=len(added),
+                                                                 bots=", ".join(added)))
     for ev in events:
         port = ev.get("port") if isinstance(ev.get("port"), int) else None
         name = names.get(port) or (f"port {port}" if port else str(ev.get("key", "?")))
         if _event_text("en", ev, name, host) is None:
             continue
         monitor.notify_admins("monitoring", lambda L, ev=ev, name=name: _event_text(L, ev, name, label)[1],
-                              critical=ev.get("action") != "stopped",  # stopped by hand: Telegram only, no phone push
+                              critical=ev.get("action") in ("restarted", "restart_failed", "gave_up", "webhook_failed"),
                               title=lambda L, ev=ev, name=name: _event_text(L, ev, name, label)[0], tag=f"bot-{name}")
+    if added:  # read the new bots' state + trade history right away
+        from ..engine.botmonitor import monitor as mon
+        for p_, b_ in by_port.items():
+            if b_.name in added:
+                _bg(mon.poll_bot(b_.id, alert=False))
     await handle_binance(host, binance, list(bot_ids.values()))
-    return JSONResponse({"ok": True, "interval": 60, "disabled_ports": disabled})
+    return JSONResponse({"ok": True, "interval": 60, "disabled_ports": disabled, "webhooks": hooks})
 
 
 def check_silent_hosts() -> None:

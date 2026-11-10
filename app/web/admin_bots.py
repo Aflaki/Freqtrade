@@ -132,6 +132,8 @@ async def bots_action(request: Request):
         with SessionLocal() as s:
             gs = get_global(s)
             gs.ban_auto_pause = bool(f.get("ban_auto_pause"))
+            gs.auto_register_bots = bool(f.get("auto_register_bots"))
+            gs.auto_webhooks = bool(f.get("auto_webhooks"))
             try:
                 gs.ban_resume_gap = max(5, min(300, int(str(f.get("ban_resume_gap", "30")))))
             except ValueError:

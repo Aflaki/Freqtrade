@@ -87,6 +87,9 @@
 </table></div></details>{% endif %}
 {% endif %}
 <form method="post" class="card" style="margin:12px 0;background:var(--bg)"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="watchdog_settings">
+<b>🤖 {{ _('wd_auto_title') }}</b>
+<label class="check"><input type="checkbox" name="auto_register_bots" {{ 'checked' if gs.auto_register_bots }}><span>{{ _('wd_auto_register') }}</span></label>
+<label class="check"><input type="checkbox" name="auto_webhooks" {{ 'checked' if gs.auto_webhooks }}><span>{{ _('wd_auto_webhooks') }}</span></label>
 <b>🚫 {{ _('ban_title') }}</b><p class="small muted">{{ _('ban_intro') }}</p>
 <label class="check"><input type="checkbox" name="ban_auto_pause" {{ 'checked' if gs.ban_auto_pause }}><span>{{ _('ban_f_auto') }}</span></label>
 <label>{{ _('ban_f_gap') }}</label><input type="number" name="ban_resume_gap" min="5" max="300" value="{{ gs.ban_resume_gap }}" style="max-width:120px">

@@ -148,7 +148,9 @@ async def page(request: Request):
     admin = require_admin(request)
     v = _view(admin.id)
     cmd = f'curl -fsSL "{site_url(request)}/watchdog/install.sh?t={token()}" | sh'
-    return render(request, "admin/servers.html", tab="servers", install_cmd=cmd, ch=await _channels(admin), **v)
+    from ..engine.watchdog_agent import AGENT_VERSION
+    return render(request, "admin/servers.html", tab="servers", install_cmd=cmd, ch=await _channels(admin),
+                  agent_version=AGENT_VERSION, **v)
 
 
 @router.post("/alias")

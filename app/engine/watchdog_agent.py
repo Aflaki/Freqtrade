@@ -4,7 +4,7 @@ The agent source is AGENT below; the site fills in its address and token when it
 """
 from __future__ import annotations
 
-AGENT_VERSION = "1.3"
+AGENT_VERSION = "1.4"
 
 AGENT = r'''#!/usr/bin/env python3
 """
@@ -116,6 +116,28 @@ def bot_config(argv, cwd):
         except (OSError, ValueError):
             pass
     return cfg
+
+
+def bot_details(argv, cwd, env):
+    """What the site needs to add the bot by itself: name, strategy, API login, current webhook, config to edit."""
+    files = config_args(argv, cwd)
+    parts, merged = [], {}
+    for f in files:
+        try:
+            c = load_json(f)
+        except (OSError, ValueError):
+            continue
+        if isinstance(c, dict):
+            parts.append((f, c))
+            merged = deep_merge(merged, c)
+    api = merged.get("api_server") or {}
+    # the file to edit: the last one that defines api_server (the bot's own file), else the last one
+    target = next((f for f, c in reversed(parts) if "api_server" in c), parts[-1][0] if parts else "")
+    return {"bot_name": str(merged.get("bot_name") or ""), "strategy": str(merged.get("strategy") or ""),
+            "dry_run": bool(merged.get("dry_run", True)),
+            "api_user": env.get("FREQTRADE__API_SERVER__USERNAME") or str(api.get("username") or ""),
+            "api_pass": env.get("FREQTRADE__API_SERVER__PASSWORD") or str(api.get("password") or ""),
+            "webhook_url": str((merged.get("webhook") or {}).get("url") or ""), "target": target}
 
 
 def exchange_of(argv, cwd, env):
@@ -247,7 +269,7 @@ def from_processes():
             continue
         ex, mode = exchange_of(info["argv"], info["cwd"], info["env"])
         found[key] = dict(info, kind="systemd" if info["unit"] else "process", pid=int(pid), port=port, ip=ip,
-                          exchange=ex, mode=mode, _shell=shell)
+                          exchange=ex, mode=mode, ft=bot_details(info["argv"], info["cwd"], info["env"]), _shell=shell)
     for v in found.values():
         v.pop("_shell", None)
         t = tmux_info(v["env"], v["uid"])
@@ -560,6 +582,8 @@ def report(st, events):
     bots = [{"key": k, "port": b.get("port"), "kind": b.get("kind"), "status": b.get("status"), "pid": b.get("pid"),
              "since": b.get("since"), "paused": bool(b.get("paused")), "rss_mb": b.get("rss_mb"), "cpu": b.get("cpu"),
              "session": (b.get("tmux") or {}).get("session") or b.get("container") or b.get("unit") or "",
+             "ip": b.get("ip"), "exchange": b.get("exchange"), "mode": b.get("mode"),
+             "ft": {k: v for k, v in (b.get("ft") or {}).items() if k != "target"} if b.get("status") == "running" else {},
              "config": " ".join(x for x in config_args(b.get("argv") or [], b.get("cwd") or "/")[:3]) if b.get("argv") else ""}
             for k, b in sorted(st["bots"].items())]
     body = json.dumps({"host": platform.node(), "ips": host_ips(), "version": VERSION, "mem": mem_info(),
@@ -578,6 +602,62 @@ def report(st, events):
         st["pending"] = (st["pending"] + events)[-50:]  # sent with the next report
         print("report failed: %s" % e, file=sys.stderr)
         return {}
+
+
+def set_webhook(b, block):
+    """Write the site's webhook into the bot's own config file (backup kept) and reload the bot's config."""
+    target = (b.get("ft") or {}).get("target")
+    if not target or not os.path.isfile(target):
+        return False, "config file not found"
+    data = load_json(target)
+    if (data.get("webhook") or {}).get("url") == block.get("url"):
+        return True, "already set"
+    backup = "%s.bak-relay-%s" % (target, time.strftime("%Y%m%d-%H%M%S"))
+    shutil.copy2(target, backup)
+    data["webhook"] = block
+    st = os.stat(target)
+    tmp = target + ".relay-tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+        f.write("\n")
+    os.replace(tmp, target)
+    try:
+        os.chown(target, st.st_uid, st.st_gid)
+        os.chmod(target, st.st_mode & 0o7777)
+    except OSError:
+        pass
+    ft = b.get("ft") or {}
+    host = b.get("ip") if b.get("ip") not in (None, "", "0.0.0.0", "::") else "127.0.0.1"
+    req = urllib.request.Request("http://%s:%s/api/v1/reload_config" % (host, b.get("port")), data=b"", method="POST")
+    import base64
+    req.add_header("Authorization", "Basic " + base64.b64encode(
+        ("%s:%s" % (ft.get("api_user", ""), ft.get("api_pass", ""))).encode()).decode())
+    try:
+        urllib.request.urlopen(req, timeout=15).read()
+        return True, "written + reloaded (backup %s)" % os.path.basename(backup)
+    except Exception as e:
+        return True, "written (backup %s); reload failed: %s - restart the bot or press Reload in the panel" % (
+            os.path.basename(backup), e)
+
+
+def apply_webhooks(st, cfg):
+    events = []
+    hooks = cfg.get("webhooks") or {}
+    for key, b in st["bots"].items():
+        block = hooks.get(str(b.get("port")))
+        if not block or b.get("status") != "running" or b.get("kind") == "docker":
+            continue
+        if (b.get("ft") or {}).get("webhook_url") == block.get("url"):
+            continue
+        try:
+            ok, detail = set_webhook(b, block)
+        except Exception as e:
+            ok, detail = False, "%s: %s" % (type(e).__name__, e)
+        if ok and detail != "already set":
+            b.setdefault("ft", {})["webhook_url"] = block.get("url")
+        events.append({"key": key, "port": b.get("port"), "action": "webhook_set" if ok else "webhook_failed",
+                       "at": int(time.time()), "detail": detail})
+    return events
 
 
 def check(st, cfg, verbose=False):
@@ -721,6 +801,9 @@ def main():
         ans = report(st, events)
         if ans:
             cfg = ans
+            hook_events = apply_webhooks(st, cfg)
+            if hook_events:
+                st["pending"] = (st["pending"] + hook_events)[-50:]  # reported with the next check
         save_state(st)
         if cmd == "once":
             print(json.dumps({"events": events, "site": ans}, indent=1))
