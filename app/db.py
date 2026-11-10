@@ -90,6 +90,9 @@ class User(Base):
     recovery_codes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)  # sha256 of unused codes
     session_version: Mapped[int] = mapped_column(default=1)  # bump = log out everywhere
     anti_phishing: Mapped[str] = mapped_column(String(32), default="")
+    email_code_hash: Mapped[str] = mapped_column(String(64), default="")  # e-mail confirmation code (hashed)
+    email_code_expires: Mapped[dt.datetime | None] = mapped_column(nullable=True)
+    email_code_tries: Mapped[int] = mapped_column(default=0)
 
     accounts: Mapped[list[ExchangeAccount]] = relationship(back_populates="user", cascade="all, delete-orphan")
     identities: Mapped[list[Identity]] = relationship(back_populates="user", cascade="all, delete-orphan")
@@ -513,6 +516,7 @@ class GlobalSettings(Base):
     smtp_from: Mapped[str] = mapped_column(String(200), default="")
     smtp_security: Mapped[str] = mapped_column(String(10), default="starttls")  # starttls | ssl | none
     require_email_verification: Mapped[bool] = mapped_column(default=False)
+    email_confirm_required: Mapped[bool] = mapped_column(default=True)  # new users confirm their e-mail first
     require_2fa_admins: Mapped[bool] = mapped_column(default=False)
     password_min_length: Mapped[int] = mapped_column(default=10)
     check_breached_passwords: Mapped[bool] = mapped_column(default=True)

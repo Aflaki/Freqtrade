@@ -24,6 +24,9 @@ STRONG = "Gr33n-Lantern-Relay"
 def clean(monkeypatch):
     """Fresh users / settings for every test, and nothing left behind for the other test modules."""
     init_db()
+    with SessionLocal() as s:
+        get_global(s).email_confirm_required = True
+        s.commit()
     sent = []
 
     async def fake_send(to, subject, lines, button=None, anti_phishing="", dir_="ltr"):
@@ -43,6 +46,7 @@ def clean(monkeypatch):
         gs = get_global(s)
         gs.auth_providers, gs.captcha_provider, gs.captcha_site_key, gs.captcha_secret_enc = None, "", "", None
         gs.require_2fa_admins = gs.require_email_verification = False
+        gs.email_confirm_required = True
         gs.base_url = "http://testserver"
         s.commit()
 
@@ -430,3 +434,43 @@ def test_upgrade_fills_new_columns_then_reset_works(clean):
         new = "Quiet-Mountain-River-3"
         r = c.post(link, data={**fields(c, link), "password": new, "password2": new}, follow_redirects=False)
         assert r.status_code == 303
+
+
+# ------------------------------------------------------------------ mandatory e-mail confirmation
+def _code_from(mails):
+    return re.search(r"\b(\d{6})\b", " ".join(mails[-1]["lines"])).group(1)
+
+
+def test_signup_needs_email_code(clean, monkeypatch):
+    with TestClient(app) as admin:
+        register(admin, email="boss@x.com", name="Boss Person")  # first user = admin: never blocked
+        assert admin.get("/dashboard", follow_redirects=False).status_code == 200
+    with TestClient(app) as c:
+        clean.clear()
+        r = register(c, email="new@x.com", name="New Person")
+        assert r.status_code == 303 and r.headers["location"] == "/verify-email"
+        assert clean and "new@x.com" == clean[-1]["to"]
+        code = _code_from(clean)
+        for path in ("/dashboard", "/accounts", "/settings"):  # the panel is closed until confirmed
+            assert c.get(path, follow_redirects=False).headers["location"] == "/verify-email"
+        assert c.get("/verify-email").status_code == 200 and c.get("/settings/security").status_code == 200
+        bad = "000000" if code != "000000" else "111111"
+        c.post("/verify-email/code", data={**fields(c, "/verify-email"), "code": bad})
+        assert user("new@x.com").email_verified is False and user("new@x.com").email_code_tries == 1
+        c.post("/verify-email/code", data={**fields(c, "/verify-email"), "code": code[:3] + " " + code[3:]})
+        assert user("new@x.com").email_verified is True
+        assert c.get("/dashboard", follow_redirects=False).status_code == 200
+
+
+def test_email_code_tries_and_no_gate_without_smtp(clean, monkeypatch):
+    with TestClient(app) as admin:
+        register(admin, email="boss2@x.com", name="Boss Person")
+    with TestClient(app) as c:
+        register(c, email="tries@x.com", name="Tries Person")
+        code = _code_from(clean)
+        for _ in range(5):
+            c.post("/verify-email/code", data={**fields(c, "/verify-email"), "code": "999999" if code != "999999" else "888888"})
+        c.post("/verify-email/code", data={**fields(c, "/verify-email"), "code": code})
+        assert user("tries@x.com").email_verified is False  # 5 wrong tries: this code is dead, a new one is needed
+        monkeypatch.setattr(mailer, "configured", lambda: False)  # no mail server: nobody can be blocked
+        assert c.get("/dashboard", follow_redirects=False).status_code == 200

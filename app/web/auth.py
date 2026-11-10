@@ -123,6 +123,11 @@ async def _start_session(request: Request, user_id: int, method: str) -> Redirec
     await security_alert(u, "alert_login", request, method=method)
     if u.profile_completed is False:
         return RedirectResponse("/complete-profile", 303)
+    from ..security import needs_confirmation
+    if needs_confirmation(u):
+        if not u.email_code_expires or u.email_code_expires < utcnow():
+            await _send_verification(request, u)
+        return RedirectResponse("/verify-email", 303)
     if need_2fa_setup:
         flash(request, tr(request, "msg_admin_2fa_required"), "warn")
         return RedirectResponse("/settings/security", 303)
@@ -195,13 +200,33 @@ def _create_user(request: Request, *, email: str, name: str, password: str | Non
         return u
 
 
+CODE_MINUTES = 30
+CODE_TRIES = 5
+
+
+def _code_hash(uid: int, code: str) -> str:
+    import hashlib
+
+    from ..settings import SECRET_KEY
+    return hashlib.sha256(f"{uid}:{code.strip()}:{SECRET_KEY}".encode()).hexdigest()
+
+
 async def _send_verification(request: Request, u: User) -> bool:
+    """E-mail with a 6-digit code (typed on the confirmation page) and a link (one click)."""
     if u.email_verified or u.email.endswith(PLACEHOLDER_DOMAIN) or not mailer.configured():
         return False
+    code = f"{secrets.randbelow(10**6):06d}"
     with SessionLocal() as s:
         base = get_global(s).base_url.rstrip("/")
+        x = s.get(User, u.id)
+        x.email_code_hash, x.email_code_tries = _code_hash(u.id, code), 0
+        x.email_code_expires = utcnow() + dt.timedelta(minutes=CODE_MINUTES)
+        s.commit()
+        u = s.get(User, u.id)
     link = f"{base}/verify-email/{tokens.make(u, 'verify')}"
-    return await mailer.send(u.email, t(u.lang, "mail_verify_subject"), [t(u.lang, "mail_verify_body", name=u.name or "")],
+    return await mailer.send(u.email, t(u.lang, "mail_verify_subject"),
+                             [t(u.lang, "mail_verify_body", name=u.name or ""), t(u.lang, "mail_verify_code", code=code,
+                                                                                  min=CODE_MINUTES)],
                              (t(u.lang, "mail_verify_button"), link), u.anti_phishing, LANGS[u.lang]["dir"])
 
 
@@ -447,7 +472,7 @@ async def verify_email(token: str, request: Request):
         if u is None:
             flash(request, tr(request, "err_link_invalid"), "error")
         else:
-            u.email_verified = True
+            u.email_verified, u.email_code_hash, u.email_code_expires = True, "", None
             s.commit()
             flash(request, tr(request, "msg_email_verified"))
     return RedirectResponse("/dashboard" if request.session.get("uid") else "/login", 303)
@@ -465,6 +490,48 @@ async def verify_resend(request: Request):
         ok = await _send_verification(request, u)
         flash(request, tr(request, "msg_verify_sent" if ok else "err_mail_unavailable"), "ok" if ok else "error")
     return RedirectResponse(request.headers.get("referer") or "/dashboard", 303)
+
+
+@router.get("/verify-email")
+async def verify_page(request: Request):
+    from ..security import require_user
+    u = require_user(request)
+    if u.email_verified:
+        return RedirectResponse("/dashboard", 303)
+    if u.email.endswith(PLACEHOLDER_DOMAIN):
+        return RedirectResponse("/complete-profile", 303)
+    if (not u.email_code_expires or u.email_code_expires < utcnow()) and _count(f"verify:{u.id}", 3600) < 3:
+        _hit(f"verify:{u.id}")  # e.g. already logged in when confirmation was switched on: send the first code now
+        await _send_verification(request, u)
+    return render(request, "verify_email.html", minutes=CODE_MINUTES)
+
+
+@router.post("/verify-email/code")
+async def verify_code(request: Request):
+    from ..security import require_user
+    u = require_user(request)
+    f = await form_with_csrf(request)
+    code = "".join(ch for ch in str(f.get("code", "")) if ch.isdigit())
+    with SessionLocal() as s:
+        x = s.get(User, u.id)
+        if x.email_verified:
+            return RedirectResponse("/dashboard", 303)
+        if not x.email_code_hash or not x.email_code_expires or x.email_code_expires < utcnow():
+            flash(request, tr(request, "ve_expired"), "error")
+            return RedirectResponse("/verify-email", 303)
+        if x.email_code_tries >= CODE_TRIES:
+            flash(request, tr(request, "ve_too_many"), "error")
+            return RedirectResponse("/verify-email", 303)
+        import hmac
+        if len(code) != 6 or not hmac.compare_digest(_code_hash(x.id, code), x.email_code_hash):
+            x.email_code_tries += 1
+            s.commit()
+            flash(request, tr(request, "ve_wrong", n=CODE_TRIES - x.email_code_tries), "error")
+            return RedirectResponse("/verify-email", 303)
+        x.email_verified, x.email_code_hash, x.email_code_expires = True, "", None
+        s.commit()
+    flash(request, tr(request, "msg_email_verified"))
+    return RedirectResponse("/dashboard", 303)
 
 
 # ------------------------------------------------------------------ forgotten password

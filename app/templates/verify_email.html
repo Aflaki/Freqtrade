@@ -1,0 +1,12 @@
+{% extends "base.html" %}{% block title %}{{ _('ve_title') }} · {{ site.site_name }}{% endblock %}{% block content %}<div class="auth card">
+<h1>📧 {{ _('ve_title') }}</h1>
+<p>{{ _('ve_sent_to') }} <b class="ltr" style="unicode-bidi:isolate">{{ user.email }}</b></p>
+<p class="small muted">{{ _('ve_help', min=minutes) }}</p>
+<form method="post" action="/verify-email/code"><input type="hidden" name="csrf" value="{{ csrf }}">
+<input class="ltr otp" type="text" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" required autofocus placeholder="123456">
+<p><button class="wide">{{ _('ve_btn') }}</button></p></form>
+<form method="post" action="/verify-email/resend" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost sm">{{ _('ve_resend') }}</button></form>
+<a class="btn ghost sm" href="/settings/security#email">{{ _('ve_change') }}</a>
+<form method="post" action="/logout" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost sm">{{ _('nav_logout') }}</button></form>
+<p class="small muted" style="margin-top:12px">{{ _('ve_spam') }}</p>
+</div>{% endblock %}

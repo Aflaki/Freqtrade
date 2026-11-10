@@ -89,6 +89,7 @@ async def save(request: Request):
             gs.password_min_length = _num(f, "password_min_length", 10, 8, 64)
             gs.check_breached_passwords = bool(f.get("check_breached_passwords"))
             gs.require_email_verification = bool(f.get("require_email_verification"))
+            gs.email_confirm_required = bool(f.get("email_confirm_required"))
             gs.require_2fa_admins = bool(f.get("require_2fa_admins"))
             gs.login_alerts = bool(f.get("login_alerts"))
         s.commit()

@@ -16,7 +16,7 @@ from .db import SessionLocal, get_global, init_db
 from .engine import benchmarks, markets
 from .engine.botmonitor import monitor
 from .engine.exchange import pool
-from .security import LoginRequired, decrypt
+from .security import EmailNotConfirmed, LoginRequired, decrypt
 from .settings import SECRET_KEY
 from .telegram import bot
 from .web import account_security, admin, admin_bots, admin_pairs, admin_security, admin_servers, auth, guides, icons, public, push, user, watchdog, webhook
@@ -53,6 +53,11 @@ for r in (webhook.router, watchdog.router, push.router, icons.router, public.rou
 @app.exception_handler(LoginRequired)
 async def _login_required(request: Request, exc: LoginRequired):
     return RedirectResponse("/login", 303)
+
+
+@app.exception_handler(EmailNotConfirmed)
+async def _confirm_first(request: Request, exc: EmailNotConfirmed):
+    return RedirectResponse("/verify-email", 303)
 
 
 @app.get("/health")

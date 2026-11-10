@@ -99,10 +99,34 @@ class LoginRequired(Exception):
     pass
 
 
+class EmailNotConfirmed(Exception):
+    pass
+
+
+# while the e-mail is not confirmed, only these pages work (confirm, fix the address, log out)
+CONFIRM_ALLOWED = ("/verify-email", "/logout", "/settings/security", "/complete-profile", "/lang/")
+
+
+def confirm_gate_active() -> bool:
+    """New users must confirm their e-mail: admin setting, and only when mail can actually be sent."""
+    from .auth import mailer
+    from .db import get_global
+    with SessionLocal() as s:
+        on = get_global(s).email_confirm_required
+    return bool(on) and mailer.configured()
+
+
+def needs_confirmation(u: User) -> bool:
+    return bool(u and not u.is_admin and not u.email_verified and not u.email.endswith("@users.invalid")
+                and confirm_gate_active())
+
+
 def require_user(request: Request) -> User:
     u = current_user(request)
     if u is None:
         raise LoginRequired()
+    if not request.url.path.startswith(CONFIRM_ALLOWED) and needs_confirmation(u):
+        raise EmailNotConfirmed()
     return u
 
 

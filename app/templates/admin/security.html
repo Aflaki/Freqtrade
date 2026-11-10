@@ -58,6 +58,8 @@
 <h2>{{ _('as_policy') }}</h2>
 <label>{{ _('as_min_len') }}</label><input class="ltr" type="number" name="password_min_length" min="8" max="64" value="{{ gs.password_min_length }}" style="max-width:120px">
 <label class="check"><input type="checkbox" name="check_breached_passwords" {{ 'checked' if gs.check_breached_passwords }}><span>{{ _('as_breach') }}</span></label>
+<label class="check"><input type="checkbox" name="email_confirm_required" {{ 'checked' if gs.email_confirm_required }}><span>{{ _('as_confirm_signup') }}
+{% if not mail_ok %}<br><span class="badge warn">{{ _('as_confirm_needs_smtp') }}</span>{% endif %}</span></label>
 <label class="check"><input type="checkbox" name="require_email_verification" {{ 'checked' if gs.require_email_verification }}><span>{{ _('as_require_verify') }}</span></label>
 <label class="check"><input type="checkbox" name="require_2fa_admins" {{ 'checked' if gs.require_2fa_admins }}><span>{{ _('as_require_2fa') }}</span></label>
 <label class="check"><input type="checkbox" name="login_alerts" {{ 'checked' if gs.login_alerts }}><span>{{ _('as_login_alerts') }}</span></label>
