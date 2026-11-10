@@ -19,6 +19,8 @@ tmux: a bot that ran in a tmux session is started again in the same pane (attach
 After a reboot (tmux server gone) the sessions are created again with the same names.
 Stopping a bot yourself with Ctrl+C, or closing its tmux session/window, is respected: it is not restarted
 (until you start it again yourself, then it is watched again).
+After a server reboot it waits 10 minutes before starting anything, so your own startup script (tmux.sh) goes
+first; afterwards it starts only the bots that are still missing.
 
   python3 agent.py status          what is watched right now
   python3 agent.py pause PORT      don't restart this bot (e.g. you stop it on purpose); resume PORT undoes it
@@ -56,6 +58,8 @@ MISSING_CHECKS = 2     # a bot must be gone in 2 checks in a row (a manual resta
 MAX_RESTARTS = 3       # at most 3 restarts ...
 WINDOW = 1800          # ... in 30 minutes, then give up and alert
 START_GRACE = 25       # seconds a restarted bot must stay alive to count as started
+BOOT_GRACE = 600       # after a server reboot: 10 minutes for your own startup script (tmux.sh...) before
+                       # the watchdog starts any bot that is still missing (the site may change it)
 CONFIG_FLAGS = ("-c", "--config")
 SHELLS = {"sh", "bash", "dash", "zsh", "nohup", "setsid", "screen", "tmux", "env"}
 
@@ -250,6 +254,14 @@ def rss_mb(pid):
     except (OSError, ValueError):
         pass
     return None
+
+
+def uptime_s():
+    try:
+        with open("/proc/uptime") as f:
+            return float(f.read().split()[0])
+    except (OSError, ValueError, IndexError):
+        return 1e9
 
 
 def bot_key(port, argv, cwd):
@@ -805,6 +817,8 @@ def check(st, cfg, verbose=False):
             b["restarts"] = []
         if b["missing"] < MISSING_CHECKS:
             continue
+        if uptime_s() < int(cfg.get("boot_grace", BOOT_GRACE)):
+            continue  # just rebooted: your startup script starts the bots; we only start what it didn't
         if port_open(b.get("ip"), b.get("port")):
             continue  # something answers on its port: probably restarted another way, it will be found next time
         if b.get("argv") and set(config_args(b["argv"], b.get("cwd") or "/")) & configs_running():

@@ -25,6 +25,7 @@ def load_agent(tmp_path):
     ns = {"__name__": "agent"}
     exec(compile(build_agent("http://site.test", "tok"), "agent.py", "exec"), ns)
     ns["STATE_FILE"] = str(tmp_path / "state.json")
+    ns["uptime_s"] = lambda: 10 ** 6  # not just rebooted (the test machine itself may be)
     return ns
 
 
@@ -59,6 +60,17 @@ def test_agent_restart_flow(tmp_path):
     a["restart"] = fake_restart
     st = {"bots": {}, "pending": []}
     assert a["check"](st, {}) == [] and st["bots"]["port:8015"]["status"] == "running"
+    # just rebooted: the bot is missing but the user's startup script goes first
+    a["uptime_s"] = lambda: 120
+    running.clear()
+    for _ in range(3):
+        a["check"](st, {})
+    assert calls == []
+    a["uptime_s"] = lambda: 10 ** 6
+    st = {"bots": {}, "pending": []}
+    running["port:8015"] = {"kind": "process", "pid": 111, "port": 8015, "ip": "127.0.0.1", "argv": ["freqtrade", "trade"],
+                            "cwd": "/root/ft", "env": {}, "uid": 0, "gid": 0, "unit": ""}
+    a["check"](st, {})
     running.clear()
     ev = a["check"](st, {})
     assert [e["action"] for e in ev] == ["gone"] and ev[0]["detail"] == "oom" and not calls  # waits one more check
