@@ -12,7 +12,7 @@
 <meta name="theme-color" content="#7c5cff">
 <meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="{{ site.site_name }}">
-<link rel="stylesheet" href="/static/style.css?v=26">
+<link rel="stylesheet" href="/static/style.css?v=28">
 <link rel="stylesheet" href="/static/themes.css?v=7">
 </head>
 <body>{{ sprite() }}
@@ -47,12 +47,6 @@
 {% block content %}{% endblock %}
 </main>
 <script>
-document.querySelectorAll('table.sortable thead th').forEach((th, i) => th.addEventListener('click', () => {
-  const tb = th.closest('table').tBodies[0], num = th.dataset.k === 'n', asc = th.dataset.dir !== 'asc';
-  th.closest('tr').querySelectorAll('th').forEach(x => delete x.dataset.dir); th.dataset.dir = asc ? 'asc' : 'desc';
-  [...tb.rows].sort((a, b) => { const x = a.cells[i].dataset.v ?? a.cells[i].textContent, y = b.cells[i].dataset.v ?? b.cells[i].textContent;
-    const r = num ? (parseFloat(x) || 0) - (parseFloat(y) || 0) : x.localeCompare(y); return asc ? r : -r; }).forEach(r => tb.appendChild(r));
-}));
 document.querySelectorAll('input.tsearch').forEach(inp => inp.addEventListener('input', () => {
   const q = inp.value.trim().toUpperCase().replace('/', ''), cols = (inp.dataset.cols || '0').split(',').map(Number);
   document.getElementById(inp.dataset.t).tBodies[0].querySelectorAll('tr').forEach(r =>
@@ -111,4 +105,6 @@ document.querySelectorAll('tr.rowlink').forEach(r => r.addEventListener('click',
   if (e.target.closest('a')) return; location.href = r.dataset.href + (location.hash || '');
 }));
 </script>
+<script id="grid-i18n" type="application/json">{{ {'filter': _('grid_filter'), 'cfilters': _('grid_col_filters'), 'columns': _('grid_columns'), 'show_all': _('grid_show_all'), 'rows': _('grid_rows'), 'filter_help': _('grid_filter_help')}|tojson }}</script>
+<script src="/static/grid.js?v=1" defer></script>
 </body></html>
