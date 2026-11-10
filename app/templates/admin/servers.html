@@ -57,6 +57,38 @@
   <div class="kpi"><div class="k">{{ _('srv_events_24h') }}</div><div class="v"><span class="num">{{ kpi.events }}</span></div></div>
 </div>
 
+{% set A = api %}<div class="card" id="api"><h2>📡 {{ _('api_title') }}</h2>
+<p class="small muted">{{ _('api_intro') }}</p>
+{% for r in A.rows %}{% set L = r.live or {} %}
+<h3 class="mono" style="margin:14px 0 6px">{{ r.gid }}</h3>
+<div class="grid">
+<div class="stat"><div class="k">{{ _('api_used') }}</div><div class="v"><span class="api-used" data-gid="{{ r.gid }}">{{ L.get('used', 0) }}</span> <span class="small muted">/ {{ r.budget }}</span></div>
+  <div class="mw-bar"><i class="api-bar" data-gid="{{ r.gid }}" data-budget="{{ r.budget }}" style="inset-inline-start:calc({{ [100, (L.get('used', 0) / r.budget * 100) if r.budget else 0]|min }}% - 5px)"></i></div>
+  <div class="small muted">{{ _('api_limit', limit=r.limit, pct='%g'|format(A.budget_pct)) }}{% if L.get('server_used') is not none %} · {{ _('api_server_says', n=L.server_used) }}{% endif %}</div></div>
+<div class="stat"><div class="k">{{ _('api_accounts') }}</div><div class="v">{{ r.accounts }}</div><div class="small muted">{{ _('api_open', n=r.open) }}</div></div>
+<div class="stat"><div class="k">{{ _('api_entry_cost') }}</div><div class="v {{ 'neg' if r.entry_pct > 70 else 'warn' if r.entry_pct > 40 else '' }}">{{ r.entry }} <span class="small muted">({{ r.entry_pct }}%)</span></div>
+  <div class="small muted">{{ _('api_entry_help', pair=r.top_pair, n=r.top_n, w=A.w_entry) }}</div></div>
+<div class="stat"><div class="k">{{ _('api_signals_min') }}</div><div class="v">{{ r.signals_min if r.signals_min is not none else '∞' }}</div>
+  <div class="small muted">{{ _('api_signals_help') }}</div></div>
+<div class="stat"><div class="k">{{ _('api_view_cost') }}</div><div class="v">{{ r.view_all }} <span class="small muted">({{ r.view_pct }}%)</span></div>
+  <div class="small muted">{{ _('api_view_help', w=A.w_view) }}</div></div>
+</div>
+{% if L %}<p class="small">{{ _('api_by_kind') }}: {% for k in ('trade', 'check', 'view', 'background') %}<span class="badge">{{ _('api_kind_' ~ k) }} {{ L.per_kind.get(k, 0) }} / {{ L.ceilings[k] }}</span> {% endfor %}
+{% if L.skipped %} · {{ _('api_skipped') }}: {% for k, v in L.skipped.items() %}{{ _('api_kind_' ~ k) }} {{ v }} {% endfor %}{% endif %}
+{% if L.waited %} · {{ _('api_waited') }}: {% for k, v in L.waited.items() %}{{ _('api_kind_' ~ k) }} {{ v }} {% endfor %}{% endif %}</p>
+{% if L.banned_until %}<div class="flash error">🚫 {{ _('api_banned_now') }}</div>{% endif %}
+{% for e in L.errors[-3:] %}<div class="small {{ 'neg' if e.code == 418 else 'warn' }}">HTTP {{ e.code }} · {{ e.msg[:120] }}</div>{% endfor %}{% endif %}
+<p class="small muted">💡 {{ _('api_scale', n=r.max_accounts) }}</p>
+{% else %}<p class="muted small">{{ _('api_none') }}</p>{% endfor %}
+<form method="post" action="/admin/servers/api-budget" class="inline-row" style="margin-top:10px"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label class="small">{{ _('api_budget_label') }}</label><input type="number" name="pct" min="20" max="95" step="5" value="{{ '%g'|format(A.budget_pct) }}" style="width:90px"><button class="ghost sm">{{ _('btn_save') }}</button></form>
+<p class="small muted">{{ _('api_rules') }}</p>
+<script>(function(){ async function t(){ if(document.hidden) return; try{ const r=await fetch('/admin/servers/api.json'); if(!r.ok) return; const d=await r.json();
+  d.forEach(g=>{ const u=document.querySelector(`.api-used[data-gid="${g.gid}"]`), b=document.querySelector(`.api-bar[data-gid="${g.gid}"]`);
+    if(u) u.textContent=g.used; if(b) b.style.insetInlineStart='calc('+Math.min(100,g.used/(+b.dataset.budget||1)*100)+'% - 5px)'; }); }catch(e){} }
+  setInterval(t, 5000); })();</script>
+</div>
+
 <div class="card" id="channels"><h2>🔔 {{ _('srv_channels') }}</h2>
 <ul class="checklist" style="flex-direction:column;gap:6px">
 <li class="{{ 'ok' if ch.tg_linked and ch.wants else '' }}">{{ '✔' if ch.tg_linked and ch.wants else '✗' }} Telegram {% if ch.tg_bot %}(@{{ ch.tg_bot }}){% endif %}:

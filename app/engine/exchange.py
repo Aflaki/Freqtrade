@@ -12,6 +12,11 @@ import ccxt.async_support as ccxt
 
 from ..db import ExchangeAccount
 from ..security import decrypt
+from .ratelimit import governor
+
+_shared_markets: dict[tuple, tuple[float, Any]] = {}  # (ccxt class, sandbox) -> (time, markets): one load for all
+MARKETS_TTL = 6 * 3600
+CACHE_S = 20  # an account's balance / positions read serves its other entries of the same moment
 
 log = logging.getLogger("relay.exchange")
 
@@ -90,7 +95,9 @@ class ExchangeClient:
         klass = getattr(ccxt, klass_id, None)
         if klass is None:
             raise ValueError(f"exchange '{acc.exchange}' is not supported")
-        params = {"enableRateLimit": True, "timeout": 15000, "options": {"defaultType": default_type}}
+        # no fetchCurrencies: a private wallet call on every market load, not needed for futures orders
+        params = {"enableRateLimit": True, "timeout": 15000,
+                  "options": {"defaultType": default_type, "fetchCurrencies": False}}
         for field, name in ((acc.api_key_enc, "apiKey"), (acc.secret_enc, "secret"), (acc.password_enc, "password")):
             v = decrypt(field)
             if v:
@@ -98,6 +105,10 @@ class ExchangeClient:
         self.ex = klass(params)
         if acc.sandbox:
             self.ex.set_sandbox_mode(True)
+        governor.attach(self.ex)
+        self._mkey = (klass_id, bool(acc.sandbox))
+        self._bal: tuple[float, dict] | None = None
+        self._pos: tuple[float, list] | None = None
         self._markets = False
         self._leverage_done: set[tuple[str, int]] = set()
 
@@ -124,9 +135,15 @@ class ExchangeClient:
         await self.ex.close()
 
     async def ensure_markets(self) -> None:
-        if not self._markets:
+        if self._markets:
+            return
+        hit = _shared_markets.get(self._mkey)
+        if hit and time.time() - hit[0] < MARKETS_TTL and hasattr(self.ex, "set_markets"):
+            self.ex.set_markets(hit[1])  # markets are public: loaded once for every account on this exchange
+        else:
             await self.ex.load_markets()
-            self._markets = True
+            _shared_markets[self._mkey] = (time.time(), self.ex.markets)
+        self._markets = True
 
     # ---------------------------------------------------------------- markets
     def resolve(self, pair: str) -> str:
@@ -187,19 +204,37 @@ class ExchangeClient:
             raise ValueError(f"no price for {symbol}")
         return float(hint)
 
-    async def positions(self, symbols: list[str] | None = None) -> list[dict]:
-        """Open positions on the exchange (futures). Raises if the exchange can't list them."""
+    async def positions(self, symbols: list[str] | None = None, fresh: bool = False) -> list[dict]:
+        """Open positions on the exchange (futures). One read of all positions serves the account's entries of
+        the next 20 s (a candle close often brings several at once); positions we trade ourselves are dropped
+        from it. Raises if the exchange can't list them."""
         if not getattr(self.ex, "has", {}).get("fetchPositions"):
             raise ValueError("this exchange can't list positions")
-        return await self._call("fetch_positions", {"symbols": symbols}, self.ex.fetch_positions(symbols))
+        if fresh or not self._pos or time.monotonic() - self._pos[0] > CACHE_S:
+            raw = await self._call("fetch_positions", {}, self.ex.fetch_positions())
+            self._pos = (time.monotonic(), list(raw or []))
+        return [p for p in self._pos[1] if not symbols or p.get("symbol") in symbols]
+
+    def note_spent(self, margin: float, currency: str = "USDT") -> None:
+        """Our own entry used this much margin: keep the cached balance true without reading it again."""
+        if self._bal:
+            free = (self._bal[1].get("free") or {})
+            if currency in free:
+                free[currency] = max(0.0, float(free[currency] or 0) - margin)
+
+    async def _balance(self) -> dict:
+        """One balance read serves the account's entries of the next 20 s (see note_spent)."""
+        if self._bal and time.monotonic() - self._bal[0] < CACHE_S:
+            return self._bal[1]
+        bal = await self._call("fetch_balance", {}, self.ex.fetch_balance())
+        self._bal = (time.monotonic(), bal)
+        return bal
 
     async def wallet_balance(self, currency: str) -> float:
-        bal = await self._call("fetch_balance", {}, self.ex.fetch_balance())
-        return wallet_of(bal, currency)
+        return wallet_of(await self._balance(), currency)
 
     async def free_balance(self, currency: str) -> float:
-        bal = await self._call("fetch_balance", {}, self.ex.fetch_balance())
-        return float((bal.get("free") or {}).get(currency) or 0)
+        return float(((await self._balance()).get("free") or {}).get(currency) or 0)
 
     async def setup_leverage(self, symbol: str, leverage: int, margin_mode: str) -> None:
         if self.is_spot or self.dry_run or (symbol, leverage) in self._leverage_done:
@@ -226,6 +261,10 @@ class ExchangeClient:
             return Fill("dry-run", amount, px, 0.0, 0.0, "closed", simulated=True)
         params = {"reduceOnly": True} if reduce_only and not self.is_spot else {}
         req = {"symbol": symbol, "type": "market", "side": side, "amount": amount, "params": params}
+        if reduce_only:
+            self._bal = None  # an exit frees margin: read it again next time
+        if self._pos:
+            self._pos = (self._pos[0], [p for p in self._pos[1] if p.get("symbol") != symbol])  # ours now
         order = await self._call("create_order", req, self.ex.create_order(symbol, "market", side, amount, None, params))
         oid = str(order.get("id") or "")
         for i in range(6):  # poll until the real fill is visible
@@ -332,7 +371,8 @@ class SimClient:
         if hint:
             return float(hint)
         if SimClient._public is None:
-            SimClient._public = ccxt.binance({"enableRateLimit": True})
+            SimClient._public = ccxt.binance({"enableRateLimit": True, "options": {"fetchCurrencies": False}})
+            governor.attach(SimClient._public)
         t = await SimClient._public.fetch_ticker(symbol.split(":")[0])
         return float(t["last"])
 

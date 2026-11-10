@@ -124,7 +124,7 @@ async def sync_account(account_id: int, notify: bool = True) -> dict[str, Any]:
             client = None
             try:
                 client = await pool.get(acc)
-                pos = normalize(await client.positions())
+                pos = normalize(await client.positions(fresh=True))
             except Exception as e:
                 res["error"] = f"{type(e).__name__}: {str(e)[:200]}"
                 log.info("[acc %s] position scan failed: %s", account_id, res["error"])

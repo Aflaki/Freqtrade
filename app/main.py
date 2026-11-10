@@ -31,6 +31,17 @@ async def lifespan(app: FastAPI):
     with SessionLocal() as s:
         token = decrypt(get_global(s).telegram_token_enc) or os.getenv("TELEGRAM_BOT_TOKEN", "")
     await bot.configure(token)
+    from .engine import ratelimit
+    with SessionLocal() as s:
+        ratelimit.governor.budget_pct = get_global(s).api_budget_pct or 80.0
+
+    def ip_banned(gid: str, until: float) -> None:
+        import datetime as _dt
+        from .i18n import t as _t
+        when = _dt.datetime.fromtimestamp(until, _dt.UTC).strftime("%H:%M UTC")
+        monitor.notify_admins("monitoring", lambda L: "🚫 " + _t(L, "api_banned_alert", ex=gid, until=when), critical=True,
+                              title=lambda L: _t(L, "api_banned_title", ex=gid), tag=f"api-ban-{gid}")
+    ratelimit.governor._alert = ip_banned
     jobs = [asyncio.create_task(bot.daily_jobs()), asyncio.create_task(monitor.loop()), asyncio.create_task(monitor.live_loop()), asyncio.create_task(markets.loop()), asyncio.create_task(marketdata.loop()),
             asyncio.create_task(benchmarks.loop())]
     yield

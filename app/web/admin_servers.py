@@ -124,7 +124,8 @@ def _view(admin_id: int) -> dict:
            "open": sum(r["open"] for r in all_rows), "upnl": sum(r["upnl"] for r in all_rows),
            "events": len(events), "bans": sum(1 for sv in servers if sv["ban"].get("active"))}
     names = {b.id: b.name for b in bots}
-    return {"host_names": {h.hostname: (h.alias or h.hostname) for h in hosts}, "servers": servers, "others": others, "timeline": timeline, "kpi": kpi, "names": names, "gs": gs,
+    api = api_model()
+    return {"api": api, "host_names": {h.hostname: (h.alias or h.hostname) for h in hosts}, "servers": servers, "others": others, "timeline": timeline, "kpi": kpi, "names": names, "gs": gs,
             "stall_min": STALL_MINUTES}
 
 
@@ -165,6 +166,75 @@ async def set_alias(request: Request):
         s.commit()
     flash(request, tr(request, "msg_saved"))
     return RedirectResponse("/admin/servers#host-" + str(f.get("host", "")), 303)
+
+
+# weights of our own work on Binance futures (each HTTP request's weight, as Binance counts it)
+W_ENTRY = 15   # position check 5 + balance 5 + price 1 + margin mode/leverage 2 (first time per pair) + order 1 + fill 1
+W_EXIT = 4     # cancel stop 1 + order 1 + fill 1 + new stop after a partial exit 1
+W_VIEW = 20    # live numbers of one portfolio on an open page: 5 every 15 s
+
+
+def api_model() -> dict:
+    """What our own trading costs in requests per exchange, from the portfolios that exist now."""
+    from ..db import ExchangeAccount, Trade
+    from ..engine.exchange import ccxt_target
+    from ..engine.ratelimit import LIMITS, DEFAULT_LIMIT, SHARE, governor
+    from sqlalchemy import func
+    with SessionLocal() as s:
+        accs = list(s.scalars(select(ExchangeAccount).where(ExchangeAccount.kind == "exchange",
+                                                            ExchangeAccount.enabled.is_(True),
+                                                            ExchangeAccount.dry_run.is_(False))))
+        open_n = dict(s.execute(select(Trade.account_id, func.count(Trade.id)).where(Trade.status == "open")
+                                .group_by(Trade.account_id)).all())
+    per: dict[str, dict] = {}
+    for a in accs:
+        gid = ccxt_target(a.exchange, a.trading_mode)[0]
+        m = per.setdefault(gid, {"gid": gid, "accounts": 0, "open": 0, "pairs": {}})
+        m["accounts"] += 1
+        m["open"] += open_n.get(a.id, 0)
+        for p in a.pairs or {}:
+            m["pairs"][p] = m["pairs"].get(p, 0) + 1
+    snap = {g["gid"]: g for g in governor.snapshot()}
+    out = []
+    for gid in sorted(set(per) | set(snap)):
+        m = per.get(gid, {"gid": gid, "accounts": 0, "open": 0, "pairs": {}})
+        limit = LIMITS.get(gid, DEFAULT_LIMIT)
+        budget = limit * governor.budget_pct / 100
+        top_pair, top_n = max(m["pairs"].items(), key=lambda kv: kv[1], default=("—", 0))
+        entry = top_n * W_ENTRY
+        view_all = m["accounts"] * W_VIEW
+        out.append({**m, "limit": limit, "budget": int(budget), "top_pair": top_pair, "top_n": top_n,
+                    "entry": entry, "entry_pct": round(entry / budget * 100) if budget else 0,
+                    "exit": top_n * W_EXIT, "signals_min": int(budget // entry) if entry else None,
+                    "view_all": view_all, "view_pct": round(view_all / (budget * SHARE["view"]) * 100) if budget else 0,
+                    "max_accounts": int(budget * 0.5 // W_ENTRY), "live": snap.get(gid)})
+    return {"rows": out, "budget_pct": governor.budget_pct, "w_entry": W_ENTRY, "w_exit": W_EXIT, "w_view": W_VIEW}
+
+
+@router.post("/api-budget")
+async def api_budget(request: Request):
+    require_admin(request)
+    f = await form_with_csrf(request)
+    from ..engine.ratelimit import governor
+    try:
+        pct = min(95.0, max(20.0, float(str(f.get("pct", "80")))))
+    except ValueError:
+        pct = 80.0
+    with SessionLocal() as s:
+        get_global(s).api_budget_pct = pct
+        s.commit()
+    governor.budget_pct = pct
+    flash(request, tr(request, "msg_saved"))
+    return RedirectResponse("/admin/servers#api", 303)
+
+
+@router.get("/api.json")
+async def api_json(request: Request):
+    """Live request budget (the card refreshes itself)."""
+    from fastapi.responses import JSONResponse
+    from ..engine.ratelimit import governor
+    require_admin(request)
+    return JSONResponse(governor.snapshot())
 
 
 @router.post("/remove")

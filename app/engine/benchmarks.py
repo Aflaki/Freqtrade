@@ -93,6 +93,9 @@ async def update_coin(symbol: str) -> str:
         if klass is None:
             continue
         ex = klass({"enableRateLimit": True, "timeout": 20000})
+        from .ratelimit import governor, prio
+        governor.attach(ex)
+        prio.set("background")  # this loop's own task: benchmarks never compete with trading
         try:
             rows: list[tuple[dt.date, float]] = []
             cursor = since

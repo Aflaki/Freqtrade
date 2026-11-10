@@ -24,9 +24,12 @@ def _client(exchange: str, mode: str, api_key: str, secret: str, password: str =
                               "apiKey": api_key, "secret": secret}
     if password:
         params["password"] = password
+    params["options"]["fetchCurrencies"] = False
     ex = klass(params)
     if sandbox:
         ex.set_sandbox_mode(True)
+    from .ratelimit import governor
+    governor.attach(ex)
     return ex
 
 
@@ -35,6 +38,15 @@ async def check_keys(exchange: str, mode: str, api_key: str, secret: str, passwo
     """{"ok": no blocking problem, "reachable": exchange answered, "items": [...], "balance": {...} | None,
     "positions": open positions already on the account (see positions.normalize)}"""
     from ..web.guides import explain
+    from .ratelimit import prio
+    tok = prio.set("check")
+    try:
+        return await _check_keys(exchange, mode, api_key, secret, password, sandbox, currency, explain)
+    finally:
+        prio.reset(tok)
+
+
+async def _check_keys(exchange, mode, api_key, secret, password, sandbox, currency, explain) -> dict:
     items: list[dict] = []
     out: dict[str, Any] = {"ok": False, "reachable": True, "items": items, "balance": None, "positions": []}
     try:

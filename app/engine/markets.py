@@ -42,6 +42,9 @@ async def load_exchange(name: str, pairs: set[str]) -> dict:
     if klass is None:
         return {"pairs": {}, "error": f"{name} not supported"}
     ex = klass({"enableRateLimit": True, "timeout": 20000, "options": {"defaultType": default_type}})
+    from .ratelimit import governor, prio
+    governor.attach(ex)
+    tok = prio.set("background")
     try:
         markets = await ex.load_markets()
         rows: dict[str, dict] = {}
@@ -70,6 +73,7 @@ async def load_exchange(name: str, pairs: set[str]) -> dict:
         return {"pairs": {}, "error": f"{type(e).__name__}: {str(e)[:150]}"}
     finally:
         try:
+            prio.reset(tok)
             await ex.close()
         except Exception:
             pass

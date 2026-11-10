@@ -16,6 +16,7 @@ from ..i18n import t
 from ..signal import Signal
 from ..telegram import bot, esc, fmt_num
 from .exchange import EXCHANGES, pool
+from .ratelimit import ApiBanned
 from .sizing import leverage_for, max_open_trades, pair_budget, stop_price
 
 log = logging.getLogger("relay.trader")
@@ -58,6 +59,8 @@ async def run_for_account(account_id: int, sig: Signal, pair: str, event_id: int
                     out = await _close(s, acc, user, gs, client, sig, pair, trade_ref, bot_id)
             except (ccxt.AuthenticationError, ccxt.PermissionDenied) as e:
                 out = _error(s, acc, user, pair, f"API key rejected: {e}", disable=True)
+            except ApiBanned as e:
+                out = _skip(acc, user, pair, t(user.lang, "why_ip_banned", err=str(e)[:160]))
             except ccxt.InsufficientFunds as e:
                 out = _skip(acc, user, pair, t(user.lang, "why_funds", err=str(e)[:120]))
             except ValueError as e:
@@ -179,6 +182,8 @@ async def _open(s: Session, acc: ExchangeAccount, user: User, gs: GlobalSettings
     cs = client.contract_size(symbol)
     held = fill.amount - (fill.fee_base if acc.is_spot else 0.0)
     real_stake = fill.amount * cs * fill.price / lev
+    if hasattr(client, "note_spent"):
+        client.note_spent(real_stake + fill.fee_quote, gs.stake_currency)
     if existing is None:
         trade = Trade(user_id=user.id, account_id=acc.id, ft_trade_id=sig.ft_trade_id, bot_id=bot_id, pair=pair, symbol=symbol,
                       side=side, amount=held, contract_size=cs, entry_price=fill.price, stake=real_stake,

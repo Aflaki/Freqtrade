@@ -507,6 +507,7 @@ class GlobalSettings(Base):
     entries_enabled: Mapped[bool] = mapped_column(default=True)
     stake_currency: Mapped[str] = mapped_column(String(10), default="USDT")
     tradable_balance_ratio: Mapped[float] = mapped_column(Float, default=0.9)
+    api_budget_pct: Mapped[float] = mapped_column(Float, default=80.0)  # share of each exchange's per-IP request limit we use
     sizing_modes: Mapped[list[str]] = mapped_column(JSON, default=lambda: list(SIZING_MODES))
     default_max_open_trades: Mapped[int] = mapped_column(default=5)
     max_leverage: Mapped[int] = mapped_column(default=5)

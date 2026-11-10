@@ -55,6 +55,9 @@ async def _open_time(ex, symbol: str, side: str, contracts: float) -> dt.datetim
         try:
             batch = await ex.fetch_my_trades(symbol, end - week, 1000, {"endTime": end})
         except Exception as e:
+            from .ratelimit import ApiBanned, ApiBusy
+            if isinstance(e, (ApiBusy, ApiBanned)):
+                raise
             log.info("fills of %s unavailable: %s", symbol, e)
             return None
         fills += batch or []
@@ -67,8 +70,13 @@ async def _open_time(ex, symbol: str, side: str, contracts: float) -> dt.datetim
 
 async def _read_account(acc: ExchangeAccount) -> dict[str, Any]:
     from .exchange import pool
-    client = await pool.get(acc)
-    raw = await client.ex.fetch_positions()  # not via client._call: a page view is not a trading action
+    from .ratelimit import prio
+    tok = prio.set("view")  # skipped (cache shown) when the request budget is busy with trading
+    try:
+        client = await pool.get(acc)
+        raw = await client.ex.fetch_positions()  # not via client._call: a page view is not a trading action
+    finally:
+        prio.reset(tok)
     return {"rows": {p["key"]: p for p in normalize(raw)}, "ex": client.ex}
 
 
@@ -85,6 +93,9 @@ async def refresh(acc_id: int, max_age: float = MAX_AGE) -> dict[str, Any]:
     try:
         got = await asyncio.wait_for(_read_account(acc), 20)
     except Exception as e:
+        from .ratelimit import ApiBusy
+        if isinstance(e, ApiBusy) and hit:  # trading needs the budget now: show the last numbers a bit longer
+            return hit
         out = {**(hit or {"rows": {}}), "error": f"{type(e).__name__}: {str(e)[:160]}", "at": time.monotonic()}
         _cache[acc_id] = out
         return out
@@ -117,11 +128,16 @@ async def refresh(acc_id: int, max_age: float = MAX_AGE) -> dict[str, Any]:
 
 async def _date_trades(ex, undated: list[tuple]) -> None:
     global _date_lock
+    from .ratelimit import ApiBanned, ApiBusy, prio
     _date_lock = _date_lock or asyncio.Lock()
+    prio.set("background")  # this task only: the lowest share of the request budget
     async with _date_lock:  # one account's history at a time: gentle on the exchange's rate limits
         for tid, symbol, side, contracts, was in undated:
             try:
                 when = await _open_time(ex, symbol, side, contracts)
+            except (ApiBusy, ApiBanned):
+                _dated.discard((tid, symbol, side, was))  # try again on a later view
+                return
             except Exception as e:
                 log.info("open time of trade %s unknown: %s", tid, e)
                 continue

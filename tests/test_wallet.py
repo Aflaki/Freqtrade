@@ -113,7 +113,8 @@ def test_compounding_at_entry(live):
     out = enter("ETH/USDT", 1)  # fake wallet: 10,000 -> 50% / 2 pairs = 2,500
     assert [o.status for o in out] == ["opened"]
     client = asyncio.run(pool.get(SessionLocal().get(ExchangeAccount, acc_id)))
-    client.ex.balance["USDT"] = 12_000.0  # profits arrived
+    client.ex.balance["USDT"] = 12_000.0  # profits arrived (later: the 20 s balance read has expired)
+    client._bal = None
     enter("BTC/USDT", 2)
     with SessionLocal() as s:
         eth, btc = (s.query(Trade).filter_by(account_id=acc_id, pair=p).one() for p in ("ETH/USDT", "BTC/USDT"))
@@ -122,6 +123,7 @@ def test_compounding_at_entry(live):
         eth.status = btc.status = "closed"
         s.commit()
     client.ex.balance["USDT"] = 1_500.0  # after losses: 1,500 x 50% / 2 = 375 < the floor 1,000
+    client._bal = None
     enter("ETH/USDT", 3)
     with SessionLocal() as s:
         t3 = s.query(Trade).filter_by(account_id=acc_id, ft_trade_id=3).one()
