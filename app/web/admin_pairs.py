@@ -57,6 +57,7 @@ def catalog(days: int | None) -> dict:
                      "mandatory": any(c["o"] and c["o"].mandatory for c in cells), "legacy": p in legacy,
                      "best": max((c["st"]["profit_abs"] for c in cells if c["st"]), default=None)})
     return {"rows": rows, "bots": bots, "names": names, "exchanges": exchanges, "cache": cache,
+            "groups": sorted({g for g in groups.values()}),
             "n_offered": sum(1 for r in rows if r["offered"]), "EXCHANGES": EXCHANGES}
 
 
@@ -129,6 +130,50 @@ def _float(v) -> float | None:
         return float(str(v).replace(",", "").strip())
     except (TypeError, ValueError):
         return None
+
+
+@router.post("/apply")
+async def apply_rows(request: Request):
+    """Bulk action on the selected rows: {csrf, rows: [[pair, bot_id], ...], action, value}."""
+    require_admin(request)
+    data = await request.json()
+    if not hmac.compare_digest(str(data.get("csrf", "")), request.session.get("csrf", "")):
+        raise HTTPException(400, "CSRF")
+    act, value = str(data.get("action", "")), data.get("value")
+    rows = [(str(p).upper()[:40], int(b)) for p, b in (data.get("rows") or [])[:5000]
+            if isinstance(p, str) and "/" in p and str(b).isdigit()]
+    if not rows:
+        raise HTTPException(400, "no rows")
+    with SessionLocal() as s:
+        if act == "default":  # one default per pair: the last selected row of each pair wins
+            chosen = {p: b for p, b in rows}
+            for p, b in chosen.items():
+                for x in s.scalars(select(PairOffer).where(PairOffer.pair == p)):
+                    x.is_default = False
+                o = _get_offer(s, p, b)
+                o.is_default, o.enabled = True, True
+        else:
+            for p, b in rows:
+                o = _get_offer(s, p, b)
+                if act == "offer":
+                    o.enabled = True
+                elif act == "withdraw":
+                    o.enabled = o.is_default = False
+                elif act in ("mandatory", "optional"):  # pair level
+                    for x in s.scalars(select(PairOffer).where(PairOffer.pair == p)):
+                        x.mandatory = act == "mandatory"
+                    o.mandatory = act == "mandatory"
+                elif act == "leverage":
+                    v = _float(value)
+                    o.leverage = int(v) if v and 1 <= v <= 125 else None
+                elif act == "min_capital":
+                    v = _float(value)
+                    o.min_capital = v if v and v > 0 else None
+                else:
+                    raise HTTPException(400, "action")
+        sync_allowed_pairs(s)
+        s.commit()
+    return JSONResponse({"ok": True, "n": len(rows)})
 
 
 @router.post("/bulk")

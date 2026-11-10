@@ -291,3 +291,29 @@ def test_form_rules(env):
     assert res["keys_ok"] and not res["ok"] and res["balance"]["total"] == 500
     assert any("BTC/USDT" in i["text"] and i["status"] == "error" for i in res["items"])
     assert c.post("/accounts/check", json={"csrf": "x", "exchange": "binance"}).status_code == 400
+
+
+def test_catalog_bulk_apply(env):
+    a, b = env
+    c, csrf = login("cat-admin2@x.com", admin=True)
+    html = c.get("/admin/pairs").text
+    assert 'id="f-group"' in html and 'id="sel-all"' in html and 'data-pair="BTC/USDT" data-bot="%d"' % a in html
+    ap = lambda act, rows, value=None: c.post("/admin/pairs/apply", json={"csrf": csrf, "action": act, "value": value,  # noqa: E731
+                                                                         "rows": rows})
+    rows = [["BTC/USDT", a], ["BTC/USDT", b], ["SSV/USDT", b]]
+    assert ap("offer", rows).json()["n"] == 3
+    assert ap("leverage", rows[:2], "4").status_code == 200 and ap("min_capital", [["SSV/USDT", b]], "30").status_code == 200
+    assert ap("default", [["BTC/USDT", a], ["BTC/USDT", b]]).status_code == 200  # last one of a pair wins
+    assert ap("mandatory", [["SSV/USDT", b]]).status_code == 200
+    with SessionLocal() as s:
+        o = {(x.pair, x.bot_id): x for x in s.query(PairOffer)}
+        assert all(o[(p, bb)].enabled for p, bb in rows) and o[("BTC/USDT", a)].leverage == 4
+        assert o[("BTC/USDT", b)].is_default and not o[("BTC/USDT", a)].is_default
+        assert o[("SSV/USDT", b)].min_capital == 30 and o[("SSV/USDT", b)].mandatory
+    assert ap("leverage", rows[:1], "").status_code == 200  # empty = remove
+    assert ap("withdraw", rows).status_code == 200
+    with SessionLocal() as s:
+        assert s.query(PairOffer).filter_by(enabled=True).count() == 0
+        assert s.query(PairOffer).filter_by(pair="BTC/USDT", bot_id=a).one().leverage is None
+    assert ap("explode", rows).status_code == 400 and ap("offer", []).status_code == 400
+    assert c.post("/admin/pairs/apply", json={"csrf": "x", "action": "offer", "rows": rows}).status_code == 400
