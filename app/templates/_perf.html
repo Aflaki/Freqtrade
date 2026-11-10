@@ -73,7 +73,7 @@
 <div class="table-wrap scroll-table"><table id="pairtable" class="sortable">
 <thead><tr><th data-k="s">{{ _('col_pair') }}</th><th data-k="n">{{ _('perf_trades') }}</th><th data-k="n">{{ _('perf_win_rate') }}</th><th data-k="n">{{ _('perf_total_abs') }}</th>
 <th data-k="n">{{ _('perf_avg') }}</th><th data-k="n">{{ _('perf_best') }}</th><th data-k="n">{{ _('perf_worst') }}</th><th data-k="n">{{ _('perf_max_dd_abs') }}</th><th data-k="n">{{ _('perf_avg_lev') }}</th><th data-k="n">{{ _('perf_avg_hours') }}</th></tr></thead><tbody>
-{% for p, st in pairs.items() %}<tr><td class="mono" data-v="{{ p }}"><a href="/compare?{{ qs(scope=scope, pair=p, market=market, days=period) }}" title="{{ _('compare_title') }}">{{ p }} ⚖️</a></td>
+{% for p, st in pairs.items() %}<tr><td class="mono" data-v="{{ p }}"><a href="/compare?{{ qs(scope=scope, pair=p, market=market, days=period) }}" title="{{ _('compare_title') }}">{{ coin(p) }}{{ p }} ⚖️</a></td>
 <td data-v="{{ st.trades }}">{{ st.trades }}</td><td data-v="{{ st.win_rate }}"><span class="num">{{ '%.0f'|format(st.win_rate) }}%</span></td>
 <td data-v="{{ st.profit_abs }}" class="{{ 'pos' if st.profit_abs >= 0 else 'neg' }}">{{ st.profit_abs|signed }}</td>
 <td data-v="{{ st.avg }}" class="{{ 'pos' if st.avg >= 0 else 'neg' }}">{{ st.avg|pct }}</td><td data-v="{{ st.best }}" class="pos">{{ st.best|pct(1) }}</td>
@@ -91,7 +91,7 @@
 <th data-k="s">{{ _('col_opened') }}</th><th data-k="s">{{ _('col_closed') }}</th><th data-k="n">{{ _('perf_avg_hours') }}</th>
 <th data-k="n">{{ _('col_entry') }}</th><th data-k="n">{{ _('col_exit') }}</th><th data-k="n">{{ _('perf_result') }}</th><th data-k="n">{{ _('perf_profit_abs') }}</th><th data-k="s">{{ _('col_reason') }}</th></tr></thead><tbody>
 {% for tr in data.all_trades %}{% set hrs = ((tr.close_date - tr.open_date).total_seconds() / 3600) if tr.close_date and tr.open_date else 0 %}
-<tr><td class="mono">{{ tr.pair }}</td><td>{{ bot_names.get(tr.bot_id, '-') }}</td><td class="{{ 'pos' if tr.side=='long' else 'neg' }}">{{ tr.side|upper }}</td>
+<tr><td class="mono">{{ coin(tr.pair) }}{{ tr.pair }}</td><td>{{ bot_names.get(tr.bot_id, '-') }}</td><td class="{{ 'pos' if tr.side=='long' else 'neg' }}">{{ tr.side|upper }}</td>
 <td data-v="{{ tr.leverage or 1 }}"><span class="num">{{ '%g'|format(tr.leverage or 1) }}x</span></td>
 <td class="muted">{{ tr.open_date.strftime('%Y-%m-%d %H:%M') }}</td><td class="muted">{{ tr.close_date.strftime('%Y-%m-%d %H:%M') if tr.close_date }}</td>
 <td data-v="{{ hrs }}">{{ '%.1f'|format(hrs) }}</td><td data-v="{{ tr.open_rate or 0 }}">{{ tr.open_rate|price }}</td><td data-v="{{ tr.close_rate or 0 }}">{{ tr.close_rate|price }}</td>

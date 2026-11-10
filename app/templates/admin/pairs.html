@@ -33,12 +33,12 @@
 <details class="card pc-row" data-pair="{{ r.pair }}" data-offered="{{ r.offered }}" data-mand="{{ 1 if r.mandatory else 0 }}"
  data-noex="{{ 1 if exchanges and not (r.ex.values()|select|list) else 0 }}">
 <summary>
-  <b class="mono pc-pair">{{ r.pair }}</b>
+  <b class="mono pc-pair">{{ coin(r.pair) }}{{ r.pair }}</b>
   <span class="badge {{ 'ok' if r.offered else '' }} pc-count">{{ r.offered }}/{{ r.cells|length }} {{ _('pc_bots_short') }}</span>
   {% if r.mandatory %}<span class="badge warn">{{ _('pc_mandatory') }}</span>{% endif %}
   {% if r.legacy %}<span class="badge" title="{{ _('pc_legacy_help') }}">{{ _('pc_legacy') }}</span>{% endif %}
   {% if r.best is not none %}<span class="small {{ 'pos' if r.best >= 0 else 'neg' }}">{{ _('pc_best') }} {{ r.best|signed }}</span>{% endif %}
-  <span class="pc-ex">{% for e in exchanges %}{% set x = r.ex[e] %}<span class="chip {{ 'pc-unk' if x and x.unknown else 'plain' if x else 'pc-no' }}" title="{{ EXCHANGES.get(e, e) }}">{{ EXCHANGES.get(e, e)[:3] }}
+  <span class="pc-ex">{% for e in exchanges %}{% set x = r.ex[e] %}<span class="chip {{ 'pc-unk' if x and x.unknown else 'plain' if x else 'pc-no' }}" title="{{ EXCHANGES.get(e, e) }}">{{ exch(e, 14) }}{{ EXCHANGES.get(e, e)[:3] }}
   {% if x and x.unknown %}?{% elif x %}{% if x.min_order %}≥{{ '%g'|format(x.min_order) }}${% endif %}{% else %}✗{% endif %}</span>{% endfor %}</span>
 </summary>
 <div class="pc-body">

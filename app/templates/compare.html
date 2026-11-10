@@ -9,7 +9,7 @@
 {% endcall %}
 
 {% if cmp %}
-<div class="card"><h2>{{ pair }} — {{ _('compare_by_bot') }}</h2>
+<div class="card"><h2>{{ coin(pair, 24) }}{{ pair }} — {{ _('compare_by_bot') }}</h2>
 {% if cmp.rows %}
 {% from "_chart.html" import chart with context %}{{ chart(cmp.chart) }}
 <p class="small muted">{{ _('compare_chart_note_abs') }}</p>
@@ -34,7 +34,7 @@
 <p class="small muted">{{ _('compare_matrix_note') }}</p>
 {% if matrix %}<div class="table-wrap scroll-table"><table class="small">
 <tr><th>{{ _('col_pair') }}</th>{% for b in scope_bots %}<th style="white-space:normal;min-width:80px">{{ b.name }}</th>{% endfor %}</tr>
-{% for p, row in matrix.items() %}<tr><td class="mono"><a href="/compare?{{ qs(scope=scope, pair=p, market=market, days=period) }}">{{ p }}</a></td>
+{% for p, row in matrix.items() %}<tr><td class="mono"><a href="/compare?{{ qs(scope=scope, pair=p, market=market, days=period) }}">{{ coin(p) }}{{ p }}</a></td>
 {% for b in scope_bots %}{% set st = row.get(b.id) %}
 {% if st %}{% set a = [st.profit_abs|abs / maxabs, 1]|min * 0.45 %}
 <td style="background:{{ 'rgba(16,185,129,%.2f)'|format(a) if st.profit_abs >= 0 else 'rgba(244,63,94,%.2f)'|format(a) }}"><b>{{ st.profit_abs|signed }}</b><br><span class="muted">{{ st.trades }} · {{ '%.0f'|format(st.win_rate) }}% · {{ st.avg|pct(1) }}</span></td>

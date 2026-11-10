@@ -211,3 +211,21 @@ input.pc-ok{outline:2px solid var(--ok)}input.pc-err{outline:2px solid var(--err
 .chip.pc-unk{background:var(--bg);color:var(--muted);border:1px dashed var(--line)}
 .exnote{font-family:inherit;direction:inherit}
 .srv-alias{max-width:460px;margin:0 0 10px}.srv-alias input{padding:5px 8px}
+.cicon{display:inline-block;vertical-align:-4px;border-radius:50%;margin-inline-end:5px;background:var(--bg)}
+/* ---- market overview ---- */
+.mw{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin:6px 0 4px}
+.mw-card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;box-shadow:var(--shadow);position:relative}
+.mw-k{color:var(--muted);font-size:12px}.mw-v{font-size:21px;font-weight:800;margin:2px 0}.mw-l{font-size:13px;font-weight:600;margin-inline-start:4px}
+.mw-sub{font-size:12px;color:var(--muted)}.mw-src{font-size:10px;color:var(--muted);opacity:.7;margin-top:6px}
+.mw-gauge{width:100%;max-width:150px;display:block;margin:4px auto 0}.mw-gauge path{fill:none;stroke-width:9}
+.mw-gauge .g1{stroke:#ea3943}.mw-gauge .g2{stroke:#ea8c00}.mw-gauge .g3{stroke:#f3d42f}.mw-gauge .g4{stroke:#93d900}.mw-gauge .g5{stroke:#16c784}
+.mw-gauge .needle{stroke:var(--text);stroke-width:3;stroke-linecap:round}.mw-gauge .hub{fill:var(--text)}
+.mw-fng .mw-v{text-align:center}.mw-fng .mw-sub{text-align:center}
+.fng-extreme_fear{color:#ea3943}.fng-fear{color:#ea8c00}.fng-neutral{color:#c9a400}.fng-greed{color:#7cb800}.fng-extreme_greed{color:#16c784}
+.mw-bar{position:relative;height:8px;border-radius:4px;margin:8px 0 4px;background:linear-gradient(90deg,#f7931a,#c9a400 50%,#627eea)}
+.mw-bar i{position:absolute;top:-4px;width:10px;height:16px;border-radius:3px;background:var(--text);border:2px solid var(--card)}
+[dir=rtl] .mw-bar{background:linear-gradient(270deg,#f7931a,#c9a400 50%,#627eea)}
+.mw-ends{display:flex;justify-content:space-between;gap:6px}
+.mw-dom{display:flex;gap:14px;font-weight:700}.mw-row{display:flex;gap:6px;align-items:center;font-size:14px;margin:3px 0}.mw-row b{min-width:34px}
+.mw-ls{display:flex;height:8px;border-radius:4px;overflow:hidden;margin:8px 0 4px;background:var(--short)}.mw-ls .l{background:var(--long)}
+.mw-foot{margin:0 0 14px}

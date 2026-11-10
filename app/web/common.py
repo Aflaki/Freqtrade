@@ -34,6 +34,18 @@ def _qs(**params) -> str:
 templates.env.globals["qs"] = _qs
 
 
+def _coin_icon(pair, size: int = 18):
+    base = str(pair or "").split("/")[0].split(":")[0].upper()
+    return Markup('<img class="cicon" src="/icon/coin/%s" width="%d" height="%d" alt="" loading="lazy">') % (base, size, size)
+
+
+def _ex_icon(ex, size: int = 18):
+    return Markup('<img class="cicon" src="/icon/ex/%s" width="%d" height="%d" alt="" loading="lazy">') % (str(ex or ""), size, size)
+
+
+templates.env.globals.update(coin=_coin_icon, exch=_ex_icon)
+
+
 def _money(v, digits: int = 2) -> str:
     try:
         return f"{float(v):,.{digits}f}"

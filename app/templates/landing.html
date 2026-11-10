@@ -12,6 +12,7 @@
   <div class="card"><h2>🧺 {{ _('plan_basket_title') }}</h2><p class="muted">{{ _('plan_basket_desc') }}</p></div>
 </div>
 {% endif %}
+{% include "_market.html" %}
 <h1 id="performance" style="margin-top:{{ '24px' if not user else '0' }}">{{ _('perf_title') }}</h1>
 <p class="muted small" style="margin-top:-8px">{{ _('perf_intro') }}</p>
 {% if show %}

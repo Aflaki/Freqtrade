@@ -93,7 +93,7 @@
 <tr class="catrow" data-p="{{ p }}" data-ex='{{ c.ex|tojson }}'>
 <td>{% if c.mandatory %}<input type="checkbox" class="pc" data-p="{{ p }}" checked disabled><input type="hidden" name="pair__{{ p }}" value="on">
 {% else %}<input type="checkbox" class="pc" name="pair__{{ p }}" data-p="{{ p }}" {{ 'checked' if sel }}>{% endif %}</td>
-<td class="mono">{{ p }}{% if c.mandatory %} <span class="badge warn" title="{{ _('pc_mandatory_user') }}">🔒</span>{% endif %}<div class="small neg exnote" data-p="{{ p }}"></div></td>
+<td class="mono">{{ coin(p) }}{{ p }}{% if c.mandatory %} <span class="badge warn" title="{{ _('pc_mandatory_user') }}">🔒</span>{% endif %}<div class="small neg exnote" data-p="{{ p }}"></div></td>
 <td>{% set cur = pair_bot.get(p) or c.default_bot %}<select class="pb" name="pbot__{{ p }}" data-p="{{ p }}" style="width:auto;padding:4px 6px">
 {% if c.bots|length > 1 and not cur %}<option value="">— {{ _('pick_bot') }} —</option>{% endif %}
 {% for b in c.bots %}<option value="{{ b.id }}" data-lev="{{ b.lev or '' }}" data-blev="{{ b.blev or '' }}" data-min="{{ b.min or '' }}" {{ 'selected' if b.id == cur }}>{{ b.name }}</option>{% endfor %}</select></td>

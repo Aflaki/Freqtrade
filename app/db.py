@@ -533,6 +533,7 @@ class GlobalSettings(Base):
     ban_resume_gap: Mapped[int] = mapped_column(default=30)  # seconds between bots when starting them again
     offers_migrated: Mapped[bool] = mapped_column(default=False)  # allowed_pairs -> pair_offers done once
     market_cache: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)  # exchange rules per pair
+    market_widgets: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)  # home page market overview
     # user guides
     public_ip: Mapped[str] = mapped_column(String(200), default="")  # IP(s) users whitelist ("" = from site address)
     guide_videos: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)  # guide key -> video URL

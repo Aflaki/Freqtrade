@@ -1,0 +1,48 @@
+{# Market overview strip on the home page. Needs: mw (marketdata.widgets()), gauge (needle point) #}
+{% macro big(v) %}{% if v is none %}—{% elif v >= 1e12 %}${{ '%.2f'|format(v / 1e12) }}T{% elif v >= 1e9 %}${{ '%.1f'|format(v / 1e9) }}B{% else %}${{ '{:,.0f}'.format(v) }}{% endif %}{% endmacro %}
+{% macro chg(v, digits=2) %}{% if v is not none %}<span class="num {{ 'pos' if v >= 0 else 'neg' }}">{{ ('%+.' ~ digits ~ 'f')|format(v) }}%</span>{% endif %}{% endmacro %}
+{% if mw and (mw.fng or mw.global or mw.fut or mw.alt) %}
+<section class="mw" aria-label="{{ _('mw_title') }}">
+{% if mw.fng %}{% set v = mw.fng.value %}
+<div class="mw-card mw-fng"><div class="mw-k">{{ _('mw_fng') }}</div>
+<svg viewBox="0 0 120 68" class="mw-gauge" aria-hidden="true">
+  <path d="M10 60 A50 50 0 0 1 25.4 24.6" class="g1"/><path d="M25.4 24.6 A50 50 0 0 1 49.5 11.1" class="g2"/>
+  <path d="M49.5 11.1 A50 50 0 0 1 70.5 11.1" class="g3"/><path d="M70.5 11.1 A50 50 0 0 1 94.6 24.6" class="g4"/>
+  <path d="M94.6 24.6 A50 50 0 0 1 110 60" class="g5"/>
+  <line x1="60" y1="60" x2="{{ gauge[0] }}" y2="{{ gauge[1] }}" class="needle"/><circle cx="60" cy="60" r="4" class="hub"/>
+</svg>
+<div class="mw-v"><span class="num">{{ v }}</span> <span class="mw-l fng-{{ fng_band }}">{{ _('fng_' ~ fng_band) }}</span></div>
+{% if mw.fng.prev is not none %}<div class="mw-sub">{{ _('mw_yesterday') }}: <span class="num">{{ mw.fng.prev }}</span></div>{% endif %}
+<div class="mw-src">{{ mw.fng.source }}</div></div>{% endif %}
+
+{% if mw.alt %}{% set a = mw.alt.value %}
+<div class="mw-card"><div class="mw-k">{{ _('mw_alt') }}</div>
+<div class="mw-v"><span class="num">{{ a }}<span class="mw-l">/100</span></span></div>
+<div class="mw-bar"><i style="inset-inline-start:calc({{ a }}% - 5px)"></i></div>
+<div class="mw-sub mw-ends"><span>{{ _('mw_btc_season') }}</span><b>{{ _('mw_alt_now_' ~ ('alt' if a >= 75 else 'btc' if a <= 25 else 'mid')) }}</b><span>{{ _('mw_alt_season') }}</span></div>
+<div class="mw-src">{{ mw.alt.source }}</div></div>{% endif %}
+
+{% if mw.global %}{% set g = mw.global %}
+<div class="mw-card"><div class="mw-k">{{ _('mw_mcap') }}</div>
+<div class="mw-v ltr">{{ big(g.total_usd) }}</div>
+<div class="mw-sub">24h {{ chg(g.change_24h) }} · {{ _('mw_volume') }} <span class="num">{{ big(g.volume_usd) }}</span></div>
+<div class="mw-k" style="margin-top:8px">{{ _('mw_dominance') }}</div>
+<div class="mw-dom"><span>{{ coin('BTC', 14) }}<span class="num">{{ '%.1f'|format(g.btc_dom or 0) }}%</span></span>
+<span>{{ coin('ETH', 14) }}<span class="num">{{ '%.1f'|format(g.eth_dom or 0) }}%</span></span></div>
+<div class="mw-src">{{ g.source }}</div></div>{% endif %}
+
+{% if mw.fut %}{% set f = mw.fut %}
+<div class="mw-card"><div class="mw-k">{{ _('mw_prices') }}</div>
+{% for c in ('BTC', 'ETH') %}{% if f[c] %}<div class="mw-row">{{ coin(c, 16) }}<b>{{ c }}</b>
+<span class="num ltr">${{ '{:,.0f}'.format(f[c].price or 0) if (f[c].price or 0) >= 100 else f[c].price }}</span>{{ chg(f[c].change) }}</div>{% endif %}{% endfor %}
+<div class="mw-k" style="margin-top:8px" title="{{ _('mw_funding_help') }}">{{ _('mw_funding') }}</div>
+{% for c in ('BTC', 'ETH') %}{% if f[c] %}<div class="mw-row"><b>{{ c }}</b>{{ chg(f[c].funding, 4) }}</div>{% endif %}{% endfor %}
+<div class="mw-src">{{ f.source }}</div></div>
+{% if f.long_pct %}<div class="mw-card"><div class="mw-k" title="{{ _('mw_ls_help') }}">{{ _('mw_ls') }}</div>
+<div class="mw-v"><span class="num">{{ '%.2f'|format(f.ls_ratio or 0) }}</span></div>
+<div class="mw-ls"><i class="l" style="width:{{ '%.1f'|format(f.long_pct) }}%"></i><i class="s"></i></div>
+<div class="mw-sub mw-ends"><span class="pos">Long <span class="num">{{ '%.1f'|format(f.long_pct) }}%</span></span><span class="neg">Short <span class="num">{{ '%.1f'|format(100 - f.long_pct) }}%</span></span></div>
+<div class="mw-src">Binance · BTCUSDT · 1h</div></div>{% endif %}{% endif %}
+</section>
+{% if mw.at %}<p class="small muted mw-foot">{{ _('mw_updated') }} <span class="num">{{ mw.at[11:16] }}</span> UTC</p>{% endif %}
+{% endif %}

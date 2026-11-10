@@ -53,9 +53,12 @@ def test_update_and_chart(monkeypatch):
     for ex in bench.EXCHANGES:
         monkeypatch.setattr(bench.ccxt, ex, FakeExchange)
     real = httpx.AsyncClient
-    monkeypatch.setattr(bench.httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(coingecko), **kw))
+    from app.engine import coingecko as cg
+    monkeypatch.setattr(cg.httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(coingecko), **kw))
+    monkeypatch.setattr(cg, "GAP_KEYLESS", 0)
     real_sleep = asyncio.sleep
     monkeypatch.setattr(bench.asyncio, "sleep", lambda s: real_sleep(0))
+    monkeypatch.setattr(cg.asyncio, "sleep", lambda s: real_sleep(0))
 
     st = asyncio.run(bench.update_all())
     assert st["symbols"] == ["BTC", "ETH", "XRP", "BNB", "SOL"], st  # no stablecoins / wrapped tokens
@@ -86,3 +89,28 @@ def test_update_and_chart(monkeypatch):
 
     no_cap = market_chart([trade(1, 50)], capital=None, days=30)
     assert not no_cap["has_capital"] and no_cap["rows"] == []
+
+
+def test_coingecko_waits_and_retries_on_429(monkeypatch):
+    """Without a key CoinGecko allows ~5 calls/min: calls are spaced out and a 429 is retried, not fatal."""
+    from app.engine import coingecko as cg
+    init_db()
+    calls, slept = [], []
+    answers = iter([429, 200])
+
+    def handler(request):
+        calls.append(str(request.url))
+        code = next(answers)
+        return httpx.Response(code, json={"ok": code == 200}, headers={"retry-after": "7"} if code == 429 else {})
+    real = httpx.AsyncClient
+    monkeypatch.setattr(cg.httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    real_sleep = asyncio.sleep
+
+    async def fake_sleep(s):
+        slept.append(s)
+        await real_sleep(0)
+    monkeypatch.setattr(cg.asyncio, "sleep", fake_sleep)
+    cg._last = 0.0
+    assert asyncio.run(cg.get("/global")) == {"ok": True}
+    assert len(calls) == 2 and 61 in slept  # keyless: waits at least a minute after a 429
+    assert any(9 < s <= 13 for s in slept)  # and keeps 13 s between calls

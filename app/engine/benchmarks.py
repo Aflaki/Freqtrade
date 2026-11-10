@@ -17,11 +17,9 @@ from collections import defaultdict
 from typing import Any
 
 import ccxt.async_support as ccxt
-import httpx
 from sqlalchemy import func, select
 
 from ..db import BenchmarkPrice, SessionLocal, get_global, utcnow
-from ..security import decrypt
 
 log = logging.getLogger("relay.bench")
 
@@ -39,13 +37,9 @@ NAMES = {"TOTAL": "Crypto market cap", "BTC": "Bitcoin", "ETH": "Ethereum", "XRP
 
 # ------------------------------------------------------------------ fetching
 async def _cg(path: str, params: dict | None = None) -> Any:
-    with SessionLocal() as s:
-        key = decrypt(get_global(s).coingecko_key_enc) or ""
-    headers = {"accept": "application/json", **({"x-cg-demo-api-key": key} if key else {})}
-    async with httpx.AsyncClient(timeout=30, headers=headers) as c:
-        r = await c.get(CG + path, params=params or {})
-        r.raise_for_status()
-        return r.json()
+    """Paced + retried (see coingecko.py): the free limits are shared with icons and market widgets."""
+    from . import coingecko
+    return await coingecko.get(path, params)
 
 
 def _is_real_coin(sym: str, name: str) -> bool:
@@ -145,7 +139,6 @@ async def update_total(top10_ids: list[str]) -> str:
             mc = await _cg(f"/coins/{cid}/market_chart", {"vs_currency": "usd", "days": 365, "interval": "daily"})
             for t, v in mc.get("market_caps") or []:
                 per_day[dt.datetime.fromtimestamp(t / 1000, dt.UTC).date()] += v or 0
-            await asyncio.sleep(2.5)  # stay within the free rate limit
         if per_day:
             latest = per_day[max(per_day)]
             scale = today_total / latest if latest else 1

@@ -16,7 +16,7 @@
 <th>{{ _('col_opened') }}</th><th>{{ _('live_age') }}</th><th>{{ _('col_entry') }}</th><th>{{ _('live_current') }}</th>
 <th>{{ _('live_result') }}</th><th>{{ _('perf_profit_abs') }}</th><th>{{ _('live_stop') }}</th><th>{{ _('col_tag') }}</th></tr></thead><tbody>
 {% for r in L.rows %}{% set h = r.hours or 0 %}
-<tr><td class="mono">{{ r.pair }}{% if r.pending %} <span class="badge warn" title="{{ _('live_pending') }}">⏳</span>{% endif %}</td>
+<tr><td class="mono">{{ coin(r.pair) }}{{ r.pair }}{% if r.pending %} <span class="badge warn" title="{{ _('live_pending') }}">⏳</span>{% endif %}</td>
 <td>{{ r.bot }}</td><td class="{{ 'pos' if r.side == 'long' else 'neg' }}">{{ r.side|upper }}</td>
 <td><span class="num">{{ '%g'|format(r.leverage or 1) }}x</span></td>
 <td class="muted">{{ r.open_date.strftime('%Y-%m-%d %H:%M') if r.open_date }}</td>

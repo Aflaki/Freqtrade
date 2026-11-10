@@ -73,8 +73,9 @@ async def landing(request: Request):
     gcards = perf.group_summaries(sc["groups"], by_group, m, d) if show and sc["scope"] == "all" else {}
     names = {b.id: b.name for b in sc["all_bots"]}
     live = perf.live_trades(sc["scope_bots"], m) if show else None
+    from ..engine.marketdata import view as market_view
     return render(request, "landing.html", data=data, pairs=pairs, show=show, cards=cards, gcards=gcards,
-                  peers=peers, caps=caps, bot_names=names, live=live, **sc)
+                  peers=peers, caps=caps, bot_names=names, live=live, **market_view(), **sc)
 
 
 @router.get("/live")

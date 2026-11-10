@@ -97,3 +97,23 @@ async def manifest():
     return JSONResponse({"name": gs.site_name, "short_name": gs.site_name[:12], "start_url": "/dashboard",
                          "display": "standalone", "background_color": "#0d0b1f", "theme_color": "#7c5cff", "icons": icons},
                         media_type="application/manifest+json")
+
+
+@router.get("/icon/{kind}/{name}")
+async def market_icon(kind: str, name: str):
+    """Coin / exchange icon from our own cache (fetched once from CoinGecko), else a letter badge."""
+    from ..engine import marketdata
+    if kind not in ("coin", "ex"):
+        return Response(status_code=404)
+    name = name.split("/")[0].split(".")[0]
+    if kind == "coin":
+        name = name.upper().split("USDT")[0] if name.upper().endswith("USDT") and len(name) > 4 else name.upper()
+    p = await marketdata.icon_file("coin" if kind == "coin" else "exchange", name)
+    headers = {"Cache-Control": "public, max-age=604800", "X-Content-Type-Options": "nosniff"}
+    if p is None:
+        return Response(marketdata.letter_badge(name), media_type="image/svg+xml",
+                        headers={**SVG_HEADERS, "Cache-Control": "public, max-age=86400"})
+    ctype = {"png": "image/png", "jpg": "image/jpeg", "webp": "image/webp", "svg": "image/svg+xml"}[p.suffix.lstrip(".")]
+    if ctype == "image/svg+xml":
+        headers.update(SVG_HEADERS)
+    return FileResponse(p, media_type=ctype, headers=headers)
