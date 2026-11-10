@@ -210,3 +210,4 @@ input.pc-ok{outline:2px solid var(--ok)}input.pc-err{outline:2px solid var(--err
 .cklist{list-style:none;padding:0;margin:6px 0}.cklist li{padding:3px 0}.cklist li.ok{color:var(--ok)}.cklist li.warn{color:var(--warn)}.cklist li.error{color:var(--err)}
 .chip.pc-unk{background:var(--bg);color:var(--muted);border:1px dashed var(--line)}
 .exnote{font-family:inherit;direction:inherit}
+.srv-alias{max-width:460px;margin:0 0 10px}.srv-alias input{padding:5px 8px}

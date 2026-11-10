@@ -670,3 +670,23 @@ def test_monitoring_alerts_not_silenced_by_muting_freqtrade_events(monkeypatch):
         with SessionLocal() as s:
             s.query(User).filter_by(id=uid).delete()
             s.commit()
+
+
+def test_server_alias_in_page_and_alerts(site):
+    import re
+    sent, _ = site
+    c = TestClient(app)
+    hdr = {"X-Watchdog-Token": "wd-token-123"}
+    c.post("/watchdog/report", json={"host": "355672", "ips": ["65.109.188.248"], "bots": [], "events": []}, headers=hdr)
+    admin, uid = _admin_client()
+    try:
+        csrf = re.search(r'name="csrf" value="([^"]+)"', admin.get("/admin/servers").text).group(1)
+        admin.post("/admin/servers/alias", data={"csrf": csrf, "host": "355672", "alias": "  V1  Hetzner "})
+        assert "V1 Hetzner" in admin.get("/admin/servers").text
+        c.post("/watchdog/report", json={"host": "355672", "ips": ["65.109.188.248"], "bots": [], "events": [
+            {"key": "port:8015", "port": 8015, "action": "restarted", "down_for": 60}]}, headers=hdr)
+        assert "(V1 Hetzner)" in sent[-1]["text"]
+    finally:
+        with SessionLocal() as s:
+            s.query(User).filter_by(id=uid).delete()
+            s.commit()

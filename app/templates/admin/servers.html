@@ -76,7 +76,7 @@
 {# ---------------- one card per server ---------------- #}
 {% for sv in servers %}
 <div class="card srv {{ 'srv-off' if not sv.online }}" id="host-{{ sv.h.hostname }}">
-<div class="srv-head"><h2>🖥 {{ sv.h.hostname }}
+<div class="srv-head"><h2>🖥 {{ sv.h.alias or sv.h.hostname }}{% if sv.h.alias %} <span class="muted small mono">{{ sv.h.hostname }}</span>{% endif %}
 {% if sv.online %}<span class="badge ok">{{ _('wd_online') }}</span>{% else %}<span class="badge err">{{ _('wd_offline') }} · {{ sv.h.last_seen.strftime('%H:%M') if sv.h.last_seen }}</span>{% endif %}
 {% if sv.ban.active %}<span class="badge err">🚫 {{ _('ban_paused_until', until=sv.ban.until[11:16] ~ ' UTC', n=(sv.ban.bots or [])|length) }}</span>{% endif %}</h2>
 <span class="muted mono small">{{ (sv.h.ips or [])|join(', ') }} · {{ sv.info.cores or '?' }} cores
@@ -91,11 +91,13 @@
   <div class="small">{% for kind, v in sv.binance.items() %}Binance {{ kind }}: {% if v.status == 'banned' %}<span class="badge err">{{ _('ban_banned') }}</span>{% elif v.status == 'limited' %}<span class="badge warn">429</span>{% elif v.status == 'ok' %}<span class="num">{{ v.used_weight }}/{{ v.limit }}</span>{% else %}<span class="muted">{{ v.error }}</span>{% endif %}<br>{% endfor %}</div></div>
 </div>
 
+<form method="post" action="/admin/servers/alias" class="inline-row srv-alias"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="host" value="{{ sv.h.hostname }}">
+<input type="text" name="alias" value="{{ sv.h.alias }}" maxlength="80" placeholder="{{ _('srv_alias_ph') }}"><button class="ghost sm">✎ {{ _('srv_alias') }}</button></form>
 {{ bot_table(sv.rows) }}
 {% if sv.unknown %}<p class="small muted">{{ _('srv_unknown') }} {% for u in sv.unknown %}<span class="badge">{{ u.key }}{% if u.session %} ({{ u.session }}){% endif %}</span> {% endfor %}</p>{% endif %}
 
 <form method="post" action="/admin/servers/action" class="srv-host-actions"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="host" value="{{ sv.h.hostname }}">
-<button class="ghost sm" name="action" value="stop_all" onclick="return confirm('{{ _('srv_confirm_stop_all', host=sv.h.hostname) }}')">⏸ {{ _('srv_stop_all') }}</button>
+<button class="ghost sm" name="action" value="stop_all" onclick="return confirm('{{ _('srv_confirm_stop_all', host=sv.h.alias or sv.h.hostname) }}')">⏸ {{ _('srv_stop_all') }}</button>
 <button class="ghost sm" name="action" value="start_all">▶ {{ _('srv_start_all') }}</button>
 <button class="ghost sm" name="action" value="reload_all">⟳ {{ _('btn_reload_all') }}</button></form>
 </div>
@@ -111,7 +113,7 @@
 <div class="card"><h2>🕑 {{ _('srv_timeline') }}</h2>
 {% if timeline %}<div class="table-wrap scroll-table"><table class="small"><tbody>
 {% for kind, at, e in timeline %}<tr><td class="muted tnum">{{ at.strftime('%m-%d %H:%M') }}</td>
-{% if kind == 'wd' %}<td>{{ e.host }}</td><td>{{ names.get(e.bot_id) or (e.port or '') }}</td>
+{% if kind == 'wd' %}<td>{{ host_names.get(e.host, e.host) }}</td><td>{{ names.get(e.bot_id) or (e.port or '') }}</td>
 <td><span class="badge {{ 'ok' if e.action in ('restarted','recovered') else 'err' if e.action in ('restart_failed','gave_up') else 'warn' }}">{{ _('wd_ev_' ~ e.action) }}</span></td>
 <td class="muted" style="white-space:pre-wrap;max-width:460px">{{ _('srv_oom_short') if e.detail == 'oom' else e.detail[:240] }}</td>
 {% else %}<td colspan="3" style="white-space:pre-wrap">{{ e.text|striptags|truncate(220) }}</td><td></td>{% endif %}</tr>{% endfor %}

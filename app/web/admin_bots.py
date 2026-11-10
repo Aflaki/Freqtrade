@@ -120,7 +120,7 @@ def _watchdog_view(request: Request, bots) -> dict:
     hook = f'curl -fsSL "{site_url(request)}/watchdog/webhooks.py?t={token()}" | python3 -'
     return {"cmd": f'curl -fsSL "{site_url(request)}/watchdog/install.sh?t={token()}" | sh', "hosts": rows,
             "hook_preview": hook, "hook_apply": hook + " --apply",
-            "events": events, "watched": watched, "unwatched": unwatched if hosts else [], "names": names}
+            "events": events, "watched": watched, "labels": {h.hostname: (h.alias or h.hostname) for h in hosts}, "unwatched": unwatched if hosts else [], "names": names}
 
 
 @router.post("/bot")

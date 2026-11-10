@@ -124,7 +124,7 @@ def _view(admin_id: int) -> dict:
            "open": sum(r["open"] for r in all_rows), "upnl": sum(r["upnl"] for r in all_rows),
            "events": len(events), "bans": sum(1 for sv in servers if sv["ban"].get("active"))}
     names = {b.id: b.name for b in bots}
-    return {"servers": servers, "others": others, "timeline": timeline, "kpi": kpi, "names": names, "gs": gs,
+    return {"host_names": {h.hostname: (h.alias or h.hostname) for h in hosts}, "servers": servers, "others": others, "timeline": timeline, "kpi": kpi, "names": names, "gs": gs,
             "stall_min": STALL_MINUTES}
 
 
@@ -149,6 +149,20 @@ async def page(request: Request):
     v = _view(admin.id)
     cmd = f'curl -fsSL "{site_url(request)}/watchdog/install.sh?t={token()}" | sh'
     return render(request, "admin/servers.html", tab="servers", install_cmd=cmd, ch=await _channels(admin), **v)
+
+
+@router.post("/alias")
+async def set_alias(request: Request):
+    require_admin(request)
+    f = await form_with_csrf(request)
+    with SessionLocal() as s:
+        h = s.scalars(select(WatchdogHost).where(WatchdogHost.hostname == str(f.get("host", "")))).first()
+        if h is None:
+            raise HTTPException(404)
+        h.alias = " ".join(str(f.get("alias", "")).split())[:80]
+        s.commit()
+    flash(request, tr(request, "msg_saved"))
+    return RedirectResponse("/admin/servers#host-" + str(f.get("host", "")), 303)
 
 
 @router.post("/test-alert")

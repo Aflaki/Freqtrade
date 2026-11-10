@@ -38,6 +38,16 @@ def site_url(request: Request) -> str:
     return (base or str(request.base_url)).rstrip("/")
 
 
+def host_labels() -> dict[str, str]:
+    """hostname -> the admin's name for it (or the hostname)."""
+    with SessionLocal() as s:
+        return {h.hostname: (h.alias or h.hostname) for h in s.scalars(select(WatchdogHost))}
+
+
+def host_label(hostname: str) -> str:
+    return host_labels().get(hostname, hostname)
+
+
 def _check(sent: str | None) -> None:
     if not sent or not hmac.compare_digest(str(sent), token()):
         raise HTTPException(403, "bad watchdog token")
@@ -173,17 +183,18 @@ async def report(request: Request):
                                 detail=str(ev.get("detail") or "")[:4000]))
         s.commit()
     from ..engine.botmonitor import monitor
+    label = host_label(host)
     if was_silent:
-        monitor.notify_admins("monitoring", lambda L: "✅ " + t(L, "wd_host_back", host=host), critical=True,
-                              title=lambda L: t(L, "wd_host_back", host=host), tag=f"host-{host}")
+        monitor.notify_admins("monitoring", lambda L: "✅ " + t(L, "wd_host_back", host=label), critical=True,
+                              title=lambda L: t(L, "wd_host_back", host=label), tag=f"host-{host}")
     for ev in events:
         port = ev.get("port") if isinstance(ev.get("port"), int) else None
         name = names.get(port) or (f"port {port}" if port else str(ev.get("key", "?")))
         if _event_text("en", ev, name, host) is None:
             continue
-        monitor.notify_admins("monitoring", lambda L, ev=ev, name=name: _event_text(L, ev, name, host)[1],
+        monitor.notify_admins("monitoring", lambda L, ev=ev, name=name: _event_text(L, ev, name, label)[1],
                               critical=ev.get("action") != "stopped",  # stopped by hand: Telegram only, no phone push
-                              title=lambda L, ev=ev, name=name: _event_text(L, ev, name, host)[0], tag=f"bot-{name}")
+                              title=lambda L, ev=ev, name=name: _event_text(L, ev, name, label)[0], tag=f"bot-{name}")
     await handle_binance(host, binance, list(bot_ids.values()))
     return JSONResponse({"ok": True, "interval": 60, "disabled_ports": disabled})
 
@@ -198,7 +209,7 @@ def check_silent_hosts() -> None:
         for h in silent:
             h.silent_alerted = True
         s.commit()
-        hosts = [(h.hostname, h.last_seen) for h in silent]
+        hosts = [(h.alias or h.hostname, h.last_seen) for h in silent]
     for name, seen in hosts:
         monitor.notify_admins("monitoring", lambda L, n=name, w=seen: "🚨 " + t(L, "wd_host_silent", host=n,
                                                                                  since=w.strftime("%H:%M UTC")),
@@ -258,6 +269,7 @@ def _fmt(when: dt.datetime) -> str:
 async def handle_binance(host: str, binance: dict, host_bot_ids: list[int]) -> None:
     from ..engine.botmonitor import monitor
     from ..telegram import esc
+    label = host_label(host)
     now = utcnow()
     banned = [v for v in binance.values() if v.get("status") == "banned"]
     limited = [v for v in binance.values() if v.get("status") == "limited"]
@@ -298,15 +310,15 @@ async def handle_binance(host: str, binance: dict, host_bot_ids: list[int]) -> N
                 if b.enabled and b.api_url and (b.state or {}).get("state") == "running":
                     running.append(b.id)
     if do_warn:
-        monitor.notify_admins("monitoring", lambda L: "⚠️ " + t(L, "ban_weight_warn", host=esc(host), w=esc(", ".join(warn))))
+        monitor.notify_admins("monitoring", lambda L: "⚠️ " + t(L, "ban_weight_warn", host=esc(label), w=esc(", ".join(warn))))
     if start:
         until_dt = dt.datetime.fromisoformat(ban["until"])
         resume_at = until_dt + dt.timedelta(seconds=BAN_COOLDOWN)
         key = "ban_paused" if auto else "ban_alert_only"
         monitor.notify_admins(
-            "monitoring", lambda L: "🚫 " + t(L, key, host=esc(host), until=_fmt(until_dt), resume=_fmt(resume_at),
+            "monitoring", lambda L: "🚫 " + t(L, key, host=esc(label), until=_fmt(until_dt), resume=_fmt(resume_at),
                                               n=len(running), why=t(L, "ban_why_" + reason)),
-            critical=True, title=lambda L: t(L, "push_ban", host=host), tag=f"ban-{host}")
+            critical=True, title=lambda L: t(L, "push_ban", host=label), tag=f"ban-{host}")
         if running:
             _bg(_pause(host, running))
 
@@ -355,10 +367,11 @@ async def resume_due_hosts() -> None:
             h.ban = ban
             due.append((h.hostname, ids))
         s.commit()
+    labels = host_labels()
     for host, ids in due:
-        monitor.notify_admins("monitoring", lambda L, h=host, n=len(ids): "✅ " + t(L, "ban_resume", host=esc(h), n=n,
+        monitor.notify_admins("monitoring", lambda L, h=labels.get(host, host), n=len(ids): "✅ " + t(L, "ban_resume", host=esc(h), n=n,
                                                                                     gap=gap),
-                              critical=True, title=lambda L, h=host: t(L, "push_ban_over", host=h), tag=f"ban-{host}")
+                              critical=True, title=lambda L, h=labels.get(host, host): t(L, "push_ban_over", host=h), tag=f"ban-{host}")
         if ids:
             _bg(_resume(host, ids, gap))
 

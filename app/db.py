@@ -403,6 +403,7 @@ class WatchdogHost(Base):
     report: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)  # last report (bots, memory, load)
     silent_alerted: Mapped[bool] = mapped_column(default=False)
     ban: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)  # Binance IP ban / pause state
+    alias: Mapped[str] = mapped_column(String(80), default="")  # the admin's own name for this server
 
 
 class ServerSample(Base):
