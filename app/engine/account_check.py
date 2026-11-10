@@ -56,7 +56,8 @@ async def check_keys(exchange: str, mode: str, api_key: str, secret: str, passwo
             return out
         free = float((bal.get("free") or {}).get(currency) or 0)
         total = float((bal.get("total") or {}).get(currency) or 0)
-        out["balance"] = {"free": free, "total": total, "currency": currency}
+        out["balance"] = {"free": free, "total": total, "currency": currency,
+                          "wallet": exmod.wallet_of(bal, currency)}
         items.append(_item(OK, "ck_key_ok"))
         items.append(_item(OK if total > 0 else WARN, "ck_balance", free=f"{free:,.2f}", total=f"{total:,.2f}", cur=currency))
         # 2) Binance: the key's permissions (withdrawals must be off, futures on, IP restricted)

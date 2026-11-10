@@ -147,7 +147,14 @@ async def _open(s: Session, acc: ExchangeAccount, user: User, gs: GlobalSettings
             today = _today_pnl(s, acc.id)
             if today <= -acc.daily_loss_limit_pct / 100 * max(acc.capital, 1e-9):
                 return _skip(acc, user, pair, t(L, "why_daily_loss", pct=acc.daily_loss_limit_pct))
-        stake = pair_budget(gs, acc, pair)
+        balance = None
+        if acc.sizing_mode == "wallet_pct" and not client.simulated:
+            try:  # compounding: the wallet as it is now (realized profits and losses included)
+                balance = await client.wallet_balance(gs.stake_currency)
+                acc.wallet_balance, acc.wallet_balance_at = balance, utcnow()
+            except Exception as e:
+                log.info("[acc %s] wallet balance unavailable, using the last one: %s", acc.id, e)
+        stake = pair_budget(gs, acc, pair, balance)
     if gs.max_stake_per_trade:
         stake = min(stake, gs.max_stake_per_trade)
     if stake <= 0:

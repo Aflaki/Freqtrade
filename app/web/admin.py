@@ -73,6 +73,12 @@ async def admin_user_action(uid: int, request: Request):
             u.session_version = (u.session_version or 1) + 1
         elif action == "verify_email":
             u.email_verified = True
+        elif action == "wallet_cap":
+            raw = str(f.get("max_wallet_pct", "")).strip()
+            try:
+                u.max_wallet_pct = min(100.0, max(1.0, float(raw))) if raw else None
+            except ValueError:
+                u.max_wallet_pct = None
         elif action == "subscription":
             raw = str(f.get("until", "")).strip()
             u.subscription_until = dt.datetime.fromisoformat(raw).replace(hour=23, minute=59) if raw else None
@@ -109,7 +115,7 @@ async def admin_settings(request: Request):
     alert_name = await alert_bot_username() if gs.alert_bot_token_enc else ""
     from .guides import GUIDES, ORDER, server_ip
     from .common import zones
-    return render(request, "admin/settings.html", gs=gs, all_exchanges=EXCHANGES, sizing_all=SIZING_MODES, tz_list=zones(),
+    return render(request, "admin/settings.html", gs=gs, all_exchanges=EXCHANGES, sizing_all=[m for m in SIZING_MODES if m != "wallet_pct"], tz_list=zones(),
                   alert_bot_username=alert_name, server_ip=server_ip(),
                   guide_titles=[(k, GUIDES[k]["title"]) for k in ORDER],
                   tab="settings", bot_username=bot.username, bot_error=bot.last_error, has_custom_icon=bool(custom_icon()),

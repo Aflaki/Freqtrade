@@ -69,14 +69,24 @@
 <h2 style="margin-top:22px">{{ _('sec_basket') }}</h2>
 <p class="small muted">{{ _('basket_intro') }}</p>
 {% if catalog %}
-<input type="hidden" id="mot" value="">{% set cm = v.sizing_mode if v and v.sizing_mode == 'custom_amounts' else 'equal_split' %}
+<input type="hidden" id="mot" value="">{% set cm = v.sizing_mode if v and v.sizing_mode in ('custom_amounts', 'wallet_pct') else 'equal_split' %}
 <div class="row"><div><label>{{ _('f_sizing') }}</label><select name="sizing_mode" id="sizing">
   <option value="equal_split" {{ 'selected' if cm == 'equal_split' }}>{{ _('mode_cat_total') }}</option>
-  <option value="custom_amounts" {{ 'selected' if cm == 'custom_amounts' }}>{{ _('mode_cat_per_pair') }}</option></select>
+  <option value="custom_amounts" {{ 'selected' if cm == 'custom_amounts' }}>{{ _('mode_cat_per_pair') }}</option>
+  {% if not is_signal %}<option value="wallet_pct" {{ 'selected' if cm == 'wallet_pct' }}>{{ _('mode_cat_wallet') }}</option>{% endif %}</select>
   <div class="small muted" id="modehelp"></div></div>
 <div id="capbox"><label>{{ _('f_capital_total', cur=gs.stake_currency, min='%.0f'|format(gs.min_capital)) }}</label>
   <input type="number" step="any" min="0" name="capital" id="capital" value="{{ (v.capital or '') if v else '' }}">
-  <div class="small muted">{{ _('capital_split_help', pct=(gs.tradable_balance_ratio*100)|round|int) }}</div></div></div>
+  <div class="small muted">{{ _('capital_cap_help', pct='%g'|format(cap_pct)) }}</div></div>
+<div id="walletbox"><label>{{ _('f_wallet_pct', max='%g'|format(cap_pct)) }}</label>
+  <input type="number" step="any" min="1" max="{{ cap_pct }}" name="wallet_pct" id="wallet_pct" value="{{ '%g'|format(v.wallet_pct) if v and v.wallet_pct else '' }}" placeholder="{{ '%g'|format(cap_pct) }}">
+  <div class="small muted" id="walletline" data-wallet="{{ v.wallet_balance if v and v.wallet_balance else '' }}"></div></div>
+<div id="floorbox"><label>{{ _('f_min_stake', cur=gs.stake_currency) }}</label>
+  <input type="number" step="any" min="0" name="min_stake" id="min_stake" value="{{ '%g'|format(v.min_stake) if v and v.min_stake else '' }}" placeholder="—">
+  <div class="small muted">{{ _('f_min_stake_help') }}</div></div>
+<div id="allbox"><label>{{ _('f_amount_all', cur=gs.stake_currency) }}</label>
+  <div class="inline-row"><input type="number" step="any" min="0" id="amount_all" style="width:110px"><button type="button" class="ghost sm" id="amount_all_btn">{{ _('btn_apply_all') }}</button></div>
+  <div class="small muted">{{ _('capital_cap_help', pct='%g'|format(cap_pct)) }}</div></div></div>
 {% else %}
 <div class="row">
   <div><label>{{ _('f_sizing') }}</label><select name="sizing_mode" id="sizing">
@@ -147,12 +157,14 @@
 (function(){
   const botWord={{ _('lev_from_bot')|tojson }}, maxLev={{ gs.max_leverage }}, exName={{ EXCHANGES|tojson }}, notListed={{ _('ck_not_on_exchange')|tojson }},
         balText={{ _('ck_bal_line')|tojson }}, ckWait={{ _('ck_wait')|tojson }}, ckAllOk={{ _('ck_all_ok')|tojson }}, ckFix={{ _('ck_fix')|tojson }};
-  const ratio={{ gs.tradable_balance_ratio }}, defMot={{ gs.default_max_open_trades }}, maxStake={{ gs.max_stake_per_trade or 0 }},
+  const capPct={{ cap_pct }}, defMot={{ gs.default_max_open_trades }}, maxStake={{ gs.max_stake_per_trade or 0 }},
         needPw={{ NEEDS_PASSWORD|list|tojson }}, stats={{ stats_json|safe }},
-        catHelp={equal_split:{{ _('mode_cat_total_help', pct=(gs.tradable_balance_ratio*100)|round|int)|tojson }},
-                 custom_amounts:{{ _('mode_cat_per_pair_help')|tojson }}},
-        help={equal_split:{{ _('mode_help_equal_split', pct=(gs.tradable_balance_ratio*100)|round|int)|tojson }},
-              pair_weights:{{ _('mode_help_pair_weights', pct=(gs.tradable_balance_ratio*100)|round|int)|tojson }},
+        catHelp={equal_split:{{ _('mode_cat_total_help')|tojson }},
+                 custom_amounts:{{ _('mode_cat_per_pair_help')|tojson }},
+                 wallet_pct:{{ _('mode_cat_wallet_help', max='%g'|format(cap_pct))|tojson }}},
+        walletText={{ _('wallet_line')|tojson }}, walletUnknown={{ _('wallet_unknown')|tojson }};
+        help={equal_split:{{ _('mode_help_equal_split')|tojson }},
+              pair_weights:{{ _('mode_help_pair_weights')|tojson }},
               custom_amounts:{{ _('mode_help_custom_amounts')|tojson }}},
         heads={pair_weights:{{ _('col_weight')|tojson }}, custom_amounts:{{ _('col_amount_pair', cur=gs.stake_currency)|tojson }}};
   const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)], fmt=v=>v.toLocaleString('en',{maximumFractionDigits:2});
@@ -160,7 +172,12 @@
     const spot=$('#mode').value==='spot', mode=$('#sizing').value;
     $$('.fut').forEach(e=>e.style.display=spot?'none':'');
     const ex=$('#exchange'); if(ex) $('#pwbox').style.display=needPw.includes(ex.value)?'':'none';
-    $('#capbox').style.display=mode==='custom_amounts'?'none':'';
+    $('#capbox').style.display=(mode==='custom_amounts'||mode==='wallet_pct')?'none':'';
+    ['#walletbox','#floorbox'].forEach(k=>{ if($(k)) $(k).style.display=mode==='wallet_pct'?'':'none'; });
+    if($('#allbox')) $('#allbox').style.display=mode==='custom_amounts'?'':'none';
+    const wbal=(window.ckBal&&(window.ckBal.wallet??window.ckBal.total))||parseFloat(($('#walletline')||{dataset:{}}).dataset.wallet)||0,
+          wpct=parseFloat(($('#wallet_pct')||{}).value)||0, floor=parseFloat(($('#min_stake')||{}).value)||0;
+    if($('#walletline')) $('#walletline').textContent=wbal?walletText.replace('{wallet}',fmt(wbal)).replace('{pct}',wpct||0).replace('{amount}',fmt(wbal*wpct/100)):walletUnknown;
     if($('.catrow')){ $$('.pvcol').forEach(e=>e.style.display=mode==='custom_amounts'?'':'none');
       $$('.pv').forEach(i=>{const cb=$(`.pc[data-p="${i.dataset.p}"]`); i.disabled=!(cb&&cb.checked);}); }
     if($('#motbox')) $('#motbox').style.display=mode==='equal_split'?'':'none';
@@ -195,7 +212,8 @@
       r.style.opacity=listed?'':'.55';
     });
     $$('.st').forEach(td=>{const p=td.dataset.p, cb=$(`.pc[data-p="${p}"]`); let s=0, on=sel.includes(p) && !(cb&&cb.dataset.blocked);
-      if(on){ if(mode==='custom_amounts') s=val(p); else if(mode==='pair_weights') s=tw?cap*ratio*val(p)/tw:0; else s=cap*ratio/mot; }
+      if(on){ if(mode==='custom_amounts') s=val(p); else if(mode==='pair_weights') s=tw?cap*val(p)/tw:0;
+        else if(mode==='wallet_pct') s=Math.max(wbal*wpct/100/mot, floor); else s=cap/mot; }
       if(maxStake) s=Math.min(s,maxStake); const L=plev(p); if(on){ ts+=s; tn+=s*L; }
       td.textContent=on?fmt(s):'-'; $(`.nt[data-p="${p}"]`).textContent=on?fmt(s*L):'-';
       const lc=$(`.plev[data-p="${p}"]`); if(lc){ const o=optOf(p); lc.textContent=L+'x'+(o&&o.dataset.lev&&!spot?' 🔒':(o&&o.dataset.blev&&!spot?' ('+botWord+')':'')); }
@@ -204,12 +222,15 @@
         const exMin=(ex[exn]||0)/L, adm=o?parseFloat(o.dataset.min)||0:0, need=Math.max(exMin,adm);
         nc.textContent=need?fmt(need)+(on?(s+1e-9>=need?' ✔':' ✗'):''):'-'; nc.className='need '+(on&&need?(s+1e-9>=need?'pos':'neg'):''); }
     });
-    if(!$('.catrow')) tn=(mode==='equal_split'?cap*ratio:ts)*lev;
-    $('#tot_st').innerHTML='<b>'+fmt(mode==='equal_split'?cap*ratio:ts)+'</b>'; $('#tot_nt').innerHTML='<b>'+fmt(tn)+'</b>';
-    const bl=$('#balline'); if(bl && window.ckBal){ const need=mode==='custom_amounts'?ts:cap, ok=need<=window.ckBal.total+1e-9;
+    if(!$('.catrow')) tn=(mode==='equal_split'?cap:ts)*lev;
+    $('#tot_st').innerHTML='<b>'+fmt(mode==='equal_split'?cap:ts)+'</b>'; $('#tot_nt').innerHTML='<b>'+fmt(tn)+'</b>';
+    const bl=$('#balline'); if(bl && window.ckBal && mode!=='wallet_pct'){ const need=mode==='custom_amounts'?ts:cap,
+      ok=need<=(window.ckBal.wallet??window.ckBal.total)*capPct/100+1e-9;
       bl.textContent=balText.replace('{need}',fmt(need)).replace('{have}',fmt(window.ckBal.total)).replace(/\{cur\}/g,window.ckBal.currency)+(ok?' ✔':' ✗');
       bl.className='small '+(ok?'pos':'neg'); }
   }
+  if($('#amount_all_btn')) $('#amount_all_btn').addEventListener('click',()=>{ const x=$('#amount_all').value; if(!x) return;
+    $$('.pv').forEach(i=>{ if(!i.disabled) i.value=x; }); upd(); });
   $$('.gsel').forEach(g=>g.addEventListener('change',e=>{$$(`.bc[data-g="${g.dataset.g}"]`).forEach(c=>c.checked=g.checked); upd();}));
   if($('#all')) $('#all').addEventListener('change',e=>{$$('.pc').forEach(c=>c.checked=e.target.checked); upd();});
   const ck=$('#ckbtn');

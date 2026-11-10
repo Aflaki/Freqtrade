@@ -43,6 +43,29 @@ def _compact(obj: Any, limit: int = 6000) -> Any:
     return json.loads(s)
 
 
+def client_version(acc: ExchangeAccount) -> tuple:
+    """What a pooled client depends on: a new key or exchange setting builds a new client; bookkeeping fields
+    (wallet balance, positions seen) don't."""
+    return (acc.kind, acc.exchange, acc.trading_mode, acc.api_key_enc, acc.secret_enc, acc.password_enc,
+            acc.sandbox, acc.dry_run)
+
+
+def wallet_of(bal: dict, currency: str) -> float:
+    """Wallet balance (realized profits and losses only, no open P/L) from a ccxt fetch_balance answer.
+    Binance futures' "total" includes open P/L, so its raw walletBalance is used when present."""
+    info = bal.get("info") if isinstance(bal, dict) else None
+    rows = info.get("assets") if isinstance(info, dict) else info if isinstance(info, list) else None
+    for r in rows or []:
+        if isinstance(r, dict) and r.get("asset") == currency:
+            for k in ("walletBalance", "crossWalletBalance", "balance"):
+                if r.get(k) not in (None, ""):
+                    try:
+                        return float(r[k])
+                    except (TypeError, ValueError):
+                        pass
+    return float((bal.get("total") or {}).get(currency) or 0)
+
+
 @dataclass
 class Fill:
     order_id: str
@@ -59,7 +82,7 @@ class ExchangeClient:
 
     def __init__(self, acc: ExchangeAccount):
         self.account_id = acc.id
-        self.version = acc.updated_at
+        self.version = client_version(acc)
         self.dry_run = acc.dry_run
         self.is_spot = acc.is_spot
         self.calls: list[dict] = []
@@ -170,6 +193,10 @@ class ExchangeClient:
             raise ValueError("this exchange can't list positions")
         return await self._call("fetch_positions", {"symbols": symbols}, self.ex.fetch_positions(symbols))
 
+    async def wallet_balance(self, currency: str) -> float:
+        bal = await self._call("fetch_balance", {}, self.ex.fetch_balance())
+        return wallet_of(bal, currency)
+
     async def free_balance(self, currency: str) -> float:
         bal = await self._call("fetch_balance", {}, self.ex.fetch_balance())
         return float((bal.get("free") or {}).get(currency) or 0)
@@ -268,7 +295,7 @@ class SimClient:
 
     def __init__(self, acc: ExchangeAccount, stake_currency: str = "USDT"):
         self.account_id = acc.id
-        self.version = acc.updated_at
+        self.version = client_version(acc)
         self.is_spot = acc.is_spot
         self.calls: list[dict] = []
 
@@ -339,7 +366,7 @@ class ClientPool:
 
     async def get(self, acc: ExchangeAccount) -> ExchangeClient | SimClient:
         c = self._clients.get(acc.id)
-        if c is not None and c.version != acc.updated_at:
+        if c is not None and c.version != client_version(acc):
             await c.close()
             c = None
         if c is None:

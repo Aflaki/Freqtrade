@@ -260,18 +260,18 @@ def test_form_rules(env):
     assert 'value="custom_amounts"' in form and 'class="pv"' in form  # per-pair amounts are a choice
     errs = save(c, csrf, capital="300", **{"pair__BTC/USDT": "on"}).text
     assert "Choose which bot BTC/USDT" in errs and "ETH/USDT is mandatory" in errs
-    # 60 x 90% / 3 pairs = 18 per pair: BTC at the bot's own 5x needs 20 (Binance min 100); SSV's admin minimum is 50
-    errs = save(c, csrf, capital="60", leverage="10", **{"pair__BTC/USDT": "on", "pbot__BTC/USDT": str(a),
+    # 54 / 3 pairs = 18 per pair: BTC at the bot's own 5x needs 20 (Binance min 100); SSV's admin minimum is 50
+    errs = save(c, csrf, capital="54", leverage="10", **{"pair__BTC/USDT": "on", "pbot__BTC/USDT": str(a),
                                                          "pair__ETH/USDT": "on", "pair__SSV/USDT": "on"}).text
     assert "BTC/USDT: margin per trade is 18.00 but the exchange needs at least 20.00 at 5x" in errs
     assert "SSV/USDT: this pair" in errs
     # nothing typed is lost, and each problem pair is a question
-    assert 'name="capital" id="capital" value="60' in errs and 'name="api_key" autocomplete="off" value="k"' in errs
+    assert 'name="capital" id="capital" value="54' in errs and 'name="api_key" autocomplete="off" value="k"' in errs
     assert 'name="pfix__SSV/USDT" value="remove"' in errs and 'name="pfix__SSV/USDT" value="keep"' not in errs
-    errs = save(c, csrf, capital="60", **{"pair__BTC/USDT": "on", "pbot__BTC/USDT": str(a), "pair__ETH/USDT": "on",
+    errs = save(c, csrf, capital="54", **{"pair__BTC/USDT": "on", "pbot__BTC/USDT": str(a), "pair__ETH/USDT": "on",
                                           "pair__SSV/USDT": "on", "pfix__SSV/USDT": "remove"}).text
     assert "Removed from the portfolio: SSV/USDT" in errs and "SSV/USDT: this pair" not in errs
-    assert "margin per trade is 27.00" not in errs  # 60 x 90% / 2 = 27 now: BTC is fine
+    assert "margin per trade is 27.00" not in errs  # 54 / 2 = 27 now: BTC is fine
     with SessionLocal() as s:  # ... so it was saved without SSV; start over for the next checks
         saved = s.query(ExchangeAccount).filter_by(label="cat-p").one()
         assert set(saved.pairs) == {"BTC/USDT", "ETH/USDT"}
@@ -296,7 +296,7 @@ def test_form_rules(env):
         gs = get_global(s)
         assert leverage_for(gs, acc, "ETH/USDT", 5.0) == 3  # admin's fixed leverage wins over the bot's 5x
         assert leverage_for(gs, acc, "BTC/USDT", 5.0) == 5  # otherwise the bot's own leverage
-        assert max_open_trades(gs, acc) == 2 and abs(pair_budget(gs, acc, "BTC/USDT") - 45) < 1e-9  # 100 x 90% / 2
+        assert max_open_trades(gs, acc) == 2 and abs(pair_budget(gs, acc, "BTC/USDT") - 50) < 1e-9  # 100 / 2 (no hidden 90%)
         acc_id = acc.id
     # the check button (JSON), with the stored keys
     res = c.post("/accounts/check", json={"csrf": csrf, "acc_id": acc_id, "exchange": "binance", "trading_mode": "futures",

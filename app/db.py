@@ -50,7 +50,7 @@ DEFAULT_NOTIFY: dict[str, bool] = {
     "phone_alerts": True,  # admins only: critical alerts (bot down / restarted) also to phone push + alert bot
 }
 ADMIN_NOTIFY = ("bot_status", "bot_trades", "monitoring", "phone_alerts")
-SIZING_MODES = ("equal_split", "pair_weights", "custom_amounts")
+SIZING_MODES = ("equal_split", "pair_weights", "custom_amounts", "wallet_pct")
 
 
 # ============================================================================ users & accounts
@@ -72,6 +72,8 @@ class User(Base):
     telegram_username: Mapped[str] = mapped_column(String(64), default="")
     telegram_link_token: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     notify: Mapped[dict[str, Any]] = mapped_column(JSON, default=lambda: dict(DEFAULT_NOTIFY))
+    # the most of their wallet this user may put to work (%); None = the site default (GlobalSettings)
+    max_wallet_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     last_notice_date: Mapped[str] = mapped_column(String(10), default="")
     accepted_terms_at: Mapped[dt.datetime | None] = mapped_column(nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(default=utcnow)
@@ -162,6 +164,12 @@ class ExchangeAccount(Base):
     last_check_msg: Mapped[str] = mapped_column(String(500), default="")
     # positions found on the exchange that we did not open: those in the chosen pairs are taken over (wait for the
     # bot's exit); the others are listed here until the user decides to close them or keep them ("SYMBOL|side")
+    # sizing "wallet_pct": each new trade = wallet_pct % of the wallet balance at that moment / number of pairs
+    # (profits and losses compound), never below min_stake; wallet_balance = last balance read from the exchange
+    wallet_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    min_stake: Mapped[float | None] = mapped_column(Float, nullable=True)
+    wallet_balance: Mapped[float | None] = mapped_column(Float, nullable=True)
+    wallet_balance_at: Mapped[dt.datetime | None] = mapped_column(nullable=True)
     foreign_positions: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
     kept_positions: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     positions_checked_at: Mapped[dt.datetime | None] = mapped_column(nullable=True)

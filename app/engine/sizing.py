@@ -1,15 +1,20 @@
 """Money management, modelled on Freqtrade's stake settings.
 
-equal_split    : stake = capital * tradable_ratio / max_open_trades     (Freqtrade stake_amount "unlimited")
-pair_weights   : stake = capital * tradable_ratio * weight / sum(weights)
+equal_split    : stake = capital / number of pairs                     (a fixed total, split equally)
+pair_weights   : stake = capital * weight / sum(weights)
 custom_amounts : stake = the amount the user typed for that pair        (user builds their own basket)
+wallet_pct     : stake = wallet balance now * pct / number of pairs     (compounding, like Freqtrade "unlimited"),
+                 never below the user's floor (min_stake)
+
+The admin limits how much of a wallet may be put to work (site default, per-user override): fixed amounts must stay
+below that share of the balance, and wallet_pct can't be set above it. The rest is the reserve for drawdowns.
 """
 from __future__ import annotations
 
 from ..db import ExchangeAccount, GlobalSettings
 
 # with the pair catalog every user may choose: one total split equally, or an own amount per pair
-CATALOG_MODES = ("equal_split", "custom_amounts")
+CATALOG_MODES = ("equal_split", "custom_amounts", "wallet_pct")
 
 
 def effective_mode(gs: GlobalSettings, acc: ExchangeAccount) -> str:
@@ -19,16 +24,24 @@ def effective_mode(gs: GlobalSettings, acc: ExchangeAccount) -> str:
     return allowed[0]
 
 
-def effective_capital(gs: GlobalSettings, acc: ExchangeAccount) -> float:
-    if effective_mode(gs, acc) == "custom_amounts":
+def wallet_cap(gs: GlobalSettings, user=None) -> float:
+    """Largest share (0..1) of the wallet this user may put to work."""
+    pct = getattr(user, "max_wallet_pct", None)
+    return min(1.0, max(0.01, pct / 100)) if pct else gs.tradable_balance_ratio
+
+
+def effective_capital(gs: GlobalSettings, acc: ExchangeAccount, balance: float | None = None) -> float:
+    mode = effective_mode(gs, acc)
+    if mode == "custom_amounts":
         return sum(max(0.0, float(v or 0)) for v in (acc.pairs or {}).values())
+    if mode == "wallet_pct":
+        bal = balance if balance is not None else (acc.wallet_balance or 0.0)
+        return max(0.0, bal) * (acc.wallet_pct or 0.0) / 100
     return max(0.0, acc.capital)
 
 
-def tradable_capital(gs: GlobalSettings, acc: ExchangeAccount) -> float:
-    if effective_mode(gs, acc) == "custom_amounts":
-        return effective_capital(gs, acc)
-    return effective_capital(gs, acc) * gs.tradable_balance_ratio
+def tradable_capital(gs: GlobalSettings, acc: ExchangeAccount, balance: float | None = None) -> float:
+    return effective_capital(gs, acc, balance)
 
 
 def max_open_trades(gs: GlobalSettings, acc: ExchangeAccount) -> int:
@@ -38,7 +51,8 @@ def max_open_trades(gs: GlobalSettings, acc: ExchangeAccount) -> int:
     return max(1, len(acc.pairs or {}))
 
 
-def pair_budget(gs: GlobalSettings, acc: ExchangeAccount, pair: str) -> float:
+def pair_budget(gs: GlobalSettings, acc: ExchangeAccount, pair: str, balance: float | None = None) -> float:
+    """Margin for a new trade in this pair. balance: the wallet balance now (wallet_pct; else the last one read)."""
     mode = effective_mode(gs, acc)
     if mode == "custom_amounts":
         stake = max(0.0, float((acc.pairs or {}).get(pair) or 0))
@@ -47,7 +61,9 @@ def pair_budget(gs: GlobalSettings, acc: ExchangeAccount, pair: str) -> float:
         total = sum(weights.values())
         stake = tradable_capital(gs, acc) * weights.get(pair, 0.0) / total if total else 0.0
     else:
-        stake = tradable_capital(gs, acc) / max_open_trades(gs, acc)
+        stake = tradable_capital(gs, acc, balance) / max_open_trades(gs, acc)
+        if mode == "wallet_pct" and acc.min_stake:
+            stake = max(stake, acc.min_stake)  # the user's floor per trade
     if gs.max_stake_per_trade:
         stake = min(stake, gs.max_stake_per_trade)
     return stake

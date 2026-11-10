@@ -29,7 +29,7 @@ from ..engine.sizing import (
     tradable_capital,
 )
 from ..engine.trader import force_exit
-from ..security import encrypt, flash, form_with_csrf, mask, require_user
+from ..security import current_user, encrypt, flash, form_with_csrf, mask, require_user
 from ..telegram import bot
 from .common import render, tr
 
@@ -94,7 +94,7 @@ def _public_bots() -> list[Bot]:
         return list(s.scalars(select(Bot).where(Bot.enabled.is_(True), Bot.public.is_(True)).order_by(Bot.sort, Bot.id)))
 
 
-def _form_ctx(gs, acc, kind, draft=None, issues=None):
+def _form_ctx(gs, acc, kind, draft=None, issues=None, user=None):
     bots = _public_bots()
     ids = [b.id for b in bots]
     _, groups = perf.visible_bots()
@@ -106,11 +106,16 @@ def _form_ctx(gs, acc, kind, draft=None, issues=None):
         sections.append((None, rest))
     src = draft or acc  # draft: what the user typed, shown again after an error
     return dict(gs=gs, acc=acc, kind=kind, key_mask=mask(acc.api_key_enc) if acc and not acc.is_signal else "",
-                stats_json=perf.stats_json(ids, 90), modes=[m for m in SIZING_MODES if m in (gs.sizing_modes or [])],
+                stats_json=perf.stats_json(ids, 90), modes=[m for m in SIZING_MODES if m in (gs.sizing_modes or []) and m != "wallet_pct"],
                 bots=bots, cards={m: perf.bot_summaries(ids, m, 90) for m in ("all", "long")},
                 followed=(src.bots or []) if src else (ids if len(ids) == 1 else []), sections=sections,
                 pair_bot=(src.pair_bot or {}) if src else {}, server_ip=_server_ip(), **_catalog_ctx(gs, bots),
-                draft=draft, issues=issues or [])
+                draft=draft, issues=issues or [], cap_pct=round(_cap(gs, user) * 100, 2))
+
+
+def _cap(gs, user) -> float:
+    from ..engine.sizing import wallet_cap
+    return wallet_cap(gs, user)
 
 
 def _catalog_ctx(gs, bots) -> dict:
@@ -138,13 +143,14 @@ def _catalog_ctx(gs, bots) -> dict:
     return {"catalog": catalog}
 
 
-def _rule_errors(request, gs, kind, exchange, mode, leverage, sizing, pairs, capital, mot, chosen_bot, catalog):
+def _rule_errors(request, gs, kind, exchange, mode, leverage, sizing, pairs, capital, mot, chosen_bot, catalog,
+                 **wallet):
     """Per-pair minimums: the exchange's minimum order at this leverage and the admin's minimum capital."""
     from ..engine.account_check import check_pairs
     from ..engine.offers import forced_leverage
     from ..engine.sizing import pair_budget
     tmp = ExchangeAccount(kind=kind, exchange=exchange, trading_mode=mode, leverage=leverage, sizing_mode=sizing,
-                          pairs=pairs, capital=capital, max_open_trades=mot, pair_bot=chosen_bot)
+                          pairs=pairs, capital=capital, max_open_trades=mot, pair_bot=chosen_bot, **wallet)
     sel = {}
     from ..engine.offers import bot_leverage
     for pp in pairs:
@@ -159,19 +165,19 @@ def _rule_errors(request, gs, kind, exchange, mode, leverage, sizing, pairs, cap
 
 
 async def _key_errors(request, gs, acc, exchange, mode, api_key, secret, password, sandbox, dry_run, capital,
-                      sizing, pairs) -> list[str]:
-    """Blocking problems of the API key (and the balance, unless it is a dry run)."""
+                      sizing, pairs, cap: float = 1.0) -> tuple[list[str], dict | None]:
+    """Blocking problems of the API key (and the money, unless it is a dry run), and the balance read."""
     from ..engine.account_check import check_keys
     from ..security import decrypt
     key = api_key or (decrypt(acc.api_key_enc) if acc else "") or ""
     sec = secret or (decrypt(acc.secret_enc) if acc else "") or ""
     pw = password or (decrypt(acc.password_enc) if acc else "") or ""
     if not key or not sec:
-        return []  # reported as missing keys already
+        return [], None  # reported as missing keys already
     res = await check_keys(exchange, mode, key, sec, pw, sandbox, gs.stake_currency)
     if not res["reachable"]:
         flash(request, tr(request, "ck_saved_unchecked"), "warn")
-        return []
+        return [], None
     texts = check_texts(request, res["items"])
     errs = [x["text"] for x in texts if x["status"] == "error"]
     for x in texts:
@@ -179,13 +185,19 @@ async def _key_errors(request, gs, acc, exchange, mode, api_key, secret, passwor
             flash(request, x["text"], "warn")
     bal = res.get("balance")
     need = sum(max(0.0, float(v or 0)) for v in pairs.values()) if sizing == "custom_amounts" else capital
-    if not errs and bal and need > bal["total"] + 1e-9:
-        msg = tr(request, "ck_not_enough", need=f"{need:,.2f}", have=f"{bal['total']:,.2f}", cur=bal["currency"])
-        if dry_run:
+    if not errs and bal and sizing != "wallet_pct":
+        wallet = bal.get("wallet", bal["total"])
+        msg = ""
+        if need > bal["total"] + 1e-9:
+            msg = tr(request, "ck_not_enough", need=f"{need:,.2f}", have=f"{bal['total']:,.2f}", cur=bal["currency"])
+        elif need > wallet * cap + 1e-9:  # the rest of the wallet is the reserve for drawdowns
+            msg = tr(request, "ck_over_cap", need=f"{need:,.2f}", pct=f"{cap * 100:g}", max=f"{wallet * cap:,.2f}",
+                     have=f"{wallet:,.2f}", cur=bal["currency"])
+        if msg and dry_run:
             flash(request, msg + " " + tr(request, "ck_dry_ok"), "warn")
-        else:
+        elif msg:
             errs.append(msg)
-    return errs
+    return errs, bal
 
 
 def _server_ip() -> str:
@@ -201,7 +213,7 @@ async def account_new(request: Request):
         gs = get_global(s)
     if kind == "signal" and not gs.signal_only_enabled:
         raise HTTPException(404)
-    return render(request, "account_form.html", **_form_ctx(gs, None, kind))
+    return render(request, "account_form.html", **_form_ctx(gs, None, kind, user=current_user(request)))
 
 
 @router.get("/accounts/{acc_id}/edit")
@@ -210,7 +222,7 @@ async def account_edit(acc_id: int, request: Request):
     with SessionLocal() as s:
         gs = get_global(s)
         acc = _own(s, user, acc_id)
-    return render(request, "account_form.html", **_form_ctx(gs, acc, acc.kind))
+    return render(request, "account_form.html", **_form_ctx(gs, acc, acc.kind, user=user))
 
 
 async def _save_account(request: Request, acc_id: int | None):
@@ -237,8 +249,9 @@ async def _save_account(request: Request, acc_id: int | None):
         if not 1 <= leverage <= gs.max_leverage:
             errors.append(tr(request, "err_leverage", max=gs.max_leverage))
         sizing = str(f.get("sizing_mode", ""))
-        if simple:  # one total split equally, or the user's own amount per pair
-            sizing = "custom_amounts" if sizing == "custom_amounts" else "equal_split"
+        if simple:  # one total split equally, the user's own amount per pair, or a share of the wallet
+            ok = ("equal_split", "custom_amounts", "wallet_pct") if kind == "exchange" else ("equal_split", "custom_amounts")
+            sizing = sizing if sizing in ok else "equal_split"
         elif sizing not in (gs.sizing_modes or []):
             sizing = (gs.sizing_modes or ["equal_split"])[0]
         pairs: dict[str, float] = {}
@@ -285,7 +298,14 @@ async def _save_account(request: Request, acc_id: int | None):
         if not bots:
             errors.append(tr(request, "err_bots"))
         capital = sum(pairs.values()) if sizing == "custom_amounts" else _num(f.get("capital"))
-        if capital < gs.min_capital:
+        from ..engine.sizing import wallet_cap
+        cap = wallet_cap(gs, user)
+        wallet_pct = _num(f.get("wallet_pct"), 0) if sizing == "wallet_pct" else None
+        min_stake = (_num(f.get("min_stake"), 0) or None) if sizing == "wallet_pct" else None
+        if sizing == "wallet_pct":
+            if not 1 <= (wallet_pct or 0) <= cap * 100 + 1e-9:
+                errors.append(tr(request, "err_wallet_pct", max=f"{cap * 100:g}"))
+        elif capital < gs.min_capital:
             errors.append(tr(request, "err_min_capital", min=f"{gs.min_capital:,.0f}", cur=gs.stake_currency))
         mot = None if simple else (int(_num(f.get("max_open_trades"), 0)) or None)
         sl = _num(f.get("stoploss_pct"), 0) or None
@@ -302,11 +322,23 @@ async def _save_account(request: Request, acc_id: int | None):
                 errors.append(tr(request, "err_passphrase"))
             if not f.get("no_withdraw"):
                 errors.append(tr(request, "err_no_withdraw"))
+        # the API key itself: works, may trade futures, withdrawals off, enough money (and the balance)
+        bal = None
+        if not errors and kind == "exchange":
+            errs, bal = await _key_errors(request, gs, acc, exchange, mode, api_key, secret, password,
+                                          bool(f.get("sandbox")), bool(f.get("dry_run")), capital, sizing, pairs, cap)
+            errors += errs
+        wallet_now = (bal or {}).get("wallet", (bal or {}).get("total")) if bal else (acc.wallet_balance if acc else None)
+        if sizing == "wallet_pct":
+            capital = (wallet_now or 0) * (wallet_pct or 0) / 100
+            if not errors and wallet_now is not None and capital < gs.min_capital:
+                errors.append(tr(request, "err_min_capital", min=f"{gs.min_capital:,.0f}", cur=gs.stake_currency))
         # exchange rules per pair (listed? order big enough at this leverage?) + the admin's minimums
         issues: list[dict] = []
         if not errors:
+            wallet = {"wallet_pct": wallet_pct, "min_stake": min_stake, "wallet_balance": wallet_now}
             for it in _rule_errors(request, gs, kind, exchange, mode, leverage, sizing, pairs, capital, mot,
-                                   chosen_bot, catalog):
+                                   chosen_bot, catalog, **wallet):
                 pp = it["params"].get("pair", "")
                 if it["key"] == "ck_pair_inactive" and f.get(f"pfix__{pp}") == "keep":
                     continue  # the user keeps it: its trades are skipped while the exchange has it closed
@@ -315,10 +347,6 @@ async def _save_account(request: Request, acc_id: int | None):
                                "mandatory": bool((catalog.get(pp) or {}).get("mandatory"))})
             if issues:
                 errors.append(tr(request, "err_pairs_decide"))
-        # the API key itself: works, may trade futures, withdrawals off, enough money
-        if not errors and kind == "exchange":
-            errors += await _key_errors(request, gs, acc, exchange, mode, api_key, secret, password,
-                                        bool(f.get("sandbox")), bool(f.get("dry_run")), capital, sizing, pairs)
         if errors:  # show the form again with everything the user typed, and ask about problem pairs
             for e in errors:
                 flash(request, e, "error")
@@ -330,8 +358,9 @@ async def _save_account(request: Request, acc_id: int | None):
                 capital=_num(f.get("capital")) or (capital if sizing != "custom_amounts" else 0), max_open_trades=mot,
                 bots=bots, pair_bot=chosen_bot, stoploss_pct=sl, daily_loss_limit_pct=dll, dry_run=bool(f.get("dry_run")),
                 sandbox=bool(f.get("sandbox")), api_key=api_key, secret=secret, password=password,
-                no_withdraw=bool(f.get("no_withdraw")))
-            return render(request, "account_form.html", **_form_ctx(gs, acc, kind, draft, issues))
+                no_withdraw=bool(f.get("no_withdraw")), wallet_pct=wallet_pct or _num(f.get("wallet_pct"), 0) or None,
+                min_stake=_num(f.get("min_stake"), 0) or None, wallet_balance=wallet_now)
+            return render(request, "account_form.html", **_form_ctx(gs, acc, kind, draft, issues, user))
         if acc is None:
             acc = ExchangeAccount(user_id=user.id, kind=kind)
             s.add(acc)
@@ -343,6 +372,9 @@ async def _save_account(request: Request, acc_id: int | None):
         acc.exchange, acc.trading_mode, acc.leverage = exchange, mode, leverage
         acc.margin_mode = "cross" if f.get("margin_mode") == "cross" else "isolated"
         acc.sizing_mode, acc.pairs, acc.capital, acc.max_open_trades = sizing, pairs, capital, mot
+        acc.wallet_pct, acc.min_stake = wallet_pct, min_stake
+        if wallet_now is not None and bal:
+            acc.wallet_balance, acc.wallet_balance_at = wallet_now, utcnow()
         # per pair: take signals only from one chosen bot (it is followed automatically)
         acc.bots = sorted(bots)
         acc.pair_bot = dict(chosen_bot) or None
