@@ -23,6 +23,9 @@ class FakeStream:
         self.b, self.p, self.m = balance, positions, marks
         self.closed = False
 
+    async def fetch_balance(self):  # the starting balance (REST, once)
+        return self.b
+
     async def watch_balance(self):
         if self.b is None:
             await asyncio.Event().wait()
@@ -200,4 +203,45 @@ def test_exits_before_entries():
         t0 = asyncio.get_running_loop().time()
         await gov.acquire("binanceusdm", 5, "exit")  # the last 10% is kept for exits: no wait
         assert asyncio.get_running_loop().time() - t0 < 0.1
+    asyncio.run(go())
+
+
+def test_live_without_any_balance_change_and_after_a_reconnect(live):
+    """Binance pushes the balance only when it changes: a quiet account must still go live (starting balance read
+    once); after a dropped connection everything is read again before it counts as live."""
+    acc_id, _, _ = live
+
+    class Quiet(FakeStream):
+        drops = 1
+
+        async def watch_balance(self):  # no balance change ever
+            await asyncio.Event().wait()
+
+        async def watch_positions(self):
+            if Quiet.drops:
+                Quiet.drops -= 1
+                await asyncio.sleep(0.02)
+                raise ConnectionError("connection reset")
+            return await FakeStream.watch_positions(self)
+
+    pushed = Quiet(balance={"USDT": {"free": 500.0, "total": 500.0}, "total": {"USDT": 500.0}}, positions=[])
+    manager.factory = lambda acc: pushed
+    import app.engine.streams as streams_mod
+
+    async def go():
+        with SessionLocal() as s:
+            acc = s.get(ExchangeAccount, acc_id)
+            s.expunge(acc)
+        old = streams_mod.asyncio.sleep
+        await manager.start(acc, exmod.client_version(acc))
+        await asyncio.sleep(0.01)
+        assert manager.status(acc)["mode"] == "connecting"  # positions snapshot not there yet
+        for _ in range(60):  # first positions attempt drops, then retried after 2 s
+            await asyncio.sleep(0.1)
+            if manager.live(acc_id):
+                break
+        assert manager.live(acc_id) and manager.wallet(acc_id, "USDT") == 500
+        assert manager.status(acc)["mode"] == "live"
+        await manager.stop(acc_id)
+        assert old is streams_mod.asyncio.sleep
     asyncio.run(go())

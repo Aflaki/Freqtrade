@@ -38,6 +38,7 @@ class AccountStream:
         self.ex = None
         self.tasks: list[asyncio.Task] = []
         self.failures = 0
+        self.pos_ready = False  # the positions snapshot has arrived
 
 
 def _key(p: dict) -> str | None:
@@ -63,7 +64,7 @@ class StreamManager:
     # ------------------------------------------------------------ readers
     def live(self, acc_id: int) -> AccountStream | None:
         st = self.accounts.get(acc_id)
-        return st if st and st.connected and st.balance is not None else None
+        return st if st and st.connected and st.balance is not None and st.pos_ready else None
 
     def wallet(self, acc_id: int, currency: str) -> float | None:
         st = self.live(acc_id)
@@ -126,7 +127,7 @@ class StreamManager:
         ex = ccxtpro.binanceusdm({"apiKey": decrypt(acc.api_key_enc), "secret": decrypt(acc.secret_enc),
                                   "enableRateLimit": True,
                                   "options": {"defaultType": "future", "fetchCurrencies": False,
-                                              "fetchBalanceSnapshot": True, "awaitBalanceSnapshot": True,
+                                              "fetchBalanceSnapshot": False, "awaitBalanceSnapshot": False,
                                               "fetchPositionsSnapshot": True, "awaitPositionsSnapshot": True}})
         if acc.sandbox:
             ex.set_sandbox_mode(True)
@@ -143,7 +144,10 @@ class StreamManager:
         while True:
             try:
                 if what == "balance":
-                    st.balance = await st.ex.watch_balance()
+                    if st.balance is None:  # the balance as it is now: the stream itself only reports changes
+                        st.balance = await st.ex.fetch_balance()
+                    else:
+                        st.balance = await st.ex.watch_balance()
                 else:
                     for p in await st.ex.watch_positions() or []:
                         k = _key(p)
@@ -155,12 +159,20 @@ class StreamManager:
                             st.positions[k] = merged
                         else:
                             st.positions.pop(k, None)
+                    st.pos_ready = True  # the first answer is the full snapshot
+                    if st.balance is None:  # reconnected here first: read the balance again too
+                        st.balance = await st.ex.fetch_balance()
                 st.at, st.error, delay = time.time(), "", 2.0
-                st.connected = st.balance is not None
+                st.connected = st.balance is not None and st.pos_ready
             except asyncio.CancelledError:
                 raise
             except Exception as e:
-                st.connected = False
+                # whatever changed while disconnected is unknown: start again from fresh snapshots
+                st.connected, st.pos_ready, st.balance = False, False, None
+                st.positions.clear()
+                cache = getattr(st.ex, "positions", None)
+                if isinstance(cache, dict):
+                    cache.clear()  # makes ccxt load a positions snapshot again
                 st.error = f"{type(e).__name__}: {str(e)[:160]}"
                 st.failures += 1
                 log.info("[acc %s] %s stream: %s (again in %.0fs)", st.acc_id, what, st.error, delay)
@@ -270,8 +282,10 @@ class StreamManager:
             return {"mode": "api", "error": "", "since": None, "ip": acc.out_ip}
         if self.live(acc.id):
             return {"mode": "live", "error": "", "since": st.at, "ip": acc.out_ip}
-        return {"mode": "connecting" if not st.error else "api", "error": st.error, "since": st.at or None,
-                "ip": acc.out_ip}
+        waiting = [w for w, ok in (("balance", st.balance is not None), ("positions", st.pos_ready)) if not ok]
+        return {"mode": "connecting" if not st.error else "api",
+                "error": st.error or ("waiting for: " + ", ".join(waiting) if waiting else ""),
+                "since": st.at or None, "ip": acc.out_ip}
 
     def summary(self) -> dict:
         sts = list(self.accounts.values())
