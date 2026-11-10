@@ -13,13 +13,13 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from .db import SessionLocal, get_global, init_db
-from .engine import benchmarks
+from .engine import benchmarks, markets
 from .engine.botmonitor import monitor
 from .engine.exchange import pool
 from .security import LoginRequired, decrypt
 from .settings import SECRET_KEY
 from .telegram import bot
-from .web import account_security, admin, admin_bots, admin_security, admin_servers, auth, guides, icons, public, push, user, watchdog, webhook
+from .web import account_security, admin, admin_bots, admin_pairs, admin_security, admin_servers, auth, guides, icons, public, push, user, watchdog, webhook
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logging.getLogger("httpx").setLevel(logging.WARNING)  # open trades are polled every 15 s: no line per request
@@ -31,7 +31,7 @@ async def lifespan(app: FastAPI):
     with SessionLocal() as s:
         token = decrypt(get_global(s).telegram_token_enc) or os.getenv("TELEGRAM_BOT_TOKEN", "")
     await bot.configure(token)
-    jobs = [asyncio.create_task(bot.daily_jobs()), asyncio.create_task(monitor.loop()), asyncio.create_task(monitor.live_loop()),
+    jobs = [asyncio.create_task(bot.daily_jobs()), asyncio.create_task(monitor.loop()), asyncio.create_task(monitor.live_loop()), asyncio.create_task(markets.loop()),
             asyncio.create_task(benchmarks.loop())]
     yield
     for j in jobs:
@@ -46,7 +46,7 @@ app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY, session_cookie="rel
                    https_only=os.getenv("SECURE_COOKIES", "false").lower() in ("1", "true", "yes"))
 app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
 for r in (webhook.router, watchdog.router, push.router, icons.router, public.router, guides.router, auth.router, account_security.router, user.router, admin_bots.router,
-          admin_security.router, admin_servers.router, admin.router):
+          admin_security.router, admin_servers.router, admin_pairs.router, admin.router):
     app.include_router(r)
 
 

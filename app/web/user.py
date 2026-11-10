@@ -106,7 +106,76 @@ def _form_ctx(gs, acc, kind):
                 stats_json=perf.stats_json(ids, 90), modes=[m for m in SIZING_MODES if m in (gs.sizing_modes or [])],
                 bots=bots, cards={m: perf.bot_summaries(ids, m, 90) for m in ("all", "long")},
                 followed=(acc.bots or []) if acc else (ids if len(ids) == 1 else []), sections=sections,
-                pair_bot=(acc.pair_bot or {}) if acc else {}, server_ip=_server_ip())
+                pair_bot=(acc.pair_bot or {}) if acc else {}, server_ip=_server_ip(), **_catalog_ctx(gs, bots))
+
+
+def _catalog_ctx(gs, bots) -> dict:
+    """Offered pairs for the form: their bots (with the admin's rules) and each exchange's minimum order."""
+    from ..engine import markets
+    from ..engine.offers import offers_by_pair, pair_rules
+    names = {b.id: b.name for b in bots}
+    cache = markets.all_info()
+    catalog = []
+    for pair, offers in sorted(offers_by_pair().items()):
+        offers = [o for o in offers if o.bot_id in names]
+        if not offers:
+            continue
+        r = pair_rules(offers)
+        ex = {}
+        for e in gs.allowed_exchanges or []:
+            pairs = (cache.get(e) or {}).get("pairs")
+            if pairs:  # known: listed (min order) or not listed (None)
+                i = pairs.get(pair)
+                ex[e] = markets.min_order(i) if i else None
+        catalog.append({"pair": pair, "mandatory": r["mandatory"], "default_bot": r["default_bot"], "ex": ex,
+                        "bots": [{"id": o.bot_id, "name": names[o.bot_id], "lev": o.leverage, "min": o.min_capital}
+                                 for o in offers]})
+    return {"catalog": catalog}
+
+
+def _rule_errors(request, gs, kind, exchange, mode, leverage, sizing, pairs, capital, mot, chosen_bot, catalog):
+    """Per-pair minimums: the exchange's minimum order at this leverage and the admin's minimum capital."""
+    from ..engine.account_check import check_pairs
+    from ..engine.offers import forced_leverage
+    from ..engine.sizing import pair_budget
+    tmp = ExchangeAccount(kind=kind, exchange=exchange, trading_mode=mode, leverage=leverage, sizing_mode=sizing,
+                          pairs=pairs, capital=capital, max_open_trades=mot, pair_bot=chosen_bot)
+    sel = {}
+    for pp in pairs:
+        lev = 1 if mode == "spot" else max(1, min(forced_leverage(pp, chosen_bot.get(pp)) or leverage, gs.max_leverage))
+        sel[pp] = {"margin": pair_budget(gs, tmp, pp), "leverage": lev, "bot": chosen_bot.get(pp)}
+    items = check_pairs(exchange if kind == "exchange" else "", mode, sel, catalog)
+    return [t["text"] for t in check_texts(request, items)]
+
+
+async def _key_errors(request, gs, acc, exchange, mode, api_key, secret, password, sandbox, dry_run, capital,
+                      sizing, pairs) -> list[str]:
+    """Blocking problems of the API key (and the balance, unless it is a dry run)."""
+    from ..engine.account_check import check_keys
+    from ..security import decrypt
+    key = api_key or (decrypt(acc.api_key_enc) if acc else "") or ""
+    sec = secret or (decrypt(acc.secret_enc) if acc else "") or ""
+    pw = password or (decrypt(acc.password_enc) if acc else "") or ""
+    if not key or not sec:
+        return []  # reported as missing keys already
+    res = await check_keys(exchange, mode, key, sec, pw, sandbox, gs.stake_currency)
+    if not res["reachable"]:
+        flash(request, tr(request, "ck_saved_unchecked"), "warn")
+        return []
+    texts = check_texts(request, res["items"])
+    errs = [x["text"] for x in texts if x["status"] == "error"]
+    for x in texts:
+        if x["status"] == "warn":
+            flash(request, x["text"], "warn")
+    bal = res.get("balance")
+    need = sum(max(0.0, float(v or 0)) for v in pairs.values()) if sizing == "custom_amounts" else capital
+    if not errs and bal and need > bal["total"] + 1e-9:
+        msg = tr(request, "ck_not_enough", need=f"{need:,.2f}", have=f"{bal['total']:,.2f}", cur=bal["currency"])
+        if dry_run:
+            flash(request, msg + " " + tr(request, "ck_dry_ok"), "warn")
+        else:
+            errs.append(msg)
+    return errs
 
 
 def _server_ip() -> str:
@@ -168,6 +237,28 @@ async def _save_account(request: Request, acc_id: int | None):
         public_ids = {b.id for b in _public_bots()}
         bots = sorted({int(k.split("__", 1)[1]) for k in f.keys()
                        if k.startswith("bot__") and k.split("__", 1)[1].isdigit()} & public_ids)
+        # pair catalog: each offered pair from exactly ONE of its offered bots; mandatory pairs must be included
+        from ..engine.offers import offers_by_pair, pair_rules
+        catalog = {pp: pair_rules(o) for pp, o in offers_by_pair().items()}
+        chosen_bot: dict[str, int] = {}
+        for pp in pairs:
+            rules = catalog.get(pp)
+            v = str(f.get(f"pbot__{pp}", ""))
+            pick = int(v) if v.isdigit() else None
+            if rules:
+                if pick not in rules["bots"]:
+                    pick = rules["default_bot"] if pick is None and rules["default_bot"] in rules["bots"] else (
+                        rules["bots"][0] if pick is None and len(rules["bots"]) == 1 else None)
+                if pick is None:
+                    errors.append(tr(request, "err_pick_bot", pair=pp))
+                    continue
+                chosen_bot[pp] = pick
+            elif pick in public_ids:
+                chosen_bot[pp] = pick
+        for pp, rules in catalog.items():
+            if rules["mandatory"] and pp not in pairs:
+                errors.append(tr(request, "err_mandatory_pair", pair=pp))
+        bots = sorted(set(bots) | set(chosen_bot.values()))
         if not bots:
             errors.append(tr(request, "err_bots"))
         capital = sum(pairs.values()) if sizing == "custom_amounts" else _num(f.get("capital"))
@@ -188,6 +279,14 @@ async def _save_account(request: Request, acc_id: int | None):
                 errors.append(tr(request, "err_passphrase"))
             if not f.get("no_withdraw"):
                 errors.append(tr(request, "err_no_withdraw"))
+        # exchange rules per pair (listed? order big enough at this leverage?) + the admin's minimums
+        if not errors:
+            errors += _rule_errors(request, gs, kind, exchange, mode, leverage, sizing, pairs, capital, mot,
+                                   chosen_bot, catalog)
+        # the API key itself: works, may trade futures, withdrawals off, enough money
+        if not errors and kind == "exchange":
+            errors += await _key_errors(request, gs, acc, exchange, mode, api_key, secret, password,
+                                        bool(f.get("sandbox")), bool(f.get("dry_run")), capital, sizing, pairs)
         if errors:
             for e in errors:
                 flash(request, e, "error")
@@ -204,15 +303,8 @@ async def _save_account(request: Request, acc_id: int | None):
         acc.margin_mode = "cross" if f.get("margin_mode") == "cross" else "isolated"
         acc.sizing_mode, acc.pairs, acc.capital, acc.max_open_trades = sizing, pairs, capital, mot
         # per pair: take signals only from one chosen bot (it is followed automatically)
-        pair_bot = {}
-        for p in pairs:
-            v = str(f.get(f"pbot__{p}", ""))
-            if v.isdigit() and int(v) in public_ids:
-                pair_bot[p] = int(v)
-                if int(v) not in bots:
-                    bots.append(int(v))
         acc.bots = sorted(bots)
-        acc.pair_bot = pair_bot or None
+        acc.pair_bot = dict(chosen_bot) or None
         acc.stoploss_pct, acc.daily_loss_limit_pct = sl, dll
         if kind == "exchange":
             acc.sandbox = bool(f.get("sandbox"))
@@ -395,3 +487,62 @@ async def telegram_link(request: Request):
         s.get(User, user.id).telegram_link_token = token
         s.commit()
     return RedirectResponse(f"https://t.me/{bot.username}?start={token}", 303)
+
+
+# ------------------------------------------------------------------ API key / pairs check (button in the form)
+_check_hits: dict[int, list[float]] = {}
+
+
+def check_texts(request: Request, items: list[dict]) -> list[dict]:
+    from .guides import server_ip
+    out = []
+    for i in items:
+        p = dict(i.get("params") or {})
+        hint = p.pop("hint", "")
+        text = tr(request, i["key"], ip=server_ip() or "—", **p)
+        if hint:
+            text += " — " + tr(request, hint, ip=server_ip() or "—")
+        out.append({"status": i["status"], "text": text})
+    return out
+
+
+@router.post("/accounts/check")
+async def account_check(request: Request):
+    """Read everything we need from the exchange with these keys and report it, before saving."""
+    import hmac
+    import time
+
+    from fastapi.responses import JSONResponse
+
+    from ..engine.account_check import check_keys, check_pairs
+    from ..engine.offers import offers_by_pair, pair_rules
+    user = require_user(request)
+    data = await request.json()
+    if not hmac.compare_digest(str(data.get("csrf", "")), request.session.get("csrf", "")):
+        raise HTTPException(400, "CSRF")
+    now = time.time()
+    hits = [t for t in _check_hits.get(user.id, []) if now - t < 600]
+    if len(hits) >= 20:
+        return JSONResponse({"ok": False, "items": [{"status": "error", "text": tr(request, "err_too_many")}]}, 429)
+    _check_hits[user.id] = hits + [now]
+    exchange, mode = str(data.get("exchange", "")), "spot" if data.get("trading_mode") == "spot" else "futures"
+    key, secret, pw = (str(data.get(k, "")).strip() for k in ("api_key", "secret", "password"))
+    with SessionLocal() as s:
+        gs = get_global(s)
+        if exchange not in (gs.allowed_exchanges or []):
+            raise HTTPException(400, "exchange")
+        acc_id = data.get("acc_id")
+        if str(acc_id or "").isdigit() and (not key or not secret):  # editing: use the stored keys
+            acc = _own(s, user, int(acc_id))
+            from ..security import decrypt
+            key, secret = key or decrypt(acc.api_key_enc) or "", secret or decrypt(acc.secret_enc) or ""
+            pw = pw or decrypt(acc.password_enc) or ""
+        cur = gs.stake_currency
+    if not key or not secret:
+        return JSONResponse({"ok": False, "items": [{"status": "error", "text": tr(request, "err_keys")}]})
+    res = await check_keys(exchange, mode, key, secret, pw, bool(data.get("sandbox")), cur)
+    sel = {str(p).upper(): v for p, v in (data.get("pairs") or {}).items() if isinstance(v, dict)}
+    rules = {p: pair_rules(o) for p, o in offers_by_pair().items()}
+    pair_items = check_pairs(exchange, mode, sel, rules)
+    return JSONResponse({"ok": res["ok"] and not pair_items, "keys_ok": res["ok"], "reachable": res["reachable"],
+                         "balance": res["balance"], "items": check_texts(request, res["items"] + pair_items)})

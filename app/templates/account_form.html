@@ -26,6 +26,9 @@
   <div id="pwbox"><label>Passphrase <span class="small muted">(OKX, Bitget, KuCoin)</span></label><input class="ltr" type="password" name="password" autocomplete="new-password"></div>
 </div>
 <label class="check"><input type="checkbox" name="no_withdraw" required> {{ _('f_no_withdraw') }}</label>
+<p><button type="button" class="ghost" id="ckbtn" data-acc="{{ acc.id if acc else '' }}">🔍 {{ _('ck_button') }}</button>
+<span class="small muted">{{ _('ck_button_help') }}</span></p>
+<div id="ckbox" class="ckbox" hidden></div>
 {% endif %}
 
 <h2 style="margin-top:22px">{{ _('sec_market') }}</h2>
@@ -39,6 +42,7 @@
     <option value="cross" {{ 'selected' if acc and acc.margin_mode=='cross' }}>Cross</option></select></div>{% endif %}
 </div>
 
+{% if not catalog %}
 <h2 style="margin-top:22px">{{ _('sec_bots') }}</h2>
 <p class="small muted">{{ _('bots_pick_intro') }}</p>
 {% for g, gbots in sections %}
@@ -55,6 +59,8 @@
 {% else %}<div class="flash warn">{{ _('no_bots') }}</div>{% endfor %}
 <p class="small"><a href="/compare" target="_blank">⚖️ {{ _('compare_title') }} →</a></p>
 
+{% endif %}
+
 <h2 style="margin-top:22px">{{ _('sec_basket') }}</h2>
 <p class="small muted">{{ _('basket_intro') }}</p>
 <div class="row">
@@ -67,6 +73,26 @@
     <input type="number" name="max_open_trades" id="mot" min="1" max="50" value="{{ acc.max_open_trades if acc and acc.max_open_trades else '' }}" placeholder="{{ gs.default_max_open_trades }}"></div>
 </div>
 <div class="pills" style="margin-top:12px"><span class="small muted">{{ _('stats_window') }}</span></div>
+{% if catalog %}
+<div class="table-wrap"><table class="pairs cat">
+<tr><th></th><th>{{ _('col_pair') }}</th><th>{{ _('pair_from_bot') }}</th><th>{{ _('perf_trades') }}</th><th>{{ _('perf_win_rate') }}</th><th>{{ _('perf_total_abs') }}</th><th>{{ _('perf_avg') }}</th>
+<th>{{ _('col_leverage') }}</th><th id="valhead">{{ _('col_weight') }}</th><th>{{ _('col_margin_trade') }}</th><th title="{{ _('pc_need_help') }}">{{ _('pc_need') }}</th><th>{{ _('col_position_value') }}</th></tr>
+{% for c in catalog %}{% set p = c.pair %}{% set sel = (acc and p in acc.pairs) or (not acc and (c.mandatory or c.default_bot)) or c.mandatory %}
+<tr class="catrow" data-p="{{ p }}" data-ex='{{ c.ex|tojson }}'>
+<td>{% if c.mandatory %}<input type="checkbox" class="pc" data-p="{{ p }}" checked disabled><input type="hidden" name="pair__{{ p }}" value="on">
+{% else %}<input type="checkbox" class="pc" name="pair__{{ p }}" data-p="{{ p }}" {{ 'checked' if sel }}>{% endif %}</td>
+<td class="mono">{{ p }}{% if c.mandatory %} <span class="badge warn" title="{{ _('pc_mandatory_user') }}">🔒</span>{% endif %}<div class="small neg exnote" data-p="{{ p }}"></div></td>
+<td>{% set cur = pair_bot.get(p) or c.default_bot %}<select class="pb" name="pbot__{{ p }}" data-p="{{ p }}" style="width:auto;padding:4px 6px">
+{% if c.bots|length > 1 and not cur %}<option value="">— {{ _('pick_bot') }} —</option>{% endif %}
+{% for b in c.bots %}<option value="{{ b.id }}" data-lev="{{ b.lev or '' }}" data-min="{{ b.min or '' }}" {{ 'selected' if b.id == cur }}>{{ b.name }}</option>{% endfor %}</select></td>
+<td class="s-trades" data-p="{{ p }}">-</td><td class="s-wr" data-p="{{ p }}">-</td><td class="s-total" data-p="{{ p }}">-</td><td class="s-dd" data-p="{{ p }}">-</td>
+<td class="plev" data-p="{{ p }}">-</td>
+<td><input type="number" class="pv" step="any" min="0" name="value__{{ p }}" data-p="{{ p }}" value="{{ acc.pairs[p] if acc and p in acc.pairs else '' }}" style="width:100px"></td>
+<td class="st" data-p="{{ p }}">-</td><td class="need" data-p="{{ p }}">-</td><td class="nt" data-p="{{ p }}">-</td></tr>{% endfor %}
+<tr><td></td><td><b>{{ _('total') }}</b></td><td colspan="7"></td><td id="tot_st"><b>-</b></td><td></td><td id="tot_nt"><b>-</b></td></tr>
+</table></div>
+<p class="small" id="balline"></p>
+{% else %}
 <div class="table-wrap"><table class="pairs">
 <tr><th><input type="checkbox" id="all" title="all"></th><th>{{ _('col_pair') }}</th><th>{{ _('perf_trades') }}</th><th>{{ _('perf_win_rate') }}</th><th>{{ _('perf_total_abs') }}</th><th>{{ _('perf_avg') }}</th>
 <th>{{ _('pair_from_bot') }}</th><th id="valhead">{{ _('col_weight') }}</th><th>{{ _('col_margin_trade') }}</th><th>{{ _('col_position_value') }}</th></tr>
@@ -79,6 +105,7 @@
 <td class="st" data-p="{{ p }}">-</td><td class="nt" data-p="{{ p }}">-</td></tr>{% endfor %}
 <tr><td></td><td><b>{{ _('total') }}</b></td><td colspan="6"></td><td id="tot_st"><b>-</b></td><td id="tot_nt"><b>-</b></td></tr>
 </table></div>
+{% endif %}
 
 <h2 style="margin-top:22px">{{ _('sec_risk') }}</h2>
 <div class="row">
@@ -96,6 +123,8 @@
 </form>
 <script>
 (function(){
+  const maxLev={{ gs.max_leverage }}, exName={{ EXCHANGES|tojson }}, notListed={{ _('ck_not_on_exchange')|tojson }},
+        balText={{ _('ck_bal_line')|tojson }}, ckWait={{ _('ck_wait')|tojson }}, ckAllOk={{ _('ck_all_ok')|tojson }}, ckFix={{ _('ck_fix')|tojson }};
   const ratio={{ gs.tradable_balance_ratio }}, defMot={{ gs.default_max_open_trades }}, maxStake={{ gs.max_stake_per_trade or 0 }},
         needPw={{ NEEDS_PASSWORD|list|tojson }}, stats={{ stats_json|safe }},
         help={equal_split:{{ _('mode_help_equal_split', pct=(gs.tradable_balance_ratio*100)|round|int)|tojson }},
@@ -127,15 +156,54 @@
     const sel=$$('.pc').filter(c=>c.checked).map(c=>c.dataset.p);
     const val=p=>Math.max(0,parseFloat(($(`.pv[data-p="${p}"]`)||{}).value)||0);
     const tw=sel.reduce((a,p)=>a+val(p),0), mot=parseInt($('#mot').value)||defMot;
-    let ts=0;
-    $$('.st').forEach(td=>{const p=td.dataset.p; let s=0, on=sel.includes(p);
+    let ts=0, tn=0;
+    const exn=($('#exchange')||{}).value||'';
+    const optOf=p=>{const sb=$(`.pb[data-p="${p}"]`); return sb&&sb.selectedOptions[0];};
+    const plev=p=>{ if(spot) return 1; const o=optOf(p), fixed=o?parseInt(o.dataset.lev):0; return Math.max(1,Math.min(fixed||lev,maxLev)); };
+    $$('.catrow').forEach(r=>{  // pairs the chosen exchange doesn't list
+      const p=r.dataset.p, ex=JSON.parse(r.dataset.ex||'{}'), known=exn in ex, listed=!known||ex[exn]!==null, cb=r.querySelector('.pc');
+      const note=r.querySelector('.exnote'); note.textContent=listed?'':notListed.replace('{ex}',exName[exn]||exn);
+      if(!cb.disabled){ if(!listed){ cb.checked=false; } cb.dataset.blocked=listed?'':'1'; }
+      r.style.opacity=listed?'':'.55';
+    });
+    $$('.st').forEach(td=>{const p=td.dataset.p, cb=$(`.pc[data-p="${p}"]`); let s=0, on=sel.includes(p) && !(cb&&cb.dataset.blocked);
       if(on){ if(mode==='custom_amounts') s=val(p); else if(mode==='pair_weights') s=tw?cap*ratio*val(p)/tw:0; else s=cap*ratio/mot; }
-      if(maxStake) s=Math.min(s,maxStake); if(on) ts+=s;
-      td.textContent=on?fmt(s):'-'; $(`.nt[data-p="${p}"]`).textContent=on?fmt(s*lev):'-';});
-    $('#tot_st').innerHTML='<b>'+fmt(mode==='equal_split'?cap*ratio:ts)+'</b>'; $('#tot_nt').innerHTML='<b>'+fmt((mode==='equal_split'?cap*ratio:ts)*lev)+'</b>';
+      if(maxStake) s=Math.min(s,maxStake); const L=plev(p); if(on){ ts+=s; tn+=s*L; }
+      td.textContent=on?fmt(s):'-'; $(`.nt[data-p="${p}"]`).textContent=on?fmt(s*L):'-';
+      const lc=$(`.plev[data-p="${p}"]`); if(lc){ const o=optOf(p); lc.textContent=L+'x'+(o&&o.dataset.lev&&!spot?' 🔒':''); }
+      const nc=$(`.need[data-p="${p}"]`);
+      if(nc){ const row=nc.closest('.catrow'), ex=JSON.parse(row.dataset.ex||'{}'), o=optOf(p);
+        const exMin=(ex[exn]||0)/L, adm=o?parseFloat(o.dataset.min)||0:0, need=Math.max(exMin,adm);
+        nc.textContent=need?fmt(need)+(on?(s+1e-9>=need?' ✔':' ✗'):''):'-'; nc.className='need '+(on&&need?(s+1e-9>=need?'pos':'neg'):''); }
+    });
+    if(!$('.catrow')) tn=(mode==='equal_split'?cap*ratio:ts)*lev;
+    $('#tot_st').innerHTML='<b>'+fmt(mode==='equal_split'?cap*ratio:ts)+'</b>'; $('#tot_nt').innerHTML='<b>'+fmt(tn)+'</b>';
+    const bl=$('#balline'); if(bl && window.ckBal){ const need=mode==='custom_amounts'?ts:cap, ok=need<=window.ckBal.total+1e-9;
+      bl.textContent=balText.replace('{need}',fmt(need)).replace('{have}',fmt(window.ckBal.total)).replace(/\{cur\}/g,window.ckBal.currency)+(ok?' ✔':' ✗');
+      bl.className='small '+(ok?'pos':'neg'); }
   }
   $$('.gsel').forEach(g=>g.addEventListener('change',e=>{$$(`.bc[data-g="${g.dataset.g}"]`).forEach(c=>c.checked=g.checked); upd();}));
-  $('#all').addEventListener('change',e=>{$$('.pc').forEach(c=>c.checked=e.target.checked); upd();});
+  if($('#all')) $('#all').addEventListener('change',e=>{$$('.pc').forEach(c=>c.checked=e.target.checked); upd();});
+  const ck=$('#ckbtn');
+  if(ck) ck.addEventListener('click',async()=>{
+    const box=$('#ckbox'), f=$('#f'), v=n=>((f.elements[n]||{}).value||'').trim();
+    const pairs={}; $$('.pc').forEach(c=>{ if(c.checked){ const p=c.dataset.p, o=($(`.pb[data-p="${p}"]`)||{}).value;
+      pairs[p]={margin:parseFloat((($(`.st[data-p="${p}"]`)||{}).textContent||'').replace(/,/g,''))||0,
+                leverage:parseInt((($(`.plev[data-p="${p}"]`)||{}).textContent||'').replace(/\D/g,''))||parseInt(v('leverage'))||1,
+                bot:o?parseInt(o):null}; }});
+    box.hidden=false; box.innerHTML='<p class="muted">⏳ '+ckWait+'</p>'; ck.disabled=true;
+    try{
+      const r=await fetch('/accounts/check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({csrf:v('csrf'),
+        acc_id:ck.dataset.acc||null, exchange:v('exchange'), trading_mode:v('trading_mode'), api_key:v('api_key'), secret:v('secret'),
+        password:v('password'), sandbox:(f.elements['sandbox']||{}).checked||false, pairs})});
+      const d=await r.json(); window.ckBal=d.balance||null;
+      const icon={ok:'✔',warn:'⚠️',error:'✗'}, esc=t=>String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+      box.innerHTML='<ul class="cklist">'+(d.items||[]).map(i=>`<li class="${i.status}">${icon[i.status]||''} ${esc(i.text)}</li>`).join('')+'</ul>'
+        +'<p><b>'+(d.ok?ckAllOk:ckFix)+'</b></p>';
+      box.className='ckbox '+(d.ok?'good':'bad');
+    }catch(e){ box.innerHTML='<p class="neg">'+e+'</p>'; }
+    ck.disabled=false; upd();
+  });
   $('#f').addEventListener('input',upd); $('#f').addEventListener('change',upd); upd();
 })();
 </script>

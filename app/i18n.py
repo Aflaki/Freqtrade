@@ -1146,9 +1146,12 @@ T: dict[str, tuple[str, str, str, str]] = {
 
 from .guides_text import G as _GUIDES  # noqa: E402  (long guide texts live in their own file)
 
-_dupes = set(T) & set(_GUIDES)
+from .catalog_text import C as _CATALOG  # noqa: E402
+
+_dupes = (set(T) & set(_GUIDES)) | (set(T) & set(_CATALOG)) | (set(_GUIDES) & set(_CATALOG))
 assert not _dupes, f"duplicate i18n keys: {_dupes}"
 T.update(_GUIDES)
+T.update(_CATALOG)
 
 
 def t(lang: str, key: str, **kw) -> str:

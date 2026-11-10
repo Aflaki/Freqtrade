@@ -166,6 +166,8 @@ async def admin_settings_save(request: Request):
             gs.default_stoploss_pct = sl if sl > 0 else None
             gs.allowed_exchanges = [e for e in EXCHANGES if f.get(f"ex__{e}")]
             pairs: list[str] = []
+            if "allowed_pairs" not in f:  # managed in the pair catalog now (old forms / API still work)
+                pairs = list(gs.allowed_pairs or [])
             for line in str(f.get("allowed_pairs", "")).replace(",", "\n").splitlines():
                 p = line.strip().upper()
                 if "/" not in p and p.endswith(gs.stake_currency):
@@ -173,6 +175,8 @@ async def admin_settings_save(request: Request):
                 if p.count("/") == 1 and p not in pairs:
                     pairs.append(p)
             gs.allowed_pairs = pairs
+            from ..engine.offers import sync_allowed_pairs
+            sync_allowed_pairs(s)
         elif section == "freqtrade":
             gs.relay_on = "order" if f.get("relay_on") == "order" else "fill"
             gs.signal_source = "generic" if f.get("signal_source") == "generic" else "freqtrade"

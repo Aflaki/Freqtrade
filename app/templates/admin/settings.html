@@ -44,7 +44,8 @@
 <label>{{ _('f_exchanges') }}</label>
 <div>{% for e, name in all_exchanges.items() %}<label class="check" style="display:inline-flex;margin-inline-end:16px"><input type="checkbox" name="ex__{{ e }}" {{ 'checked' if e in gs.allowed_exchanges }}> {{ name }}</label>{% endfor %}</div>
 <label>{{ _('f_pairs') }}</label>
-<textarea class="ltr" name="allowed_pairs" rows="8">{{ gs.allowed_pairs|join('\n') }}</textarea>
+<p class="api-help">🧩 {{ _('pc_moved') }} <a href="/admin/pairs">{{ _('adm_pairs') }} →</a>
+<span class="small muted">({{ gs.allowed_pairs|length }} {{ _('pc_pairs') }})</span></p>
 <p><button>{{ _('btn_save') }}</button></p></form>
 
 <form method="post" class="card" id="freqtrade"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="section" value="freqtrade">

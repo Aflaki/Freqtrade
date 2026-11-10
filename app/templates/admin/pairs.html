@@ -1,0 +1,127 @@
+{% extends "base.html" %}{% block title %}{{ _('adm_pairs') }} · {{ site.site_name }}{% endblock %}{% block content %}
+<h1>{{ _('nav_admin') }}</h1>{% include "admin/_nav.html" %}
+
+<div class="card"><h2>🧩 {{ _('pc_title') }}</h2>
+<p class="muted small">{{ _('pc_intro') }}</p>
+<div class="kpis" style="margin-top:10px">
+  <div class="kpi"><div class="k">{{ _('pc_pairs') }}</div><div class="v"><span class="num">{{ rows|length }}</span></div></div>
+  <div class="kpi"><div class="k">{{ _('pc_offered') }}</div><div class="v"><span class="num" id="n-offered">{{ n_offered }}</span></div></div>
+  <div class="kpi"><div class="k">{{ _('pc_bots') }}</div><div class="v"><span class="num">{{ bots|length }}</span></div></div>
+  <div class="kpi"><div class="k">{{ _('pc_market_data') }}</div><div class="small">
+  {% for e in exchanges %}{% set c = cache.get(e) or {} %}<div>{{ EXCHANGES.get(e, e) }}: {% if c.at %}<span class="num">{{ c.at[5:16].replace('T', ' ') }}</span> · {{ (c.pairs or {})|length }}{% else %}—{% endif %}{% if c.error %} <span class="badge err" title="{{ c.error }}">!</span>{% endif %}</div>{% endfor %}</div></div>
+</div>
+
+<div class="pc-tools">
+<div class="seg">{% for p in periods %}<a href="?days={{ p }}" class="{{ 'on' if p == period }}">{{ _('period_' ~ p) }}</a>{% endfor %}</div>
+<input type="search" id="pc-q" placeholder="{{ _('pc_search') }}" style="max-width:200px">
+<select id="pc-show" style="max-width:220px"><option value="all">{{ _('pc_show_all') }}</option><option value="on">{{ _('pc_show_on') }}</option>
+<option value="off">{{ _('pc_show_off') }}</option><option value="mand">{{ _('pc_show_mand') }}</option><option value="noex">{{ _('pc_show_noex') }}</option></select>
+</div>
+
+<form method="post" action="/admin/pairs/bulk" class="pc-bulk"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="days" value="{{ period }}">
+<button class="ghost sm" name="action" value="offer_all" onclick="return confirm('{{ _('pc_confirm_all') }}')">✔ {{ _('pc_offer_all') }}</button>
+<span class="inline-row" style="display:inline-flex"><select name="bot_id" style="max-width:160px">{% for b in bots %}<option value="{{ b.id }}">{{ b.name }}</option>{% endfor %}</select>
+<button class="ghost sm" name="action" value="offer_bot">✔ {{ _('pc_offer_bot') }}</button></span>
+<button class="ghost sm" name="action" value="best_default">★ {{ _('pc_best_default') }}</button>
+<button class="ghost sm" name="action" value="withdraw_all" onclick="return confirm('{{ _('pc_confirm_withdraw') }}')">✗ {{ _('pc_withdraw_all') }}</button>
+<button class="ghost sm" name="action" value="refresh_markets">⟳ {{ _('pc_refresh_markets') }}</button>
+</form>
+</div>
+
+<div id="pc-list" data-csrf="{{ csrf }}">
+{% for r in rows %}
+<details class="card pc-row" data-pair="{{ r.pair }}" data-offered="{{ r.offered }}" data-mand="{{ 1 if r.mandatory else 0 }}"
+ data-noex="{{ 1 if exchanges and not (r.ex.values()|select|list) else 0 }}">
+<summary>
+  <b class="mono pc-pair">{{ r.pair }}</b>
+  <span class="badge {{ 'ok' if r.offered else '' }} pc-count">{{ r.offered }}/{{ r.cells|length }} {{ _('pc_bots_short') }}</span>
+  {% if r.mandatory %}<span class="badge warn">{{ _('pc_mandatory') }}</span>{% endif %}
+  {% if r.legacy %}<span class="badge" title="{{ _('pc_legacy_help') }}">{{ _('pc_legacy') }}</span>{% endif %}
+  {% if r.best is not none %}<span class="small {{ 'pos' if r.best >= 0 else 'neg' }}">{{ _('pc_best') }} {{ r.best|signed }}</span>{% endif %}
+  <span class="pc-ex">{% for e in exchanges %}{% set x = r.ex[e] %}<span class="chip {{ 'pc-unk' if x and x.unknown else 'plain' if x else 'pc-no' }}" title="{{ EXCHANGES.get(e, e) }}">{{ EXCHANGES.get(e, e)[:3] }}
+  {% if x and x.unknown %}?{% elif x %}{% if x.min_order %}≥{{ '%g'|format(x.min_order) }}${% endif %}{% else %}✗{% endif %}</span>{% endfor %}</span>
+</summary>
+<div class="pc-body">
+{% if r.cells %}
+<label class="check"><input type="checkbox" data-pair="{{ r.pair }}" data-field="mandatory" {{ 'checked' if r.mandatory }} {{ 'disabled' if not r.offered }}>
+<span>{{ _('pc_f_mandatory') }}</span></label>
+<div class="table-wrap"><table class="small pc-table">
+<thead><tr><th>{{ _('pc_offer') }}</th><th title="{{ _('pc_default_help') }}">{{ _('pc_default') }}</th><th>{{ _('col_bot') }}</th>
+<th>{{ _('perf_trades') }}</th><th>{{ _('perf_win_rate') }}</th><th>{{ _('perf_avg') }}</th><th>{{ _('perf_total_abs') }}</th><th>{{ _('perf_max_dd') }}</th><th>{{ _('perf_avg_lev') }}</th>
+<th title="{{ _('pc_min_cap_help') }}">{{ _('pc_min_cap') }}</th><th title="{{ _('pc_lev_help') }}">{{ _('pc_lev') }}</th></tr></thead><tbody>
+{% for c in r.cells %}{% set o = c.o %}{% set st = c.st %}
+<tr class="{{ '' if c.live else 'pc-stale' }}">
+<td><input type="checkbox" data-pair="{{ r.pair }}" data-bot="{{ c.bot.id }}" data-field="enabled" {{ 'checked' if o and o.enabled }}></td>
+<td><input type="radio" name="def-{{ r.pair }}" data-pair="{{ r.pair }}" data-bot="{{ c.bot.id }}" data-field="is_default" {{ 'checked' if o and o.is_default }}></td>
+<td><b>{{ c.bot.name }}</b>{% if c.group %} <span class="muted">· {{ c.group }}</span>{% endif %}{% if not c.live %}<div class="muted">{{ _('pc_not_live') }}</div>{% endif %}</td>
+{% if st %}<td class="tnum">{{ st.trades }}</td><td class="tnum">{{ '%.0f'|format(st.win_rate) }}%</td>
+<td class="tnum {{ 'pos' if st.avg >= 0 else 'neg' }}">{{ '%+.2f'|format(st.avg) }}%</td>
+<td class="tnum {{ 'pos' if st.profit_abs >= 0 else 'neg' }}">{{ '%+.2f'|format(st.profit_abs) }}</td>
+<td class="tnum neg">{{ '%.1f'|format(st.max_dd_abs) }}</td><td class="tnum">{{ '%.1f'|format(st.avg_lev) }}x</td>
+{% else %}<td colspan="6" class="muted">{{ _('pc_no_trades') }}</td>{% endif %}
+<td><input class="ltr pc-num" type="number" min="0" step="any" data-pair="{{ r.pair }}" data-bot="{{ c.bot.id }}" data-field="min_capital" value="{{ o.min_capital if o and o.min_capital else '' }}" placeholder="—"></td>
+<td><input class="ltr pc-num" type="number" min="1" max="125" step="1" data-pair="{{ r.pair }}" data-bot="{{ c.bot.id }}" data-field="leverage" value="{{ o.leverage if o and o.leverage else '' }}" placeholder="—"></td>
+</tr>{% endfor %}</tbody></table></div>
+{% endif %}
+{% if exchanges %}<div class="pc-exinfo small">{% for e in exchanges %}{% set x = r.ex[e] %}
+<div><b>{{ EXCHANGES.get(e, e) }}</b>: {% if x and x.unknown %}<span class="muted">{{ _('pc_unknown') }}</span>{% elif x %}{% set i = x.i %}{{ _('pc_listed') }}{% if not i.active %} <span class="badge err">{{ _('pc_inactive') }}</span>{% endif %}
+· {{ _('pc_min_order') }} <span class="num">{{ ('%g'|format(x.min_order) ~ ' $') if x.min_order else '—' }}</span>
+{% if i.price %}· {{ _('pc_price') }} <span class="num">{{ i.price|price }}</span>{% endif %}
+{% if i.max_leverage %}· {{ _('pc_max_lev') }} <span class="num">{{ i.max_leverage|int }}x</span>{% endif %}
+{% if x.min_order %}· {{ _('pc_min_margin_at') }} {% for L in (3, 5, 10) %}<span class="num">{{ L }}x: {{ '%g'|format((x.min_order / L)|round(2)) }}$</span>{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
+{% else %}<span class="neg">{{ _('pc_not_listed') }}</span>{% endif %}</div>{% endfor %}</div>{% endif %}
+</div></details>
+{% else %}<div class="card muted">{{ _('pc_empty') }}</div>{% endfor %}
+</div>
+<p class="small muted">{{ _('pc_footer') }}</p>
+
+<script>
+(() => {
+  const list = document.getElementById('pc-list'), csrf = list.dataset.csrf;
+  const save = async (el, value) => {
+    const body = {csrf, pair: el.dataset.pair, bot_id: el.dataset.bot, field: el.dataset.field, value};
+    el.classList.remove('pc-ok', 'pc-err');
+    try {
+      const r = await fetch('/admin/pairs/set', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+      el.classList.add(r.ok ? 'pc-ok' : 'pc-err');
+      if (!r.ok) { alert(await r.text()); return false; }
+      return true;
+    } catch (e) { el.classList.add('pc-err'); return false; }
+  };
+  const recount = row => {
+    const on = row.querySelectorAll('input[data-field=enabled]:checked').length, total = row.querySelectorAll('input[data-field=enabled]').length;
+    row.dataset.offered = on;
+    const b = row.querySelector('.pc-count'); b.textContent = on + '/' + total + ' ' + b.textContent.split(' ').slice(1).join(' ');
+    b.classList.toggle('ok', on > 0);
+    const m = row.querySelector('input[data-field=mandatory]'); if (m) m.disabled = !on;
+    document.getElementById('n-offered').textContent = [...list.querySelectorAll('.pc-row')].filter(r => +r.dataset.offered > 0).length;
+  };
+  list.addEventListener('change', async e => {
+    const el = e.target; if (!el.dataset.field) return;
+    const row = el.closest('.pc-row');
+    if (el.dataset.field === 'enabled' || el.dataset.field === 'mandatory') {
+      if (await save(el, el.checked)) {
+        if (el.dataset.field === 'enabled' && !el.checked) {   // a withdrawn bot can't stay the default
+          const d = row.querySelector(`input[data-field=is_default][data-bot="${el.dataset.bot}"]`); if (d) d.checked = false;
+        }
+        if (el.dataset.field === 'mandatory') row.dataset.mand = el.checked ? 1 : 0;
+        recount(row);
+      } else el.checked = !el.checked;
+    } else if (el.dataset.field === 'is_default') {
+      if (await save(el, true)) { const en = row.querySelector(`input[data-field=enabled][data-bot="${el.dataset.bot}"]`); if (en) en.checked = true; recount(row); }
+    } else save(el, el.value);
+  });
+  const q = document.getElementById('pc-q'), show = document.getElementById('pc-show');
+  const filt = () => {
+    const s = q.value.trim().toUpperCase(), m = show.value;
+    list.querySelectorAll('.pc-row').forEach(r => {
+      const off = +r.dataset.offered > 0;
+      const ok = (!s || r.dataset.pair.includes(s)) && (m === 'all' || (m === 'on' && off) || (m === 'off' && !off)
+        || (m === 'mand' && r.dataset.mand === '1') || (m === 'noex' && r.dataset.noex === '1'));
+      r.hidden = !ok;
+    });
+  };
+  q.addEventListener('input', filt); show.addEventListener('change', filt);
+})();
+</script>
+{% endblock %}

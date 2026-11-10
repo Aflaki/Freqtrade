@@ -430,6 +430,22 @@ class WatchdogEvent(Base):
     created_at: Mapped[dt.datetime] = mapped_column(default=utcnow, index=True)
 
 
+class PairOffer(Base):
+    """A pair the admin offers to users from one bot (a pair may be offered from several bots; a user takes it from
+    exactly one). Pair-level flags (mandatory) count if set on any offer of the pair."""
+    __tablename__ = "pair_offers"
+    __table_args__ = (Index("uq_pair_offer", "pair", "bot_id", unique=True),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    pair: Mapped[str] = mapped_column(String(40), index=True)
+    bot_id: Mapped[int] = mapped_column(ForeignKey("bots.id", ondelete="CASCADE"), index=True)
+    enabled: Mapped[bool] = mapped_column(default=False)      # offered to users
+    is_default: Mapped[bool] = mapped_column(default=False)   # pre-selected for new portfolios (this bot)
+    mandatory: Mapped[bool] = mapped_column(default=False)    # every portfolio must include the pair
+    min_capital: Mapped[float | None] = mapped_column(Float, nullable=True)  # minimum margin for this pair
+    leverage: Mapped[int | None] = mapped_column(nullable=True)  # fixed leverage for this pair (None = portfolio's)
+    updated_at: Mapped[dt.datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+
 class BenchmarkPrice(Base):
     """Daily close of a market benchmark (BTC, ETH, top coins, TOTAL = whole crypto market cap)."""
     __tablename__ = "benchmark_prices"
@@ -510,6 +526,8 @@ class GlobalSettings(Base):
     watchdog_token: Mapped[str] = mapped_column(String(64), default="")
     ban_auto_pause: Mapped[bool] = mapped_column(default=True)  # Binance bans a server's IP -> /stop its bots, /start later
     ban_resume_gap: Mapped[int] = mapped_column(default=30)  # seconds between bots when starting them again
+    offers_migrated: Mapped[bool] = mapped_column(default=False)  # allowed_pairs -> pair_offers done once
+    market_cache: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)  # exchange rules per pair
     # user guides
     public_ip: Mapped[str] = mapped_column(String(64), default="")  # IP users whitelist in API keys ("" = from site address)
     guide_videos: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)  # guide key -> video URL
@@ -588,3 +606,5 @@ def init_db() -> None:
     with SessionLocal() as s:
         get_global(s)
     _migrate_multi_bot()
+    from .engine.offers import migrate_offers
+    migrate_offers()

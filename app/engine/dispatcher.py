@@ -36,14 +36,26 @@ def eligible_accounts(sig: Signal, pair: str, bot_id: int) -> list[int]:
             b = s.get(Bot, bot_id)
             if b is not None and not b.allows(pair):  # pair filtered out for this bot
                 return []
+            from .offers import bot_may_send, offers_by_pair
+            if not bot_may_send(s, pair, bot_id):  # the admin doesn't offer this pair from this bot
+                return []
+            offered = offers_by_pair().get(pair) or []
+            default_bot = next((o.bot_id for o in offered if o.is_default), None)
+            offered_ids = [o.bot_id for o in offered]
             rows = s.execute(select(ExchangeAccount, User).join(User, User.id == ExchangeAccount.user_id).where(
                 User.status == "active", User.trading_enabled.is_(True), ExchangeAccount.enabled.is_(True))).all()
             out = []
             for a, u in rows:
                 if not u.subscription_active or pair not in (a.pairs or {}) or bot_id not in (a.bots or []):
                     continue
-                if (a.pair_bot or {}).get(pair) not in (None, bot_id):  # user takes this pair from another bot
+                chosen = (a.pair_bot or {}).get(pair)
+                if chosen is not None and chosen != bot_id:  # user takes this pair from another bot
                     continue
+                if chosen is None and offered_ids:  # older portfolio without a choice: still only ONE bot per pair
+                    cands = [i for i in offered_ids if i in (a.bots or [])]
+                    pick = default_bot if default_bot in cands else (min(cands) if cands else None)
+                    if pick != bot_id:
+                        continue
                 if a.is_signal and not gs.signal_only_enabled:
                     continue
                 if not a.is_signal and a.exchange not in gs.allowed_exchanges:

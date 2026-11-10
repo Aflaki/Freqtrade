@@ -150,7 +150,7 @@ async def _open(s: Session, acc: ExchangeAccount, user: User, gs: GlobalSettings
         return Outcome(acc.id, "none", "zero stake")
 
     symbol = client.resolve(pair)
-    lev = leverage_for(gs, acc)
+    lev = leverage_for(gs, acc, pair)
     if not client.dry_run:
         free = await client.free_balance(gs.stake_currency)
         if free < stake:

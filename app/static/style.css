@@ -196,3 +196,17 @@ tr.srv-bad td{background:var(--err-bg)}
 .guide-video video{width:100%;border-radius:8px}
 .api-help{background:var(--brand-soft);border-radius:10px;padding:10px 12px;margin:10px 0;font-size:14px}
 .gtable td{white-space:normal;vertical-align:top}
+/* ---- pair catalog ---- */
+.pc-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0}
+.pc-bulk{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.pc-row{padding:0;margin-bottom:8px}.pc-row>summary{cursor:pointer;padding:10px 14px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
+.pc-row[open]>summary{border-bottom:1px solid var(--line)}.pc-body{padding:10px 14px}
+.pc-pair{font-size:15px;min-width:110px}.pc-ex{display:inline-flex;gap:4px;flex-wrap:wrap;margin-inline-start:auto}
+.pc-ex .chip{font-size:11px;padding:1px 7px;font-weight:600}.chip.pc-no{background:var(--err-bg);color:var(--err)}
+.pc-num{width:84px;padding:4px 6px}.pc-stale td{opacity:.6}
+input.pc-ok{outline:2px solid var(--ok)}input.pc-err{outline:2px solid var(--err)}
+.pc-exinfo{margin-top:8px;display:grid;gap:4px}
+.ckbox{border:1px solid var(--line);border-radius:10px;padding:8px 14px;margin:8px 0}.ckbox.good{border-color:var(--ok)}.ckbox.bad{border-color:var(--err)}
+.cklist{list-style:none;padding:0;margin:6px 0}.cklist li{padding:3px 0}.cklist li.ok{color:var(--ok)}.cklist li.warn{color:var(--warn)}.cklist li.error{color:var(--err)}
+.chip.pc-unk{background:var(--bg);color:var(--muted);border:1px dashed var(--line)}
+.exnote{font-family:inherit;direction:inherit}

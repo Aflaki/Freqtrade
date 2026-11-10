@@ -47,14 +47,25 @@ def pair_budget(gs: GlobalSettings, acc: ExchangeAccount, pair: str) -> float:
     return stake
 
 
-def leverage_for(gs: GlobalSettings, acc: ExchangeAccount) -> int:
-    return 1 if acc.is_spot else max(1, min(acc.leverage, gs.max_leverage))
+def leverage_for(gs: GlobalSettings, acc: ExchangeAccount, pair: str | None = None) -> int:
+    """The portfolio's leverage, or the admin's fixed leverage for this pair (offer of the bot the user chose)."""
+    if acc.is_spot:
+        return 1
+    lev = acc.leverage
+    if pair:
+        from .offers import forced_leverage
+        fixed = forced_leverage(pair, (acc.pair_bot or {}).get(pair))
+        if fixed:
+            lev = fixed
+    return max(1, min(lev, gs.max_leverage))
 
 
 def allocation_table(gs: GlobalSettings, acc: ExchangeAccount) -> list[dict]:
-    lev = leverage_for(gs, acc)
-    return [{"pair": p, "value": v, "stake": pair_budget(gs, acc, p), "notional": pair_budget(gs, acc, p) * lev}
-            for p, v in (acc.pairs or {}).items()]
+    out = []
+    for p, v in (acc.pairs or {}).items():
+        stake, lev = pair_budget(gs, acc, p), leverage_for(gs, acc, p)
+        out.append({"pair": p, "value": v, "stake": stake, "notional": stake * lev, "leverage": lev})
+    return out
 
 
 def stop_price(entry: float, side: str, stoploss_pct: float, leverage: float) -> float:
