@@ -19,7 +19,7 @@ h1{font-size:22px;margin:0 0 16px}h2{font-size:17px;margin:0 0 12px}h3{font-size
 .stat .k{color:var(--muted);font-size:13px}.stat .v{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums}
 .pos{color:var(--long)}.neg{color:var(--short)}.muted{color:var(--muted)}.small{font-size:13px}
 label{display:block;font-weight:600;margin:12px 0 4px}
-input[type=text],input[type=tel],input[type=email],input[type=password],input[type=number],input[type=date],select,textarea{width:100%;padding:9px 11px;
+input[type=text],input[type=search],input[type=url],input[type=tel],input[type=email],input[type=password],input[type=number],input[type=date],select,textarea{width:100%;padding:9px 11px;
 border:1px solid var(--line);border-radius:8px;background:var(--input);color:var(--text);font:inherit}
 input.ltr,textarea.ltr,.ltr{direction:ltr;text-align:left}
 .check{display:flex;gap:8px;align-items:flex-start;font-weight:400;margin:8px 0}.check input{margin-top:6px}
@@ -251,3 +251,10 @@ th.grid-sortable[data-dir]::after{content:" ▼";font-size:.75em;opacity:.8}th.g
 .grid-menu{position:absolute;z-index:30;inset-inline-start:0;top:calc(100% + 4px);min-width:200px;max-height:60vh;overflow:auto;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);background-image:none;box-shadow:0 8px 24px rgba(0,0,0,.25)}
 .grid-menu label.check{display:flex;margin:4px 0;font-size:13px;white-space:nowrap}
 tr.grid-frow td{padding:4px 6px}tr.grid-frow input{width:100%;min-width:60px;padding:4px 6px;font-size:12px}
+
+/* sections that open and close (collapse.js) */
+.cl-bar{display:flex;gap:6px;justify-content:flex-end;margin:0 0 8px}
+.cl-toggle{cursor:pointer;user-select:none}.cl-toggle::before{content:"▾ ";font-size:.8em;opacity:.7}
+.card.collapsed .cl-toggle::before{content:"▸ "}[dir=rtl] .card.collapsed .cl-toggle::before{content:"◂ "}
+.card.collapsed>:not(.cl-head){display:none}.card.collapsed{padding-bottom:12px}.card.collapsed .cl-head{margin-bottom:0}
+details.srv-bots-box{margin:10px 0}details.srv-bots-box>summary{cursor:pointer;font-weight:600;padding:6px 0;list-style-position:inside}

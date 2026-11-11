@@ -175,6 +175,14 @@ W_VIEW = 20    # live numbers of one portfolio on an open page: 5 every 15 s
 W_ENTRY_WS = 2  # with the account's WebSocket: balance, positions and price are pushed; order + leverage only
 
 
+def api_label(ccxt_id: str) -> str:
+    """What a person calls it: binanceusdm is ccxt's name for Binance USD-M futures (its own request limit)."""
+    from ..engine.exchange import EXCHANGES
+    names = {"binanceusdm": "Binance Futures (USDⓈ-M)", "binancecoinm": "Binance Futures (COIN-M)",
+             "binance": "Binance Spot", "kucoinfutures": "KuCoin Futures"}
+    return names.get(ccxt_id) or EXCHANGES.get(ccxt_id, ccxt_id)
+
+
 def api_model() -> dict:
     """What our own trading costs in requests per exchange, from the portfolios that exist now."""
     from ..db import ExchangeAccount, Trade
@@ -210,7 +218,8 @@ def api_model() -> dict:
         per_acc = W_ENTRY_WS * ws_share + W_ENTRY * (1 - ws_share)
         entry = round(top_n * per_acc)
         view_all = round(m["accounts"] * W_VIEW * (1 - ws_share))
-        out.append({**m, "limit": limit, "budget": int(budget), "top_pair": top_pair, "top_n": top_n,
+        base, _, ip = gid.partition("@")
+        out.append({**m, "label": api_label(base), "ip": ip, "limit": limit, "budget": int(budget), "top_pair": top_pair, "top_n": top_n,
                     "entry": entry, "entry_pct": round(entry / budget * 100) if budget else 0,
                     "exit": top_n * W_EXIT, "signals_min": int(budget // entry) if entry else None,
                     "view_all": view_all, "view_pct": round(view_all / (budget * SHARE["view"]) * 100) if budget else 0,

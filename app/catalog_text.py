@@ -382,4 +382,11 @@ C: dict[str, tuple[str, str, str, str]] = {
     "st_wallet": ("موجودی کیف پول", "Wallet balance", "Wallet-Guthaben", "Saldo de la cartera"),
     "st_equity": ("با سود/زیان باز", "With open P/L", "Mit offenem G/V", "Con P/G abierto"),
     "st_free": ("مارجین آزاد", "Free margin", "Freie Margin", "Margen libre"),
+    # ---------------------------------------------------------------- collapsible sections
+    "cl_collapse_all": ("بستن همه", "Collapse all", "Alle zuklappen", "Contraer todo"),
+    "cl_expand_all": ("باز کردن همه", "Expand all", "Alle aufklappen", "Expandir todo"),
+    "srv_bots_list": ("ربات‌های این سرور", "Bots on this server", "Bots auf diesem Server", "Bots de este servidor"),
+    "srv_bots_bad": ("{n} مشکل", "{n} with a problem", "{n} mit Problem", "{n} con problema"),
+    "srv_bots_all_ok": ("همه سالم", "all fine", "alle in Ordnung", "todos bien"),
+    "api_gid_help": ("نام فنی همین بخش در کتابخانه ccxt. فیوچرز و اسپات بایننس سقف درخواست جدا دارند.", "The technical name of this part in the ccxt library. Binance futures and spot have separate request limits.", "Technischer Name in der ccxt-Bibliothek. Binance Futures und Spot haben getrennte Limits.", "Nombre técnico en la librería ccxt. Futuros y spot de Binance tienen límites separados."),
 }

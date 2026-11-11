@@ -12,7 +12,7 @@
 <meta name="theme-color" content="#7c5cff">
 <meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="{{ site.site_name }}">
-<link rel="stylesheet" href="/static/style.css?v=28">
+<link rel="stylesheet" href="/static/style.css?v=30">
 <link rel="stylesheet" href="/static/themes.css?v=7">
 </head>
 <body>{{ sprite() }}
@@ -107,4 +107,5 @@ document.querySelectorAll('tr.rowlink').forEach(r => r.addEventListener('click',
 </script>
 <script id="grid-i18n" type="application/json">{{ {'filter': _('grid_filter'), 'cfilters': _('grid_col_filters'), 'columns': _('grid_columns'), 'show_all': _('grid_show_all'), 'rows': _('grid_rows'), 'filter_help': _('grid_filter_help')}|tojson }}</script>
 <script src="/static/grid.js?v=1" defer></script>
+<script src="/static/collapse.js?v=1" defer></script>
 </body></html>

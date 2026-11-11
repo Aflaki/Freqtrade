@@ -46,6 +46,7 @@
 </tbody></table></div>
 {% endmacro %}
 
+<div class="collapsibles" data-ck="servers" data-collapse-all="{{ _('cl_collapse_all') }}" data-expand-all="{{ _('cl_expand_all') }}">
 {# ---------------- overview ---------------- #}
 <div class="kpis">
   <div class="kpi"><div class="k">{{ _('srv_servers') }}</div><div class="v {{ 'neg' if kpi.online < kpi.servers }}"><span class="num">{{ kpi.online }}/{{ kpi.servers }}</span></div><div class="sub">{{ _('wd_online') }}</div></div>
@@ -60,7 +61,7 @@
 {% set A = api %}<div class="card" id="api"><h2>📡 {{ _('api_title') }}</h2>
 <p class="small muted">{{ _('api_intro') }}</p>
 {% for r in A.rows %}{% set L = r.live or {} %}
-<h3 class="mono" style="margin:14px 0 6px">{{ r.gid }}</h3>
+<h3 style="margin:14px 0 6px">{{ r.label }}{% if r.ip %} <span class="badge mono">IP {{ r.ip }}</span>{% endif %} <span class="small muted mono" title="{{ _('api_gid_help') }}">{{ r.gid.split('@')[0] }}</span></h3>
 <div class="grid">
 <div class="stat"><div class="k">{{ _('api_used') }}</div><div class="v"><span class="api-used" data-gid="{{ r.gid }}">{{ L.get('used', 0) }}</span> <span class="small muted">/ {{ r.budget }}</span></div>
   <div class="mw-bar"><i class="api-bar" data-gid="{{ r.gid }}" data-budget="{{ r.budget }}" style="inset-inline-start:calc({{ [100, (L.get('used', 0) / r.budget * 100) if r.budget else 0]|min }}% - 5px)"></i></div>
@@ -123,7 +124,7 @@
 
 {# ---------------- one card per server ---------------- #}
 {% for sv in servers %}
-<div class="card srv {{ 'srv-off' if not sv.online }}" id="host-{{ sv.h.hostname }}">
+<div class="card srv cl-skip {{ 'srv-off' if not sv.online }}" id="host-{{ sv.h.hostname }}">
 <div class="srv-head"><h2>🖥 {{ sv.h.alias or sv.h.hostname }}{% if sv.h.alias %} <span class="muted small mono">{{ sv.h.hostname }}</span>{% endif %}
 {% if sv.online %}<span class="badge ok">{{ _('wd_online') }}</span>{% else %}<span class="badge err">{{ _('wd_offline') }} · {{ sv.h.last_seen|lt('%H:%M') if sv.h.last_seen }}</span>{% endif %}
 {% if sv.ban.active %}<span class="badge err">🚫 {{ _('ban_paused_until', until=sv.ban.until|lt('%H:%M') ~ ' ' ~ tz_label, n=(sv.ban.bots or [])|length) }}</span>{% endif %}</h2>
@@ -142,8 +143,14 @@
 
 <form method="post" action="/admin/servers/alias" class="inline-row srv-alias"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="host" value="{{ sv.h.hostname }}">
 <input type="text" name="alias" value="{{ sv.h.alias }}" maxlength="80" placeholder="{{ _('srv_alias_ph') }}"><button class="ghost sm">✎ {{ _('srv_alias') }}</button></form>
+{% set bad = sv.rows|rejectattr('health', 'in', ['ok', 'paused', 'stopped'])|list %}
+<details class="srv-bots-box" data-remember="bots-{{ sv.h.hostname }}" open>
+<summary>🤖 {{ _('srv_bots_list') }} <span class="badge">{{ sv.rows|length }}</span>
+{% if bad %}<span class="badge err">{{ _('srv_bots_bad', n=bad|length) }}</span>{% else %}<span class="badge ok">{{ _('srv_bots_all_ok') }}</span>{% endif %}
+{% set dups = sv.rows|selectattr('agent.dups')|list %}{% if dups %}<span class="badge err">🚨 {{ _('wd_ev_duplicate') }}</span>{% endif %}</summary>
 {{ bot_table(sv.rows) }}
 {% if sv.unknown %}<p class="small muted">{{ _('srv_unknown') }} {% for u in sv.unknown %}<span class="badge">{{ u.key }}{% if u.session %} ({{ u.session }}){% endif %}</span> {% endfor %}</p>{% endif %}
+</details>
 
 <form method="post" action="/admin/servers/action" class="srv-host-actions"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="host" value="{{ sv.h.hostname }}">
 <button class="ghost sm" name="action" value="stop_all" onclick="return confirm('{{ _('srv_confirm_stop_all', host=sv.h.alias or sv.h.hostname) }}')">⏸ {{ _('srv_stop_all') }}</button>
@@ -169,6 +176,7 @@
 <td class="muted" style="white-space:pre-wrap;max-width:460px">{{ _('srv_oom_short') if e.detail == 'oom' else e.detail[:240] }}</td>
 {% else %}<td colspan="3" style="white-space:pre-wrap">{{ e.text|striptags|truncate(220) }}</td><td></td>{% endif %}</tr>{% endfor %}
 </tbody></table></div>{% else %}<p class="muted">{{ _('srv_quiet') }}</p>{% endif %}</div>
+</div>
 <p class="small muted">{{ _('srv_refresh') }}</p>
 <script>setTimeout(function r() { if (document.visibilityState === 'visible' && !document.querySelector('input:focus,textarea:focus')) location.reload(); else setTimeout(r, 30000); }, 30000);</script>
 {% endblock %}
