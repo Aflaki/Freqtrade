@@ -232,13 +232,38 @@ def min_margin(i: dict | None, leverage: int | float) -> float | None:
     return round(need / max(1.0, float(leverage or 1)), 4) if need else None
 
 
+def missing(cache: dict | None = None) -> list[str]:
+    """Allowed exchanges with no market data yet (just allowed by the admin, or the last load failed)."""
+    with SessionLocal() as s:
+        gs = get_global(s)
+        names = list(gs.allowed_exchanges or [])
+        cache = cache if cache is not None else dict(gs.market_cache or {})
+    return [n for n in names if not ((cache.get(n) or {}).get("spot") or (cache.get(n) or {}).get("pairs"))]
+
+
+MISSING_RETRY_S = 600  # a newly allowed exchange is loaded within a minute; a failing one is retried every 10 min
+_tried: dict[str, float] = {}
+
+
 async def loop() -> None:
+    import time
     await asyncio.sleep(30)  # let the app start first
+    last_full = 0.0
     while True:
         try:
-            await refresh()
+            now = time.monotonic()
+            if now - last_full >= REFRESH_HOURS * 3600:
+                last_full = now
+                await refresh()
+            else:
+                todo = [n for n in missing() if now - _tried.get(n, -1e9) >= MISSING_RETRY_S]
+                if todo:
+                    for n in todo:
+                        _tried[n] = now
+                    log.info("loading market data for %s", ", ".join(todo))
+                    await refresh(todo)
         except asyncio.CancelledError:
             raise
         except Exception:
             log.exception("market refresh failed")
-        await asyncio.sleep(REFRESH_HOURS * 3600)
+        await asyncio.sleep(60)

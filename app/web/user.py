@@ -265,7 +265,7 @@ def _catalog_ctx(gs, bots) -> dict:
     from ..engine.exchange import QUOTES, SPOT_ONLY
     quotes = {e: markets.quotes_on(e, cache) for e in gs.allowed_exchanges or []}
     rates = {q: markets.usd_rate(q, cache) for q in QUOTES}
-    return {"catalog": catalog, "spot_quotes": quotes, "usd_rates": rates, "spot_only": sorted(SPOT_ONLY),
+    return {"catalog": catalog, "spot_quotes": quotes, "all_quotes": list(QUOTES), "usd_rates": rates, "spot_only": sorted(SPOT_ONLY),
             "shallow": markets.SHALLOW_VOLUME}
 
 

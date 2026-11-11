@@ -40,7 +40,8 @@
     <div class="small muted" id="spotonly" hidden>{{ _('q_spot_only') }}</div></div>
   {% if not is_signal %}<div class="spotq"><label>{{ _('f_quote') }}</label>
     <select name="quote" id="quote" data-v="{{ (v.quote if v and v.quote else gs.stake_currency) }}"></select>
-    <div class="small muted">{{ _('f_quote_help', cur=gs.stake_currency) }}</div></div>{% endif %}
+    <div class="small muted">{{ _('f_quote_help', cur=gs.stake_currency) }}</div>
+    <div class="small" id="qloading" style="display:none;color:var(--warn,#b7791f)">⏳ {{ _('q_loading') }}</div></div>{% endif %}
   {% if catalog %}<input type="hidden" name="leverage" id="lev" value="1"><input type="hidden" name="margin_mode" value="isolated">
   <div class="fut"><label>{{ _('col_leverage') }}</label><p class="small muted" style="margin:6px 0">🔒 {{ _('lev_by_admin', max=gs.max_leverage) }}</p></div>
   {% else %}
@@ -160,11 +161,12 @@
 <script>
 (function(){
   const spotQuotes={{ (spot_quotes or {})|tojson }}, usdRates={{ (usd_rates or {})|tojson }}, spotOnly={{ (spot_only or [])|tojson }},
-        stakeCur={{ gs.stake_currency|tojson }}, shallowVol={{ shallow or 0 }}, notInQuote={{ _('q_not_in_quote')|tojson }},
+        stakeCur={{ gs.stake_currency|tojson }}, allQuotes={{ (all_quotes or [gs.stake_currency])|tojson }}, shallowVol={{ shallow or 0 }}, notInQuote={{ _('q_not_in_quote')|tojson }},
         thin={{ _('q_thin')|tojson }};
   const qsel=document.getElementById('quote');
   function fillQuotes(){  // the quote coins this exchange has spot markets in
-    if(!qsel) return; const exn=(document.getElementById('exchange')||{}).value||'', list=spotQuotes[exn]&&spotQuotes[exn].length?spotQuotes[exn]:[stakeCur];
+    if(!qsel) return; const exn=(document.getElementById('exchange')||{}).value||'', known=spotQuotes[exn]&&spotQuotes[exn].length, list=known?spotQuotes[exn]:allQuotes;
+    const ql=document.getElementById('qloading'); if(ql) ql.style.display=(known||!exn)?'none':'';
     const want=qsel.value||qsel.dataset.v||stakeCur; qsel.innerHTML='';
     list.forEach(q=>{ const o=document.createElement('option'); o.value=q; o.textContent=q; if(q===want) o.selected=true; qsel.appendChild(o); });
   }
