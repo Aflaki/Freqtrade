@@ -21,9 +21,7 @@ def _client(exchange: str, mode: str, api_key: str, secret: str, password: str =
     if klass is None:
         raise ValueError(f"exchange '{exchange}' is not supported")
     params: dict[str, Any] = {"enableRateLimit": True, "timeout": 15000, "options": {"defaultType": default_type},
-                              "apiKey": api_key, "secret": secret}
-    if password:
-        params["password"] = password
+                              **exmod.credentials(exchange, api_key, secret, password)}
     params["options"]["fetchCurrencies"] = False
     ex = klass(params)
     if sandbox:
@@ -114,16 +112,28 @@ async def _check_keys(exchange, mode, api_key, secret, password, sandbox, curren
             pass
 
 
-def check_pairs(exchange: str, mode: str, selection: dict[str, dict], offers: dict[str, dict] | None = None) -> list[dict]:
+def check_pairs(exchange: str, mode: str, selection: dict[str, dict], offers: dict[str, dict] | None = None,
+                quote: str = "", stake: str = "USDT") -> list[dict]:
     """selection: {pair: {"margin": per-trade margin, "leverage": L, "bot": id}}; offers: {pair: rules from offers}.
-    Returns problems per pair: not listed / inactive / below the exchange minimum / below the admin minimum."""
+    Spot: the pair is traded in `quote` (BTC/USDT -> BTC/EUR); margins are in it, the admin's minimums (in `stake`)
+    are converted. Returns problems per pair: not listed / inactive / below the exchange or the admin minimum."""
     out = []
+    spot_q = (quote or stake).upper() if mode == "spot" else ""
+    cache = markets.all_info()
     for pair, sel in selection.items():
-        info = markets.info(pair, exchange) if exchange else None
-        cache_known = bool(((markets.all_info().get(exchange) or {}).get("pairs"))) if exchange else False
-        if exchange and cache_known and info is None:
-            out.append(_item(ERROR, "ck_pair_not_listed", pair=pair))
-            continue
+        if spot_q:
+            info = markets.spot_info(pair, spot_q, exchange) if exchange else None
+            cache_known = bool((cache.get(exchange) or {}).get("spot")) if exchange else False
+            if exchange and cache_known and info is None:
+                out.append(_item(ERROR, "ck_pair_not_in_quote", pair=pair, base=pair.split("/")[0], quote=spot_q,
+                                 ex=exmod.EXCHANGES.get(exchange, exchange)))
+                continue
+        else:
+            info = markets.info(pair, exchange) if exchange else None
+            cache_known = bool(((cache.get(exchange) or {}).get("pairs"))) if exchange else False
+            if exchange and cache_known and info is None:
+                out.append(_item(ERROR, "ck_pair_not_listed", pair=pair))
+                continue
         if info and not info.get("active", True):
             out.append(_item(ERROR, "ck_pair_inactive", pair=pair))
             continue
@@ -134,6 +144,8 @@ def check_pairs(exchange: str, mode: str, selection: dict[str, dict], offers: di
             out.append(_item(ERROR, "ck_pair_below_exchange", pair=pair, need=f"{need:,.2f}", have=f"{margin:,.2f}", lev=lev))
         rules = (offers or {}).get(pair) or {}
         admin_min = (rules.get("min_capital") or {}).get(sel.get("bot"))
+        if admin_min and spot_q:
+            admin_min = markets.convert(admin_min, stake, spot_q, cache) or admin_min
         if admin_min and margin and margin < admin_min:
             out.append(_item(ERROR, "ck_pair_below_admin", pair=pair, need=f"{admin_min:,.2f}", have=f"{margin:,.2f}"))
     return out

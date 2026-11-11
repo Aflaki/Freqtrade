@@ -149,6 +149,9 @@ class ExchangeAccount(Base):
     # sha256 of exchange + API key: one key may be used by one portfolio only (the stored key itself is encrypted)
     api_key_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     out_ip: Mapped[str] = mapped_column(String(64), default="")  # outgoing IP of this portfolio (netips.py)
+    # spot: the coin this portfolio trades against (USDT, USDC, EUR, ...): the bots' BTC/USDT becomes BTC/<quote>
+    # here, and capital, balance, minimums and results are in it. "" = the site's stake currency (futures: always)
+    quote: Mapped[str] = mapped_column(String(10), default="")
     sandbox: Mapped[bool] = mapped_column(default=False)
     dry_run: Mapped[bool] = mapped_column(default=True)
     enabled: Mapped[bool] = mapped_column(default=True)
@@ -183,6 +186,10 @@ class ExchangeAccount(Base):
     updated_at: Mapped[dt.datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 
     user: Mapped[User] = relationship(back_populates="accounts")
+
+    def currency(self, default: str = "USDT") -> str:
+        """The coin this portfolio's money is in."""
+        return (self.quote or default).upper() if self.is_spot else default
 
     @property
     def undecided_positions(self) -> list[dict]:
@@ -233,6 +240,12 @@ class Trade(Base):
 
     account: Mapped[ExchangeAccount] = relationship()
     orders: Mapped[list[Order]] = relationship(back_populates="trade", cascade="all, delete-orphan")
+
+    @property
+    def currency(self) -> str:
+        """The quote coin of the market traded (BTC/EUR -> EUR, BTC/USDT:USDT -> USDT)."""
+        q = (self.symbol or self.pair or "/USDT").split("/")[-1]
+        return q.split(":")[0].upper()
 
     @property
     def exit_price(self) -> float | None:

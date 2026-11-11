@@ -7,7 +7,7 @@
   <h2>{{ a.label or (EXCHANGES.get(a.exchange, a.exchange) if not a.is_signal else _('plan_signal_title')) }}
     {% if a.is_signal %}<span class="badge brand">{{ _('badge_signal') }}</span>{% else %}<span class="badge">{{ exch(a.exchange, 14) }}{{ EXCHANGES.get(a.exchange, a.exchange) }}</span>{% endif %}
     {% set levs = r.alloc|map(attribute='leverage')|unique|sort|list %}
-    <span class="badge">{% if a.is_spot %}{{ _('mkt_spot') }}{% else %}{{ _('mkt_futures') }} {{ (levs[0] ~ 'x') if levs|length == 1 else (levs[0] ~ '–' ~ levs[-1] ~ 'x') if levs else (a.leverage ~ 'x') }}{% endif %}</span>
+    <span class="badge">{% if a.is_spot %}{{ _('mkt_spot') }} · {{ a.currency(gs.stake_currency) }}{% else %}{{ _('mkt_futures') }} {{ (levs[0] ~ 'x') if levs|length == 1 else (levs[0] ~ '–' ~ levs[-1] ~ 'x') if levs else (a.leverage ~ 'x') }}{% endif %}</span>
     <span class="badge">{{ _('mode_' ~ r.mode) }}{% if r.mode == 'wallet_pct' and a.wallet_pct %} · {{ '%g'|format(a.wallet_pct) }}%{% endif %}</span>
     {% if a.dry_run and not a.is_signal %}<span class="badge warn">{{ _('badge_paper') }}</span>{% endif %}
     {% if not a.enabled %}<span class="badge err">{{ _('badge_disabled') }}</span>{% endif %}
@@ -31,7 +31,7 @@
   <div class="table-wrap"><table class="small">
     <tr><th>{{ _('col_pair') }}</th>{% if r.mode == 'pair_weights' %}<th>{{ _('col_weight') }}</th>{% endif %}<th>{{ _('col_margin_trade') }}</th><th>{{ _('col_position_value') }}</th></tr>
     {% for p in r.alloc %}<tr><td class="mono">{{ coin(p.pair) }}{{ p.pair }}</td>{% if r.mode == 'pair_weights' %}<td>{{ p.value }}</td>{% endif %}
-    <td>{{ p.stake|money }} {{ gs.stake_currency }}</td><td>{{ p.notional|money }} {{ gs.stake_currency }}</td></tr>{% endfor %}
+    <td>{{ p.stake|money }} {{ a.currency(gs.stake_currency) }}</td><td>{{ p.notional|money }} {{ a.currency(gs.stake_currency) }}</td></tr>{% endfor %}
   </table></div>
   <p>
     {% if not a.is_signal %}<form class="inline" method="post" action="/accounts/{{ a.id }}/test"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="sm">{{ _('btn_test') }}</button></form>{% endif %}

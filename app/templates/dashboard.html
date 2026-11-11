@@ -17,10 +17,10 @@
 {# ------------------------------------------------------------------ the whole account, always #}
 <div class="grid">
   {% if bals or accounts|selectattr('kind', 'equalto', 'exchange')|rejectattr('dry_run')|list %}<div class="card stat" id="wallet-card"><div class="k">{{ _('st_wallet') }}</div>
-    <div class="v"><span id="wallet-total">{{ wallet_total|money if bals else '…' }}</span> <span class="small muted">{{ gs.stake_currency }}</span></div>
+    <div class="v"><span id="wallet-total">{{ wallet_total|money if bals else '…' }}</span> <span class="small muted">{{ '≈ ' if approx }}{{ disp_cur }}</span></div>
     <div class="small muted">{{ _('st_equity') }}: <span id="equity-total">{{ equity_total|money if bals else '…' }}</span></div></div>{% endif %}
-  <div class="card stat"><div class="k">{{ _('st_capital') }}</div><div class="v">{{ total_capital|money }} <span class="small muted">{{ gs.stake_currency }}</span></div></div>
-  <div class="card stat"><div class="k">{{ _('st_realized') }}</div><div class="v {{ 'pos' if pnl >= 0 else 'neg' }}">{{ pnl|signed }}</div></div>
+  <div class="card stat"><div class="k">{{ _('st_capital') }}</div><div class="v">{{ total_capital|money }} <span class="small muted">{{ '≈ ' if approx }}{{ disp_cur }}</span></div></div>
+  <div class="card stat"><div class="k">{{ _('st_realized') }}</div><div class="v {{ 'pos' if pnl >= 0 else 'neg' }}">{{ pnl|signed }} <span class="small muted">{{ '≈ ' if approx }}{{ disp_cur }}</span></div></div>
   <div class="card stat"><div class="k">{{ _('st_open') }}</div><div class="v">{{ all_open }}</div></div>
   {% if all_open %}<div class="card stat" id="upnl-card"><div class="k">{{ _('col_upnl') }}</div>
     <div class="v {{ 'pos' if live_upnl >= 0 else 'neg' }}" id="upnl-total">{{ live_upnl|signed if live else '…' }}</div>
@@ -48,7 +48,7 @@
 <td class="tnum" data-k="entry">{{ t.entry_price|price }}</td>
 <td class="tnum" data-k="mark">{{ L.get('mark')|price if L.get('mark') else '…' }}</td>
 <td class="tnum {{ ('pos' if L.get('upnl') >= 0 else 'neg') if L.get('upnl') is not none else '' }}" data-k="upnl">{% if L.get('upnl') is not none %}{{ L.get('upnl')|signed }}{% if L.get('pct') is not none %} <span class="small">({{ '%+.2f'|format(L.get('pct')) }}%)</span>{% endif %}{% elif L.get('missing') %}<span class="badge err" title="{{ _('not_on_exchange_help') }}">{{ _('not_on_exchange') }}</span>{% else %}—{% endif %}</td>
-<td class="tnum">{{ (t.amount * t.contract_size)|price }}</td><td class="tnum">{{ t.stake|money }}</td><td>{{ t.leverage|int }}x</td>
+<td class="tnum">{{ (t.amount * t.contract_size)|price }}</td><td class="tnum">{{ t.stake|money }} <span class="small muted">{{ t.currency }}</span></td><td>{{ t.leverage|int }}x</td>
 <td class="tnum" data-k="liq">{{ L.get('liq')|price if L.get('liq') else '—' }}</td><td class="tnum">{{ t.sl_price|price }}</td>
 <td class="small muted">{{ t.opened_at|lt('%Y-%m-%d %H:%M') }}</td>
 <td><form class="inline" method="post" action="/trades/{{ t.id }}/close" onsubmit="return confirm({{ _('confirm_close')|tojson }})"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger sm">{{ _('btn_close') }}</button></form></td></tr>{% endfor %}
@@ -64,7 +64,7 @@
     let d;
     try{ const r=await fetch('/trades/live',{headers:{'Accept':'application/json'}}); if(!r.ok) return; d=await r.json(); }catch(e){ return; }
     let tot=0, w=0, l=0;
-    Object.values(d).forEach(L=>{ if(L.upnl!=null){ tot+=L.upnl; if(L.upnl>0) w++; else if(L.upnl<0) l++; } });
+    Object.values(d).forEach(L=>{ if(L.upnl!=null){ tot+=(L.upnl_d!=null?L.upnl_d:L.upnl); if(L.upnl>0) w++; else if(L.upnl<0) l++; } });
     document.querySelectorAll('#openpos tr[data-id]').forEach(tr=>{ const L=d[tr.dataset.id]; if(!L) return;
       const c=k=>tr.querySelector(`[data-k="${k}"]`);
       if(L.entry) c('entry').textContent=px(L.entry);
@@ -81,7 +81,7 @@
     let d;
     try{ const r=await fetch('/accounts/balances',{headers:{'Accept':'application/json'}}); if(!r.ok) return; d=await r.json(); }catch(e){ return; }
     let w=0, eq=0;
-    Object.entries(d).forEach(([id,B])=>{ w+=B.wallet||0; eq+=(B.equity!=null?B.equity:(B.wallet||0));
+    Object.entries(d).forEach(([id,B])=>{ w+=(B.wallet_d!=null?B.wallet_d:B.wallet)||0; eq+=(B.equity_d!=null?B.equity_d:(B.equity!=null?B.equity:(B.wallet||0)));
       ['wallet','equity','free'].forEach(k=>{ const c=document.querySelector(`[data-bal="${id}"][data-k="${k}"]`); if(c) c.textContent=B[k]!=null?fmt(B[k],2):'—'; }); });
     const wt=document.getElementById('wallet-total'), et=document.getElementById('equity-total');
     if(wt) wt.textContent=fmt(w,2); if(et) et.textContent=fmt(eq,2);
@@ -174,7 +174,7 @@
 {% set B = bals.get(a.id) %}<td class="tnum" data-bal="{{ a.id }}" data-k="wallet">{{ B.wallet|money if B and B.wallet is not none else '—' }}</td>
 <td class="tnum" data-bal="{{ a.id }}" data-k="equity">{{ B.equity|money if B and B.equity is not none else '—' }}</td>
 <td class="tnum" data-bal="{{ a.id }}" data-k="free">{{ B.free|money if B and B.free is not none else '—' }}</td>
-<td data-v="{{ acc_capital.get(a.id, 0) }}">{{ acc_capital.get(a.id, 0)|money }}</td><td>{{ acc_open.get(a.id, 0) }}</td>
+<td data-v="{{ acc_capital.get(a.id, 0) }}">{{ acc_capital.get(a.id, 0)|money }} <span class="small muted">{{ cur_of.get(a.id) }}</span></td><td>{{ acc_open.get(a.id, 0) }}</td>
 <td>{{ c.trades or 0 }}</td><td data-v="{{ c.win_rate or 0 }}"><span class="num">{{ '%.0f'|format(c.win_rate or 0) }}%</span></td>
 <td data-v="{{ c.profit_abs or 0 }}" class="{{ 'pos' if (c.profit_abs or 0) >= 0 else 'neg' }}">{{ (c.profit_abs or 0)|signed }}</td>
 <td data-v="{{ c.return_pct if c.return_pct is not none else -1e9 }}">{% if c.return_pct is not none %}<span class="{{ 'pos' if c.return_pct >= 0 else 'neg' }}">{{ c.return_pct|pct(1) }}</span>{% else %}—{% endif %}</td>

@@ -125,6 +125,7 @@ async def _open(s: Session, acc: ExchangeAccount, user: User, gs: GlobalSettings
                 sig: Signal, pair: str, trade_ref: list, bot_id: int | None = None) -> Outcome:
     L = user.lang
     side = sig.action
+    cur = acc.currency(gs.stake_currency)  # spot: the portfolio's quote coin (BTC/USDT is traded as BTC/<cur>)
     if acc.is_spot and side == "short":
         return Outcome(acc.id, "none", "short not possible on spot")
 
@@ -155,29 +156,36 @@ async def _open(s: Session, acc: ExchangeAccount, user: User, gs: GlobalSettings
         balance = None
         if acc.sizing_mode == "wallet_pct" and not client.simulated:
             try:  # compounding: the wallet as it is now (realized profits and losses included)
-                balance = await client.wallet_balance(gs.stake_currency)
+                balance = await client.wallet_balance(cur)
                 acc.wallet_balance, acc.wallet_balance_at = balance, utcnow()
             except Exception as e:
                 log.info("[acc %s] wallet balance unavailable, using the last one: %s", acc.id, e)
         stake = pair_budget(gs, acc, pair, balance)
     if gs.max_stake_per_trade:
-        stake = min(stake, gs.max_stake_per_trade)
+        from .markets import convert
+        stake = min(stake, convert(gs.max_stake_per_trade, gs.stake_currency, cur) or gs.max_stake_per_trade)
     if stake <= 0:
         return Outcome(acc.id, "none", "zero stake")
 
-    symbol = client.resolve(pair)
+    try:
+        symbol = client.resolve(pair)
+    except ValueError:
+        if acc.is_spot and cur != pair.split("/")[1]:  # e.g. the coin has no EUR market on this exchange
+            return _skip(acc, user, pair, t(L, "why_not_in_quote", base=pair.split("/")[0], quote=cur,
+                                            ex=EXCHANGES.get(acc.exchange, acc.exchange)))
+        raise
     lev = leverage_for(gs, acc, pair, sig.leverage)
     if not client.dry_run:
-        free = await client.free_balance(gs.stake_currency, estimate_ok=True)
+        free = await client.free_balance(cur, estimate_ok=True)
         if free < stake * 1.3:  # close call: ask the exchange itself
-            free = await client.free_balance(gs.stake_currency)
+            free = await client.free_balance(cur)
         if free < stake:
             if free < stake * 0.5:
-                return _skip(acc, user, pair, t(L, "why_balance", free=f"{free:,.2f}", cur=gs.stake_currency,
+                return _skip(acc, user, pair, t(L, "why_balance", free=f"{free:,.2f}", cur=cur,
                                                 need=f"{stake:,.2f}"))
             stake = free * 0.98  # like Freqtrade's amend_last_stake_amount
 
-    price = await client.price(symbol, sig.price)
+    price = await client.price(symbol, sig.price if symbol.split(":")[0] == pair else None)  # signal price: USDT
     await client.setup_leverage(symbol, lev, acc.margin_mode)
     amount = client.amount_for_notional(symbol, stake * lev, price)
     fill = await client.market_order(symbol, "buy" if side == "long" else "sell", amount,
@@ -187,7 +195,7 @@ async def _open(s: Session, acc: ExchangeAccount, user: User, gs: GlobalSettings
     held = fill.amount - (fill.fee_base if acc.is_spot else 0.0)
     real_stake = fill.amount * cs * fill.price / lev
     if hasattr(client, "note_spent"):
-        client.note_spent(real_stake + fill.fee_quote, gs.stake_currency)
+        client.note_spent(real_stake + fill.fee_quote, cur)
     if existing is None:
         trade = Trade(user_id=user.id, account_id=acc.id, ft_trade_id=sig.ft_trade_id, bot_id=bot_id, pair=pair, symbol=symbol,
                       side=side, amount=held, contract_size=cs, entry_price=fill.price, stake=real_stake,
@@ -213,7 +221,6 @@ async def _open(s: Session, acc: ExchangeAccount, user: User, gs: GlobalSettings
     s.commit()
 
     qty, value = fill.amount * cs, fill.amount * cs * fill.price
-    cur = gs.stake_currency
     sl_line = f"\n{t(L, 'tg_stoploss')}: {fmt_num(trade.sl_price)}" if trade.sl_price else ""
     tag_line = f"\n{t(L, 'tg_tag')}: {esc(sig.enter_tag)}" if sig.enter_tag else ""
     if acc.is_signal:
@@ -312,7 +319,7 @@ async def _close(s: Session, acc: ExchangeAccount, user: User, gs: GlobalSetting
         await _refresh_stop(s, acc, user, client, trade)
     s.commit()
 
-    cur = gs.stake_currency
+    cur = trade.currency if not acc.is_signal else gs.stake_currency
     paper = f" {t(L, 'tg_paper')}" if fill.simulated and not acc.is_signal else ""
     reason = f"\n{t(L, 'tg_reason')}: {esc(sig.exit_reason)}" if sig.exit_reason else ""
     if is_final:

@@ -36,7 +36,11 @@
 <div class="row">
   <div><label>{{ _('f_market') }}</label><select name="trading_mode" id="mode">
     <option value="futures" {{ 'selected' if not v or v.trading_mode=='futures' }}>{{ _('mkt_futures_long') }}</option>
-    <option value="spot" {{ 'selected' if v and v.trading_mode=='spot' }}>{{ _('mkt_spot_long') }}</option></select></div>
+    <option value="spot" {{ 'selected' if v and v.trading_mode=='spot' }}>{{ _('mkt_spot_long') }}</option></select>
+    <div class="small muted" id="spotonly" hidden>{{ _('q_spot_only') }}</div></div>
+  {% if not is_signal %}<div class="spotq"><label>{{ _('f_quote') }}</label>
+    <select name="quote" id="quote" data-v="{{ (v.quote if v and v.quote else gs.stake_currency) }}"></select>
+    <div class="small muted">{{ _('f_quote_help', cur=gs.stake_currency) }}</div></div>{% endif %}
   {% if catalog %}<input type="hidden" name="leverage" id="lev" value="1"><input type="hidden" name="margin_mode" value="isolated">
   <div class="fut"><label>{{ _('col_leverage') }}</label><p class="small muted" style="margin:6px 0">🔒 {{ _('lev_by_admin', max=gs.max_leverage) }}</p></div>
   {% else %}
@@ -75,16 +79,16 @@
   <option value="custom_amounts" {{ 'selected' if cm == 'custom_amounts' }}>{{ _('mode_cat_per_pair') }}</option>
   {% if not is_signal %}<option value="wallet_pct" {{ 'selected' if cm == 'wallet_pct' }}>{{ _('mode_cat_wallet') }}</option>{% endif %}</select>
   <div class="small muted" id="modehelp"></div></div>
-<div id="capbox"><label>{{ _('f_capital_total', cur=gs.stake_currency, min='%.0f'|format(gs.min_capital)) }}</label>
+<div id="capbox"><label class="qlabel">{{ _('f_capital_total', cur=gs.stake_currency, min='%.0f'|format(gs.min_capital)) }}</label>
   <input type="number" step="any" min="0" name="capital" id="capital" value="{{ (v.capital or '') if v else '' }}">
   <div class="small muted">{{ _('capital_cap_help', pct='%g'|format(cap_pct)) }}</div></div>
 <div id="walletbox"><label>{{ _('f_wallet_pct', max='%g'|format(cap_pct)) }}</label>
   <input type="number" step="any" min="1" max="{{ cap_pct }}" name="wallet_pct" id="wallet_pct" value="{{ '%g'|format(v.wallet_pct) if v and v.wallet_pct else '' }}" placeholder="{{ '%g'|format(cap_pct) }}">
   <div class="small muted" id="walletline" data-wallet="{{ v.wallet_balance if v and v.wallet_balance else '' }}"></div></div>
-<div id="floorbox"><label>{{ _('f_min_stake', cur=gs.stake_currency) }}</label>
+<div id="floorbox"><label class="qlabel">{{ _('f_min_stake', cur=gs.stake_currency) }}</label>
   <input type="number" step="any" min="0" name="min_stake" id="min_stake" value="{{ '%g'|format(v.min_stake) if v and v.min_stake else '' }}" placeholder="—">
   <div class="small muted">{{ _('f_min_stake_help') }}</div></div>
-<div id="allbox"><label>{{ _('f_amount_all', cur=gs.stake_currency) }}</label>
+<div id="allbox"><label class="qlabel">{{ _('f_amount_all', cur=gs.stake_currency) }}</label>
   <div class="inline-row"><input type="number" step="any" min="0" id="amount_all" style="width:110px"><button type="button" class="ghost sm" id="amount_all_btn">{{ _('btn_apply_all') }}</button></div>
   <div class="small muted">{{ _('capital_cap_help', pct='%g'|format(cap_pct)) }}</div></div></div>
 {% else %}
@@ -108,9 +112,9 @@
 {% if catalog %}
 <div class="table-wrap"><table class="pairs cat">
 <tr><th></th><th>{{ _('col_pair') }}</th><th>{{ _('pair_from_bot') }}</th><th>{{ _('perf_trades') }}</th><th>{{ _('perf_win_rate') }}</th><th>{{ _('perf_total_abs') }}</th><th>{{ _('perf_avg') }}</th>
-<th>{{ _('col_leverage') }}</th><th class="pvcol">{{ _('col_amount_pair', cur=gs.stake_currency) }}</th><th>{{ _('col_margin_trade') }}</th><th title="{{ _('pc_need_help') }}">{{ _('pc_need') }}</th><th>{{ _('col_position_value') }}</th></tr>
+<th>{{ _('col_leverage') }}</th><th class="pvcol qlabel">{{ _('col_amount_pair', cur=gs.stake_currency) }}</th><th>{{ _('col_margin_trade') }}</th><th title="{{ _('pc_need_help') }}">{{ _('pc_need') }}</th><th>{{ _('col_position_value') }}</th></tr>
 {% for c in catalog %}{% set p = c.pair %}{% set sel = (v and p in v.pairs) or (not v and (c.mandatory or c.default_bot)) or c.mandatory %}
-<tr class="catrow" data-p="{{ p }}" data-ex='{{ c.ex|tojson }}'>
+<tr class="catrow" data-p="{{ p }}" data-ex='{{ c.ex|tojson }}' data-spot='{{ c.spot|tojson }}'>
 <td>{% if c.mandatory %}<input type="checkbox" class="pc" data-p="{{ p }}" checked disabled><input type="hidden" name="pair__{{ p }}" value="on">
 {% else %}<input type="checkbox" class="pc" name="pair__{{ p }}" data-p="{{ p }}" {{ 'checked' if sel }}>{% endif %}</td>
 <td class="mono">{{ coin(p) }}{{ p }}{% if c.mandatory %} <span class="badge warn" title="{{ _('pc_mandatory_user') }}">🔒</span>{% endif %}<div class="small neg exnote" data-p="{{ p }}"></div></td>
@@ -155,6 +159,16 @@
 </form>
 <script>
 (function(){
+  const spotQuotes={{ (spot_quotes or {})|tojson }}, usdRates={{ (usd_rates or {})|tojson }}, spotOnly={{ (spot_only or [])|tojson }},
+        stakeCur={{ gs.stake_currency|tojson }}, shallowVol={{ shallow or 0 }}, notInQuote={{ _('q_not_in_quote')|tojson }},
+        thin={{ _('q_thin')|tojson }};
+  const qsel=document.getElementById('quote');
+  function fillQuotes(){  // the quote coins this exchange has spot markets in
+    if(!qsel) return; const exn=(document.getElementById('exchange')||{}).value||'', list=spotQuotes[exn]&&spotQuotes[exn].length?spotQuotes[exn]:[stakeCur];
+    const want=qsel.value||qsel.dataset.v||stakeCur; qsel.innerHTML='';
+    list.forEach(q=>{ const o=document.createElement('option'); o.value=q; o.textContent=q; if(q===want) o.selected=true; qsel.appendChild(o); });
+  }
+  fillQuotes(); if(document.getElementById('exchange')) document.getElementById('exchange').addEventListener('change',fillQuotes);
   const botWord={{ _('lev_from_bot')|tojson }}, maxLev={{ gs.max_leverage }}, exName={{ EXCHANGES|tojson }}, notListed={{ _('ck_not_on_exchange')|tojson }},
         balText={{ _('ck_bal_line')|tojson }}, ckWait={{ _('ck_wait')|tojson }}, ckAllOk={{ _('ck_all_ok')|tojson }}, ckFix={{ _('ck_fix')|tojson }};
   const capPct={{ cap_pct }}, defMot={{ gs.default_max_open_trades }}, maxStake={{ gs.max_stake_per_trade or 0 }},
@@ -202,12 +216,24 @@
     const tw=sel.reduce((a,p)=>a+val(p),0), mot=isCat?Math.max(1,sel.filter(p=>!($(`.pc[data-p="${p}"]`)||{dataset:{}}).dataset.blocked).length):(parseInt($('#mot').value)||defMot);
     let ts=0, tn=0;
     const exn=($('#exchange')||{}).value||'';
+    const mSel=$('#mode'), only=spotOnly.includes(exn);  // spot-only exchanges: no futures
+    if(mSel){ mSel.querySelector('option[value=futures]').disabled=only; if(only&&mSel.value!=='spot'){ mSel.value='spot'; return upd(); } }
+    if($('#spotonly')) $('#spotonly').hidden=!only;
+    if($('.spotq')) $('.spotq').style.display=spot?'':'none';
+    const quote=spot&&qsel?(qsel.value||stakeCur):stakeCur;
+    $$('.qlabel').forEach(l=>{ if(!l.dataset.t) l.dataset.t=l.textContent; l.textContent=l.dataset.t.split(stakeCur).join(quote); });
+    const toQuote=v=>{ const a=usdRates[stakeCur]||1, b=usdRates[quote]; return b?v*a/b:v; };  // admin minimums are in the stake coin
     const optOf=p=>{const sb=$(`.pb[data-p="${p}"]`); return sb&&sb.selectedOptions[0];};
     const plev=p=>{ if(spot) return 1; const o=optOf(p), fixed=o?parseInt(o.dataset.lev):0, blev=o?parseInt(o.dataset.blev):0;
       return Math.max(1,Math.min(fixed||blev||lev,maxLev)); };
     $$('.catrow').forEach(r=>{  // pairs the chosen exchange doesn't list
-      const p=r.dataset.p, ex=JSON.parse(r.dataset.ex||'{}'), known=exn in ex, listed=!known||ex[exn]!==null, cb=r.querySelector('.pc');
-      const note=r.querySelector('.exnote'); note.textContent=listed?'':notListed.replace('{ex}',exName[exn]||exn);
+      const p=r.dataset.p, ex=JSON.parse(r.dataset.ex||'{}'), sp=JSON.parse(r.dataset.spot||'{}'), cb=r.querySelector('.pc');
+      let listed, msg='';
+      if(spot){ const known=exn in sp, m=known?sp[exn][quote]:null; listed=!known||!!m;
+        if(!listed) msg=notInQuote.replace('{ex}',exName[exn]||exn).replace('{q}',quote);
+        else if(m&&m[1]!=null&&m[1]<shallowVol) msg=thin.replace('{v}',fmt(m[1])).replace('{q}',quote); }
+      else { const known=exn in ex; listed=!known||ex[exn]!==null; if(!listed) msg=notListed.replace('{ex}',exName[exn]||exn); }
+      const note=r.querySelector('.exnote'); note.textContent=msg; note.className='small exnote '+(listed?'muted':'neg');
       if(!cb.disabled){ if(!listed){ cb.checked=false; } cb.dataset.blocked=listed?'':'1'; }
       r.style.opacity=listed?'':'.55';
     });
@@ -219,7 +245,8 @@
       const lc=$(`.plev[data-p="${p}"]`); if(lc){ const o=optOf(p); lc.textContent=L+'x'+(o&&o.dataset.lev&&!spot?' 🔒':(o&&o.dataset.blev&&!spot?' ('+botWord+')':'')); }
       const nc=$(`.need[data-p="${p}"]`);
       if(nc){ const row=nc.closest('.catrow'), ex=JSON.parse(row.dataset.ex||'{}'), o=optOf(p);
-        const exMin=(ex[exn]||0)/L, adm=o?parseFloat(o.dataset.min)||0:0, need=Math.max(exMin,adm);
+        const sp=JSON.parse(row.dataset.spot||'{}'), sm=spot&&sp[exn]?sp[exn][quote]:null;
+        const exMin=spot?((sm&&sm[0])||0):(ex[exn]||0)/L, adm=o?toQuote(parseFloat(o.dataset.min)||0):0, need=Math.max(exMin,adm);
         nc.textContent=need?fmt(need)+(on?(s+1e-9>=need?' ✔':' ✗'):''):'-'; nc.className='need '+(on&&need?(s+1e-9>=need?'pos':'neg'):''); }
     });
     if(!$('.catrow')) tn=(mode==='equal_split'?cap:ts)*lev;
@@ -243,7 +270,7 @@
     box.hidden=false; box.innerHTML='<p class="muted">⏳ '+ckWait+'</p>'; ck.disabled=true;
     try{
       const r=await fetch('/accounts/check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({csrf:v('csrf'),
-        acc_id:ck.dataset.acc||null, exchange:v('exchange'), trading_mode:v('trading_mode'), api_key:v('api_key'), secret:v('secret'),
+        acc_id:ck.dataset.acc||null, exchange:v('exchange'), trading_mode:v('trading_mode'), quote:v('quote'), api_key:v('api_key'), secret:v('secret'),
         password:v('password'), sandbox:(f.elements['sandbox']||{}).checked||false, pairs})});
       const d=await r.json(); window.ckBal=d.balance||null;
       const icon={ok:'✔',warn:'⚠️',error:'✗'}, esc=t=>String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;');

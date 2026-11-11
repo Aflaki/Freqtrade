@@ -67,6 +67,12 @@ def acc_name(a: ExchangeAccount) -> str:
     return a.label or (a.exchange.title() if a.exchange else "Signals")
 
 
+def display_currency(accounts: list[ExchangeAccount], stake: str) -> tuple[str, bool]:
+    """(coin, approximate?): the portfolios' common coin, or USD (converted, approximate) when they differ."""
+    curs = {a.currency(stake) for a in accounts}
+    return (curs.pop(), False) if len(curs) == 1 else (("USD", True) if curs else (stake, False))
+
+
 def closed(sc: dict, market: str, days: int | None) -> list[MyTrade]:
     with SessionLocal() as s:
         q = select(Trade).where(Trade.account_id.in_(sc["acc_ids"] or [-1]), Trade.status == "closed",
@@ -77,7 +83,17 @@ def closed(sc: dict, market: str, days: int | None) -> list[MyTrade]:
             q = q.where(Trade.side == market)
         if days:
             q = q.where(Trade.closed_at >= utcnow() - dt.timedelta(days=days))
-        return [_mine(t) for t in s.scalars(q.order_by(Trade.closed_at))]
+        rows = [(_mine(t), t.currency) for t in s.scalars(q.order_by(Trade.closed_at))]
+    from .markets import all_info, convert
+    cache, cur = all_info(), sc.get("currency") or "USDT"
+    out = []
+    for m, c in rows:
+        if c != cur:  # another coin: express the money in the scope's coin (the ratio is the same)
+            m.profit_abs = convert(m.profit_abs, c, cur, cache) or m.profit_abs
+            m.stake_amount = convert(m.stake_amount, c, cur, cache) or m.stake_amount
+            m.fees = convert(m.fees, c, cur, cache) or m.fees
+        out.append(m)
+    return out
 
 
 def capital(sc: dict) -> float | None:
@@ -85,15 +101,22 @@ def capital(sc: dict) -> float | None:
     with SessionLocal() as s:
         gs = get_global(s)
     accs = [a for a in sc["accounts"] if a.id in sc["acc_ids"]]
+    from .markets import convert
+
+    def money(a: ExchangeAccount, v: float) -> float:
+        return convert(v, a.currency(gs.stake_currency), sc.get("currency") or gs.stake_currency) or v
     if sc["bot_sel"]:
-        total = sum(pair_budget(gs, a, p) for a in accs for p, b in (a.pair_bot or {}).items() if b == sc["bot_sel"])
+        total = sum(money(a, pair_budget(gs, a, p)) for a in accs for p, b in (a.pair_bot or {}).items() if b == sc["bot_sel"])
     else:
-        total = sum(effective_capital(gs, a) for a in accs)
+        total = sum(money(a, effective_capital(gs, a)) for a in accs)
     return total or None
 
 
 def report(user_id: int, raw_scope: str, market: str, days: int | None) -> dict[str, Any]:
     sc = scope_of(user_id, raw_scope)
+    with SessionLocal() as s:
+        stake = get_global(s).stake_currency
+    sc["currency"], sc["approx"] = display_currency([a for a in sc["accounts"] if a.id in sc["acc_ids"]], stake)
     trades = closed(sc, market, days)
     data = perf.summary_of(trades, capital(sc), days)
     pairs = perf.pair_stats_of(trades)
@@ -106,7 +129,9 @@ def report(user_id: int, raw_scope: str, market: str, days: int | None) -> dict[
             by_bot.setdefault(t.bot_id, []).append(t)
     with SessionLocal() as s:
         gs = get_global(s)
-    acc_cards = {a.id: perf._stats(by_acc.get(a.id, []), effective_capital(gs, a) or None) for a in sc["accounts"]}
+    from .markets import convert as _cv
+    acc_cards = {a.id: perf._stats(by_acc.get(a.id, []), _cv(effective_capital(gs, a), a.currency(gs.stake_currency),
+                                                               sc["currency"]) or None) for a in sc["accounts"]}
     bot_cards = {b.id: perf._stats(by_bot.get(b.id, [])) for b in sc["bots"]}
     return {**sc, "data": data if trades else None, "pairs": pairs, "acc_cards": acc_cards, "bot_cards": bot_cards,
             "acc_names": {a.id: acc_name(a) for a in sc["accounts"]}, "bot_names": {b.id: b.name for b in sc["bots"]}}

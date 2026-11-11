@@ -259,7 +259,7 @@ def test_wallet_balances(live):
             s.expunge(acc)
         livepos._bal.clear()
         b = (await livepos.balances([acc], "USDT"))[acc_id]
-        assert b == {"wallet": 10_000.0, "equity": 10_000.0, "free": 10_000.0, "live": False}  # REST (fake exchange)
+        assert b == {"wallet": 10_000.0, "equity": 10_000.0, "free": 10_000.0, "live": False, "cur": "USDT"}  # REST (fake)
         client = await pool.get(acc)
         client.ex.balance["USDT"] = 1.0
         assert (await livepos.balances([acc], "USDT"))[acc_id]["wallet"] == 10_000  # cached for a minute

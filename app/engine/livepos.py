@@ -250,7 +250,8 @@ def _from_stream(acc: ExchangeAccount, cur: str) -> dict | None:
     if wallet is None or pos is None:
         return None
     upnl = sum(float(p.get("unrealizedPnl") or 0) for p in pos)
-    return {"wallet": wallet, "equity": wallet + upnl, "free": streams.free_estimate(acc.id, cur), "live": True}
+    return {"wallet": wallet, "equity": wallet + upnl, "free": streams.free_estimate(acc.id, cur), "live": True,
+            "cur": cur}
 
 
 def cached_balances(accs: list[ExchangeAccount], cur: str) -> dict[int, dict]:
@@ -259,9 +260,9 @@ def cached_balances(accs: list[ExchangeAccount], cur: str) -> dict[int, dict]:
     for a in accs:
         if not _real(a):
             continue
-        b = _from_stream(a, cur) or (_bal.get(a.id) or (0, None))[1]
+        b = _from_stream(a, a.currency(cur)) or (_bal.get(a.id) or (0, None))[1]
         if b is None and a.wallet_balance is not None:
-            b = {"wallet": a.wallet_balance, "equity": None, "free": None, "live": False}
+            b = {"wallet": a.wallet_balance, "equity": None, "free": None, "live": False, "cur": a.currency(cur)}
         if b is not None:
             out[a.id] = b
     return out
@@ -275,7 +276,8 @@ async def balances(accs: list[ExchangeAccount], cur: str) -> dict[int, dict]:
     out = {}
 
     async def one(a: ExchangeAccount) -> None:
-        live = _from_stream(a, cur)
+        c = a.currency(cur)  # spot portfolios: their quote coin (EUR, USDC...)
+        live = _from_stream(a, c)
         if live:
             out[a.id] = live
             return
@@ -287,8 +289,8 @@ async def balances(accs: list[ExchangeAccount], cur: str) -> dict[int, dict]:
         try:
             client = await pool.get(a)
             raw = await asyncio.wait_for(client.ex.fetch_balance(), 15)
-            b = {"wallet": wallet_of(raw, cur), "equity": float((raw.get("total") or {}).get(cur) or 0),
-                 "free": float((raw.get("free") or {}).get(cur) or 0), "live": False}
+            b = {"wallet": wallet_of(raw, c), "equity": float((raw.get("total") or {}).get(c) or 0),
+                 "free": float((raw.get("free") or {}).get(c) or 0), "live": False, "cur": c}
             _bal[a.id] = (time.monotonic(), b)
             out[a.id] = b
         except Exception as e:  # busy budget, network: the last numbers

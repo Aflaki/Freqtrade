@@ -1,13 +1,14 @@
 """Minimal in-memory stand-in for a ccxt async exchange."""
 import itertools
 
-PRICES = {"BTC/USDT": 60000.0, "ETH/USDT": 3000.0, "BTC/USDT:USDT": 60000.0, "ETH/USDT:USDT": 3000.0}
+PRICES = {"BTC/USDT": 60000.0, "ETH/USDT": 3000.0, "BTC/USDT:USDT": 60000.0, "ETH/USDT:USDT": 3000.0,
+          "BTC/EUR": 55000.0}  # spot BTC also trades against EUR; ETH doesn't
 _ids = itertools.count(1)
 
 
-def _mk(base, spot):
-    sym = f"{base}/USDT" if spot else f"{base}/USDT:USDT"
-    return {"id": f"{base}USDT", "symbol": sym, "base": base, "quote": "USDT", "settle": None if spot else "USDT",
+def _mk(base, spot, quote="USDT"):
+    sym = f"{base}/{quote}" if spot else f"{base}/{quote}:{quote}"
+    return {"id": f"{base}{quote}", "symbol": sym, "base": base, "quote": quote, "settle": None if spot else quote,
             "type": "spot" if spot else "swap", "spot": spot, "swap": not spot, "contract": not spot,
             "linear": None if spot else True, "contractSize": None if spot else 1.0, "active": True,
             "precision": {"amount": 0.001}, "limits": {"amount": {"min": 0.001}, "cost": {"min": 5}}}
@@ -27,7 +28,7 @@ class FakeExchange:
         self.markets = {}
         self.stops = []
         self.cancelled = []
-        self.balance = {"USDT": 10_000.0, "BTC": 0.0, "ETH": 0.0}
+        self.balance = {"USDT": 10_000.0, "EUR": 5_000.0, "BTC": 0.0, "ETH": 0.0}
         FakeExchange.instances.append(self)
 
     def set_sandbox_mode(self, on):
@@ -35,7 +36,8 @@ class FakeExchange:
 
     async def load_markets(self):
         spot = self.params["options"]["defaultType"] == "spot"
-        self.markets = {m["symbol"]: m for m in (_mk("BTC", spot), _mk("ETH", spot))}
+        self.markets = {m["symbol"]: m for m in (_mk("BTC", spot), _mk("ETH", spot))
+                        + ((_mk("BTC", True, "EUR"),) if spot else ())}
         return self.markets
 
     def market(self, symbol):

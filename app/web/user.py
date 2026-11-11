@@ -62,10 +62,18 @@ async def dashboard(request: Request):
                                   .order_by(Trade.opened_at.desc())))
         for t in all_open:
             s.expunge(t)
-        pnl = s.scalar(select(func.coalesce(func.sum(Trade.realized_pnl), 0)).where(Trade.user_id == user.id)) or 0
         n_closed = s.scalar(select(func.count(Trade.id)).where(Trade.user_id == user.id, Trade.status == "closed")) or 0
         wins = s.scalar(select(func.count(Trade.id)).where(
             Trade.user_id == user.id, Trade.status == "closed", Trade.realized_pnl > 0)) or 0
+    from ..engine.markets import all_info, convert
+    cache = all_info()
+    disp, approx = myperf.display_currency(accounts, gs.stake_currency)  # all portfolios together
+
+    def d(v, src):  # money in the dashboard's coin
+        return (convert(v, src, disp, cache) or v) if v is not None else None
+    with SessionLocal() as s:
+        pnl = sum(d(v or 0, (sym or "/USDT").split("/")[-1].split(":")[0]) for sym, v in s.execute(
+            select(Trade.symbol, func.sum(Trade.realized_pnl)).where(Trade.user_id == user.id).group_by(Trade.symbol)))
     open_trades = [t for t in all_open if t.account_id in rep["acc_ids"] and (not rep["bot_sel"] or t.bot_id == rep["bot_sel"])
                    and (market == "all" or t.side == market)]
     live = livepos.cached_for_trades(all_open)  # no exchange call here: the page asks /trades/live right after
@@ -77,12 +85,17 @@ async def dashboard(request: Request):
             bot_open[t.bot_id] = bot_open.get(t.bot_id, 0) + 1
     acc_capital = {a.id: effective_capital(gs, a) for a in accounts}
     bals = livepos.cached_balances(accounts, gs.stake_currency)  # live numbers follow from /accounts/balances
-    return render(request, "dashboard.html", bals=bals,
-                  wallet_total=sum(b["wallet"] or 0 for b in bals.values()),
-                  equity_total=sum((b["equity"] if b["equity"] is not None else b["wallet"] or 0) for b in bals.values()), gs=gs, accounts=accounts, open_trades=open_trades, all_open=len(all_open),
-                  pnl=pnl, n_closed=n_closed, wins=wins, total_capital=sum(acc_capital.values()), acc_capital=acc_capital,
+    by_id = {a.id: a for a in accounts}
+    cur_of = {a.id: a.currency(gs.stake_currency) for a in accounts}
+    trade_cur = {t.id: t.currency for t in all_open}
+    return render(request, "dashboard.html", bals=bals, disp_cur=disp, approx=approx, cur_of=cur_of,
+                  wallet_total=sum(d(b["wallet"] or 0, b.get("cur") or cur_of.get(i, disp)) for i, b in bals.items()),
+                  equity_total=sum(d(b["equity"] if b["equity"] is not None else b["wallet"] or 0,
+                                     b.get("cur") or cur_of.get(i, disp)) for i, b in bals.items()), gs=gs, accounts=accounts, open_trades=open_trades, all_open=len(all_open),
+                  pnl=pnl, n_closed=n_closed, wins=wins, acc_capital=acc_capital,
+                  total_capital=sum(d(v, cur_of[i]) for i, v in acc_capital.items() if i in by_id),
                   acc_open=acc_open, bot_open=bot_open, live=live,
-                  live_upnl=sum(x.get("upnl") or 0 for x in live.values()),
+                  live_upnl=sum(d(x.get("upnl") or 0, trade_cur.get(k, disp)) for k, x in live.items()),
                   live_win=sum(1 for x in live.values() if (x.get("upnl") or 0) > 0),
                   live_loss=sum(1 for x in live.values() if (x.get("upnl") or 0) < 0),
                   streams={a.id: streams.status(a) for a in accounts},
@@ -105,7 +118,15 @@ async def accounts_balances(request: Request):
         accs = list(s.scalars(select(ExchangeAccount).where(ExchangeAccount.user_id == user.id)))
         for a in accs:
             s.expunge(a)
-    return JSONResponse({str(k): v for k, v in (await livepos.balances(accs, cur)).items()})
+    out = await livepos.balances(accs, cur)
+    disp, cache, _ = _disp(user.id)
+    from ..engine.markets import convert
+    for b in out.values():
+        c = b.get("cur") or cur
+        for k in ("wallet", "equity"):
+            if b.get(k) is not None:
+                b[k + "_d"] = convert(b[k], c, disp, cache) if c != disp else b[k]
+    return JSONResponse({str(k): v for k, v in out.items()})
 
 
 @router.get("/trades/live")
@@ -118,8 +139,26 @@ async def trades_live(request: Request):
     with SessionLocal() as s:
         mine = list(s.scalars(select(Trade).where(Trade.user_id == user.id, Trade.status == "open")))
     live = await livepos.for_trades(mine)
+    disp, cache, curs = _disp(user.id, mine)
+    from ..engine.markets import convert
+    for k, v in live.items():
+        c = curs.get(k, disp)
+        v["cur"] = c
+        if v.get("upnl") is not None:
+            v["upnl_d"] = convert(v["upnl"], c, disp, cache) if c != disp else v["upnl"]
     return JSONResponse({str(k): {kk: (vv.isoformat() if hasattr(vv, "isoformat") else vv) for kk, vv in v.items()}
                          for k, v in live.items()})
+
+
+def _disp(user_id: int, trades=None):
+    """The dashboard's coin for this user, the market cache, and each trade's coin."""
+    from ..engine import myperf
+    from ..engine.markets import all_info
+    with SessionLocal() as s:
+        stake = get_global(s).stake_currency
+        accs = list(s.scalars(select(ExchangeAccount).where(ExchangeAccount.user_id == user_id)))
+        disp = myperf.display_currency(accs, stake)[0]
+    return disp, all_info(), {t.id: t.currency for t in trades or []}
 
 
 # ------------------------------------------------------------------ portfolios (exchange or signal-only)
@@ -209,20 +248,29 @@ def _catalog_ctx(gs, bots) -> dict:
         if not offers:
             continue
         r = pair_rules(offers)
-        ex = {}
+        ex, spot = {}, {}
+        base = pair.split("/")[0]
         for e in gs.allowed_exchanges or []:
             pairs = (cache.get(e) or {}).get("pairs")
             if pairs:  # known: listed (min order) or not listed (None)
                 i = pairs.get(pair)
                 ex[e] = markets.min_order(i) if i else None
-        catalog.append({"pair": pair, "mandatory": r["mandatory"], "default_bot": r["default_bot"], "ex": ex,
+            sp = (cache.get(e) or {}).get("spot")
+            if sp:  # spot: {quote: [min order, 24h volume]} for this coin; a missing quote = not listed
+                spot[e] = {k.split("/")[1]: [markets.min_order(i), i.get("volume")]
+                           for k, i in sp.items() if k.split("/")[0] == base}
+        catalog.append({"pair": pair, "mandatory": r["mandatory"], "default_bot": r["default_bot"], "ex": ex, "spot": spot,
                         "bots": [{"id": o.bot_id, "name": names[o.bot_id], "lev": o.leverage, "min": o.min_capital,
                                   "blev": blev.setdefault(o.bot_id, bot_leverage(o.bot_id))} for o in offers]})
-    return {"catalog": catalog}
+    from ..engine.exchange import QUOTES, SPOT_ONLY
+    quotes = {e: markets.quotes_on(e, cache) for e in gs.allowed_exchanges or []}
+    rates = {q: markets.usd_rate(q, cache) for q in QUOTES}
+    return {"catalog": catalog, "spot_quotes": quotes, "usd_rates": rates, "spot_only": sorted(SPOT_ONLY),
+            "shallow": markets.SHALLOW_VOLUME}
 
 
 def _rule_errors(request, gs, kind, exchange, mode, leverage, sizing, pairs, capital, mot, chosen_bot, catalog,
-                 **wallet):
+                 quote: str = "", **wallet):
     """Per-pair minimums: the exchange's minimum order at this leverage and the admin's minimum capital."""
     from ..engine.account_check import check_pairs
     from ..engine.offers import forced_leverage
@@ -236,13 +284,13 @@ def _rule_errors(request, gs, kind, exchange, mode, leverage, sizing, pairs, cap
         lev = 1 if mode == "spot" else max(1, min(forced_leverage(pp, b) or (bot_leverage(b) if b else None) or leverage,
                                                    gs.max_leverage))
         sel[pp] = {"margin": pair_budget(gs, tmp, pp), "leverage": lev, "bot": chosen_bot.get(pp)}
-    items = check_pairs(exchange if kind == "exchange" else "", mode, sel, catalog)
+    items = check_pairs(exchange if kind == "exchange" else "", mode, sel, catalog, quote=quote, stake=gs.stake_currency)
     for i, x in zip(items, check_texts(request, items)):
         i["text"] = x["text"]
     return items
 
 
-async def _key_errors(request, gs, acc, exchange, mode, api_key, secret, password, sandbox, dry_run, capital,
+async def _key_errors(request, gs, acc, exchange, mode, api_key, secret, password, cur, sandbox, dry_run, capital,
                       sizing, pairs, cap: float = 1.0) -> tuple[list[str], dict | None]:
     """Blocking problems of the API key (and the money, unless it is a dry run), and the balance read."""
     from ..engine.account_check import check_keys
@@ -252,7 +300,7 @@ async def _key_errors(request, gs, acc, exchange, mode, api_key, secret, passwor
     pw = password or (decrypt(acc.password_enc) if acc else "") or ""
     if not key or not sec:
         return [], None  # reported as missing keys already
-    res = await check_keys(exchange, mode, key, sec, pw, sandbox, gs.stake_currency)
+    res = await check_keys(exchange, mode, key, sec, pw, sandbox, cur)
     if not res["reachable"]:
         flash(request, tr(request, "ck_saved_unchecked"), "warn")
         return [], None
@@ -319,6 +367,17 @@ async def _save_account(request: Request, acc_id: int | None):
         if kind == "exchange" and exchange not in gs.allowed_exchanges:
             errors.append(tr(request, "err_exchange"))
         mode = "spot" if f.get("trading_mode") == "spot" else "futures"
+        from ..engine import markets as _mk
+        from ..engine.exchange import EXCHANGES as _EX, QUOTES, SPOT_ONLY
+        if kind == "exchange" and exchange in SPOT_ONLY and mode != "spot":
+            errors.append(tr(request, "err_spot_only", ex=_EX.get(exchange, exchange)))
+        quote = ""  # spot: the coin this portfolio trades against (BTC/USDT -> BTC/<quote>)
+        if kind == "exchange" and mode == "spot":
+            quote = str(f.get("quote", "")).strip().upper() or gs.stake_currency
+            have = _mk.quotes_on(exchange)
+            if quote not in QUOTES or (have and quote not in have):
+                errors.append(tr(request, "err_quote", quote=quote, ex=_EX.get(exchange, exchange)))
+        cur = quote or gs.stake_currency
         from ..engine.offers import offers_by_pair as _obp
         simple = bool(_obp())  # pair catalog in use: the user only gives the total capital
         leverage = int(_num(f.get("leverage"), 1)) if mode == "futures" else 1
@@ -383,8 +442,9 @@ async def _save_account(request: Request, acc_id: int | None):
         if sizing == "wallet_pct":
             if not 1 <= (wallet_pct or 0) <= cap * 100 + 1e-9:
                 errors.append(tr(request, "err_wallet_pct", max=f"{cap * 100:g}"))
-        elif capital < gs.min_capital:
-            errors.append(tr(request, "err_min_capital", min=f"{gs.min_capital:,.0f}", cur=gs.stake_currency))
+        elif (_mk.convert(capital, cur, gs.stake_currency) or capital) < gs.min_capital:
+            errors.append(tr(request, "err_min_capital", min=f"{_mk.convert(gs.min_capital, gs.stake_currency, cur) or gs.min_capital:,.0f}",
+                             cur=cur))
         mot = None if simple else (int(_num(f.get("max_open_trades"), 0)) or None)
         sl = _num(f.get("stoploss_pct"), 0) or None
         dll = _num(f.get("daily_loss_limit_pct"), 0) or None
@@ -413,7 +473,7 @@ async def _save_account(request: Request, acc_id: int | None):
         # the API key itself: works, may trade futures, withdrawals off, enough money (and the balance)
         bal = None
         if not errors and kind == "exchange":
-            errs, bal = await _key_errors(request, gs, acc, exchange, mode, api_key, secret, password,
+            errs, bal = await _key_errors(request, gs, acc, exchange, mode, api_key, secret, password, cur,
                                           bool(f.get("sandbox")), bool(f.get("dry_run")), capital, sizing, pairs, cap)
             errors += errs
         wallet_now = (bal or {}).get("wallet", (bal or {}).get("total")) if bal else (acc.wallet_balance if acc else None)
@@ -426,7 +486,7 @@ async def _save_account(request: Request, acc_id: int | None):
         if not errors:
             wallet = {"wallet_pct": wallet_pct, "min_stake": min_stake, "wallet_balance": wallet_now}
             for it in _rule_errors(request, gs, kind, exchange, mode, leverage, sizing, pairs, capital, mot,
-                                   chosen_bot, catalog, **wallet):
+                                   chosen_bot, catalog, quote=quote, **wallet):
                 pp = it["params"].get("pair", "")
                 if it["key"] == "ck_pair_inactive" and f.get(f"pfix__{pp}") == "keep":
                     continue  # the user keeps it: its trades are skipped while the exchange has it closed
@@ -446,7 +506,7 @@ async def _save_account(request: Request, acc_id: int | None):
                 capital=_num(f.get("capital")) or (capital if sizing != "custom_amounts" else 0), max_open_trades=mot,
                 bots=bots, pair_bot=chosen_bot, stoploss_pct=sl, daily_loss_limit_pct=dll, dry_run=bool(f.get("dry_run")),
                 sandbox=bool(f.get("sandbox")), api_key=api_key, secret=secret, password=password,
-                no_withdraw=bool(f.get("no_withdraw")), wallet_pct=wallet_pct or _num(f.get("wallet_pct"), 0) or None,
+                no_withdraw=bool(f.get("no_withdraw")), quote=quote, wallet_pct=wallet_pct or _num(f.get("wallet_pct"), 0) or None,
                 min_stake=_num(f.get("min_stake"), 0) or None, wallet_balance=wallet_now)
             return render(request, "account_form.html", **_form_ctx(gs, acc, kind, draft, issues, user))
         if acc is None:
@@ -461,6 +521,7 @@ async def _save_account(request: Request, acc_id: int | None):
         acc.margin_mode = "cross" if f.get("margin_mode") == "cross" else "isolated"
         acc.sizing_mode, acc.pairs, acc.capital, acc.max_open_trades = sizing, pairs, capital, mot
         acc.wallet_pct, acc.min_stake = wallet_pct, min_stake
+        acc.quote = quote
         if wallet_now is not None and bal:
             acc.wallet_balance, acc.wallet_balance_at = wallet_now, utcnow()
         # per pair: take signals only from one chosen bot (it is followed automatically)
@@ -825,7 +886,8 @@ async def account_check(request: Request):
             from ..security import decrypt
             key, secret = key or decrypt(acc.api_key_enc) or "", secret or decrypt(acc.secret_enc) or ""
             pw = pw or decrypt(acc.password_enc) or ""
-        cur = gs.stake_currency
+        cur = (str(data.get("quote") or "").upper() or gs.stake_currency) if mode == "spot" else gs.stake_currency
+        stake = gs.stake_currency
     if not key or not secret:
         return JSONResponse({"ok": False, "items": [{"status": "error", "text": tr(request, "err_keys")}]})
     from ..db import key_hash
@@ -838,7 +900,7 @@ async def account_check(request: Request):
     res = await check_keys(exchange, mode, key, secret, pw, bool(data.get("sandbox")), cur)
     sel = {str(p).upper(): v for p, v in (data.get("pairs") or {}).items() if isinstance(v, dict)}
     rules = {p: pair_rules(o) for p, o in offers_by_pair().items()}
-    pair_items = check_pairs(exchange, mode, sel, rules)
+    pair_items = check_pairs(exchange, mode, sel, rules, quote=cur, stake=stake)
     from ..engine.account_check import position_items
     pos_items = position_items(res.get("positions") or [], set(sel))
     res["items"] += pos_items

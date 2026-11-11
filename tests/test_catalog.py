@@ -52,10 +52,42 @@ class FakeBinance:
         pass
 
 
+SPOT = {f"{b}/{q}": {"symbol": f"{b}/{q}", "base": b, "quote": q, "spot": True, "active": True,
+                     "limits": {"cost": {"min": 5 if q != "EUR" else 10}, "amount": {"min": 0.0001}}}
+        for b, q in (("BTC", "USDT"), ("BTC", "EUR"), ("BTC", "USDC"), ("ETH", "USDT"), ("ETH", "USDC"),
+                     ("EUR", "USDT"), ("SSV", "USDT"))}
+SPOT_PRICES = {"BTC/USDT": 100000, "BTC/EUR": 92000, "BTC/USDC": 100010, "ETH/USDT": 3000, "ETH/USDC": 3001,
+               "EUR/USDT": 1.087, "SSV/USDT": 2}
+
+
+class FakeSpot:
+    """Public spot markets: BTC in USDT, EUR and USDC; ETH in USDT and USDC (not EUR)."""
+
+    def __init__(self, params):
+        self.params = params
+
+    async def load_markets(self):
+        return SPOT
+
+    async def fetch_tickers(self, symbols=None):
+        return {k: {"last": v, "quoteVolume": 5e6 if k != "BTC/EUR" else 40_000} for k, v in SPOT_PRICES.items()}
+
+    async def fetch_balance(self):  # a spot wallet holding a little of each quote coin
+        bal = {"USDT": 500.0, "USDC": 500.0, "EUR": 500.0}
+        return {"free": dict(bal), "total": dict(bal)}
+
+    async def sapi_get_account_apirestrictions(self):
+        return dict(FakeBinance.perms)
+
+    async def close(self):
+        pass
+
+
 @pytest.fixture
 def env(monkeypatch):
     init_db()
     monkeypatch.setattr(exmod.ccxt, "binanceusdm", FakeBinance)
+    monkeypatch.setattr(exmod.ccxt, "binance", FakeSpot)
     FakeBinance.perms = {"enableReading": True, "enableFutures": True, "enableWithdrawals": False, "ipRestrict": True}
     FakeBinance.hedged, FakeBinance.positions, FakeBinance.balance, FakeBinance.fail = False, [], 500.0, None
     with SessionLocal() as s:

@@ -24,8 +24,25 @@ log = logging.getLogger("relay.exchange")
 EXCHANGES = {
     "binance": "Binance", "bybit": "Bybit", "okx": "OKX", "bitget": "Bitget",
     "kucoin": "KuCoin", "gate": "Gate.io", "mexc": "MEXC", "htx": "HTX", "bingx": "BingX",
+    "kraken": "Kraken", "coinbase": "Coinbase", "bitvavo": "Bitvavo", "myokx": "MyOKX (EEA)",
+    "hyperliquid": "Hyperliquid",
 }
-NEEDS_PASSWORD = {"okx", "bitget", "kucoin"}
+NEEDS_PASSWORD = {"okx", "bitget", "kucoin", "myokx"}
+SPOT_ONLY = {"kraken", "coinbase", "bitvavo", "myokx", "hyperliquid"}  # futures stay on the others (USDT) for now
+# Hyperliquid has no API key: the two key fields carry the wallet address and the API wallet's private key
+CREDENTIAL_NAMES = {"hyperliquid": ("walletAddress", "privateKey", None)}
+QUOTES = ("USDT", "USDC", "USD", "EUR", "GBP", "FDUSD", "TRY", "BRL", "AUD", "CAD", "JPY")
+USD_LIKE = {"USDT", "USDC", "USD", "FDUSD", "DAI", "TUSD", "USDE"}
+
+
+def credentials(exchange: str, key: str | None, secret: str | None, password: str | None) -> dict:
+    """ccxt parameter names for this exchange's credentials."""
+    k, sec, pw = CREDENTIAL_NAMES.get(exchange, ("apiKey", "secret", "password"))
+    out = {}
+    for name, v in ((k, key), (sec, secret), (pw, password)):
+        if name and v:
+            out[name] = v
+    return out
 
 
 def ccxt_target(exchange: str, trading_mode: str) -> tuple[str, str]:
@@ -99,11 +116,10 @@ class ExchangeClient:
         # no fetchCurrencies: a private wallet call on every market load, not needed for futures orders
         params = {"enableRateLimit": True, "timeout": 15000,
                   "options": {"defaultType": default_type, "fetchCurrencies": False}}
-        for field, name in ((acc.api_key_enc, "apiKey"), (acc.secret_enc, "secret"), (acc.password_enc, "password")):
-            v = decrypt(field)
-            if v:
-                params[name] = v
+        params.update(credentials(acc.exchange, decrypt(acc.api_key_enc), decrypt(acc.secret_enc),
+                                  decrypt(acc.password_enc)))
         self.ex = klass(params)
+        self.quote = acc.currency("") if acc.is_spot else ""  # spot: trade BTC/<this> whatever the bot's pair
         if acc.sandbox:
             self.ex.set_sandbox_mode(True)
         from . import netips
@@ -151,7 +167,10 @@ class ExchangeClient:
 
     # ---------------------------------------------------------------- markets
     def resolve(self, pair: str) -> str:
+        """The bots' pair (BTC/USDT) -> this exchange's market; spot in the portfolio's quote coin (BTC/EUR)."""
         base, quote = pair.upper().split("/")
+        if self.is_spot and self.quote:
+            quote = self.quote
         best = None
         for m in self.ex.markets.values():
             if m.get("base") != base or m.get("quote") != quote or m.get("active") is False:
@@ -164,7 +183,7 @@ class ExchangeClient:
                 best = best or m["symbol"]
         if best:
             return best
-        raise ValueError(f"{pair} not available on this exchange ({'spot' if self.is_spot else 'futures'})")
+        raise ValueError(f"{base}/{quote} not available on this exchange ({'spot' if self.is_spot else 'futures'})")
 
     def market(self, symbol: str) -> dict:
         return self.ex.market(symbol)
@@ -325,6 +344,8 @@ class ExchangeClient:
                 fee_quote += cost * avg
             elif cur in (m.get("quote"), m.get("settle")):
                 fee_quote += cost
+        if self.is_spot:
+            self._bal = None  # spot: the coin balance itself changed (an exit reads it right after an entry)
         return Fill(oid, filled, avg, fee_quote, fee_base, str(order.get("status") or "unknown"))
 
     async def place_stop(self, symbol: str, side: str, amount: float, stop_price: float) -> str | None:
