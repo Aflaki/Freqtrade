@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,9 @@ ICON_DIR = DATA_DIR / "icons"
 MAP_FILE = ICON_DIR / "map.json"
 FAPI = "https://fapi.binance.com"
 CMC = "https://pro-api.coinmarketcap.com/public-api"
+CMC_DATA = "https://api.coinmarketcap.com/data-api"  # what coinmarketcap.com's own pages read (no key)
+HIST_EVERY = 6 * 3600   # daily history for the charts: a few times a day is plenty
+HIST_DAYS = 365
 # our exchange ids -> CoinGecko exchange ids
 CG_EXCHANGES = {"binance": "binance", "bybit": "bybit_spot", "okx": "okex", "bitget": "bitget", "kucoin": "kucoin",
                 "gate": "gate", "mexc": "mxc", "htx": "huobi", "bingx": "bingx"}
@@ -124,7 +128,29 @@ def _num(v: Any) -> float | None:
         return None
 
 
+async def _cmc_chart(path: str, days: int) -> dict:
+    now = int(time.time())
+    return (await _json(CMC_DATA + path, {"start": now - days * 86400, "end": now})).get("data") or {}
+
+
+def _score(x: Any, key: str) -> int | None:
+    v = _num((x or {}).get(key))
+    return int(round(v)) if v is not None else None
+
+
 async def fear_greed() -> dict:
+    """CoinMarketCap's own index first (the one on coinmarketcap.com), then alternative.me's (a different index)."""
+    try:
+        d = await _cmc_chart("/v3/fear-greed/chart", 8)
+        hv = d.get("historicalValues") or {}
+        now = hv.get("now") or (d.get("dataList") or [{}])[-1]
+        v = _score(now, "score")
+        if v is not None:
+            return {"value": v, "label": now.get("name", ""), "prev": _score(hv.get("yesterday"), "score"),
+                    "week": _score(hv.get("lastWeek"), "score"), "month": _score(hv.get("lastMonth"), "score"),
+                    "source": "CoinMarketCap"}
+    except Exception as e:
+        log.info("CoinMarketCap fear & greed: %s", e)
     try:
         d = (await _json("https://api.alternative.me/fng/", {"limit": 2})).get("data") or []
         now, prev = d[0], (d[1] if len(d) > 1 else {})
@@ -158,6 +184,15 @@ def _find_index(obj: Any) -> float | None:
 
 
 async def altcoin_season() -> dict:
+    try:
+        d = await _cmc_chart("/v3/altcoin-season/chart", 8)
+        hv = d.get("historicalValues") or {}
+        v = _score(hv.get("now") or (d.get("points") or [{}])[-1], "altcoinIndex")
+        if v is not None:
+            return {"value": v, "prev": _score(hv.get("yesterday"), "altcoinIndex"),
+                    "month": _score(hv.get("lastMonth"), "altcoinIndex"), "source": "CoinMarketCap"}
+    except Exception as e:
+        log.info("CoinMarketCap altcoin season: %s", e)
     v = _find_index(await _json(CMC + "/v1/altcoin-season-index/latest"))
     if v is None:
         raise ValueError("no index in the answer")
@@ -165,6 +200,17 @@ async def altcoin_season() -> dict:
 
 
 async def global_market() -> dict:
+    """CoinMarketCap's totals first (they count a different set of coins than CoinGecko), CoinGecko as backup."""
+    try:
+        d = (await _json(CMC_DATA + "/v3/global-metrics/quotes/latest")).get("data") or {}
+        q = (d.get("quotes") or [{}])[0]
+        total = _num(q.get("totalMarketCap"))
+        if total:
+            return {"total_usd": total, "change_24h": _num(q.get("totalMarketCapYesterdayPercentageChange")),
+                    "volume_usd": _num(q.get("totalVolume24H")), "btc_dom": _num(d.get("btcDominance")),
+                    "eth_dom": _num(d.get("ethDominance")), "source": "CoinMarketCap"}
+    except Exception as e:
+        log.info("CoinMarketCap global metrics: %s", e)
     d = (await coingecko.get("/global")).get("data") or {}
     pct = d.get("market_cap_percentage") or {}
     return {"total_usd": _num((d.get("total_market_cap") or {}).get("usd")),
@@ -188,6 +234,55 @@ async def futures_stats() -> dict:
     return out
 
 
+def _ts(v: Any) -> int | None:
+    if v is None:
+        return None
+    if str(v).isdigit():
+        return int(v)
+    try:
+        import datetime as _dt
+        return int(_dt.datetime.fromisoformat(str(v).replace("Z", "+00:00")).timestamp())
+    except ValueError:
+        return None
+
+
+async def market_history(days: int = HIST_DAYS) -> dict[str, list]:
+    """Daily series for the charts, from CoinMarketCap: total market cap, volume, BTC dominance, Fear & Greed,
+    Altcoin season. {"mcap": [[unix, value], ...], ...}; a series that fails is left out."""
+    out: dict[str, list] = {}
+    try:
+        now = int(time.time())
+        d = (await _json(CMC_DATA + "/v3/global-metrics/quotes/historical",
+                         {"format": "chart_crypto_details", "interval": "1d", "timeStart": now - days * 86400,
+                          "timeEnd": now})).get("data") or {}
+        mcap, vol, btc = [], [], []
+        for q in d.get("quotes") or []:
+            ts = _ts(q.get("timestamp"))
+            usd = (q.get("quote") or [{}])[0]
+            if ts is None:
+                continue
+            if _num(usd.get("totalMarketCap")):
+                mcap.append([ts, _num(usd["totalMarketCap"])])
+            if _num(usd.get("totalVolume24H")):
+                vol.append([ts, _num(usd["totalVolume24H"])])
+            if _num(q.get("btcDominance")) is not None:
+                btc.append([ts, _num(q["btcDominance"])])
+        out.update({k: v for k, v in (("mcap", mcap), ("vol", vol), ("btc_dom", btc)) if len(v) > 1})
+    except Exception as e:
+        log.info("CoinMarketCap market history: %s", e)
+    for key, path, field, items in (("fng", "/v3/fear-greed/chart", "score", "dataList"),
+                                    ("alt", "/v3/altcoin-season/chart", "altcoinIndex", "points")):
+        try:
+            rows = (await _cmc_chart(path, days)).get(items) or []
+            pts = [[_ts(r.get("timestamp")), _num(r.get(field))] for r in rows]
+            pts = [p for p in pts if p[0] is not None and p[1] is not None]
+            if len(pts) > 1:
+                out[key] = pts
+        except Exception as e:
+            log.info("CoinMarketCap %s history: %s", key, e)
+    return out
+
+
 async def refresh_widgets() -> dict:
     with SessionLocal() as s:
         data = dict(get_global(s).market_widgets or {})
@@ -197,6 +292,13 @@ async def refresh_widgets() -> dict:
             data[name] = await fn()
         except Exception as e:  # keep the last good value
             errors[name] = f"{type(e).__name__}: {str(e)[:120]}"
+    if time.time() - float(data.get("hist_at") or 0) > HIST_EVERY:
+        hist = await market_history()
+        if hist:
+            data["hist"] = {**(data.get("hist") or {}), **hist}
+            data["hist_at"] = time.time()
+        else:
+            errors["hist"] = "CoinMarketCap history unavailable"
     data["errors"], data["at"] = errors, utcnow().isoformat(timespec="seconds")
     with SessionLocal() as s:
         get_global(s).market_widgets = data
@@ -238,4 +340,60 @@ def view() -> dict:
         gauge = (round(60 + 44 * math.cos(ang), 1), round(60 - 44 * math.sin(ang), 1))
         band = ("extreme_fear" if fng < 25 else "fear" if fng < 45 else "neutral" if fng <= 55
                 else "greed" if fng <= 75 else "extreme_greed")
-    return {"mw": mw, "gauge": gauge, "fng_band": band}
+    return {"mw": mw, "gauge": gauge, "fng_band": band, "mcharts": charts(mw.get("hist") or {}, mw)}
+
+
+CHART_RANGES = (30, 90, 365)
+# key, series in the stored history, divisor, tick format, fixed 0..100 scale, colour
+CHART_METRICS = (("mcap", "mcap", 1e9, "${:,.0f}B", False, "var(--chart)"),
+                 ("vol", "vol", 1e9, "${:,.0f}B", False, "#a78bfa"),
+                 ("btc_dom", "btc_dom", 1, "{:.0f}%", False, "#f7931a"),
+                 ("fng", "fng", 1, "{:.0f}", True, "#f59e0b"),
+                 ("alt", "alt", 1, "{:.0f}", True, "#22c55e"))
+
+
+def _with_now(hist: dict, mw: dict) -> dict:
+    """The daily history ends at yesterday's close: add today's live value so the chart ends where the cards are."""
+    g, now = mw.get("global") or {}, time.time()
+    live = {"mcap": g.get("total_usd"), "vol": g.get("volume_usd"), "btc_dom": g.get("btc_dom"),
+            "fng": (mw.get("fng") or {}).get("value"), "alt": (mw.get("alt") or {}).get("value")}
+    if (mw.get("global") or {}).get("source") != "CoinMarketCap":
+        live.update(mcap=None, vol=None, btc_dom=None)  # other sources count differently: don't mix them in
+    out = dict(hist)
+    for k, v in live.items():
+        pts = list(out.get(k) or [])
+        if v is not None and pts and now - pts[-1][0] > 600:
+            out[k] = pts + [[int(now), float(v)]]
+    return out
+
+
+def charts(hist: dict, mw: dict | None = None) -> list[dict]:
+    """[{key, range, chart, last, first, change}] for every metric and range that has data."""
+    import datetime as _dt
+
+    from .performance import build_chart
+    hist = _with_now(hist, mw or {})
+    out = []
+    now = time.time()
+    for key, src, div, fmt, fixed, color in CHART_METRICS:
+        pts = [(p[0], p[1] / div) for p in hist.get(src) or [] if p and p[1] is not None]
+        if len(pts) < 2:
+            continue
+        for days in CHART_RANGES:
+            sel = [p for p in pts if p[0] >= now - days * 86400 - 3600]
+            if len(sel) > 200:  # a line on a page: about 200 points is plenty
+                step = len(sel) / 200
+                sel = [sel[int(i * step)] for i in range(200)] + [sel[-1]]
+            if len(sel) < 2:
+                continue
+            series = [{"key": key, "name": key, "color": color, "dash": False, "on": True,
+                       "points": [(_dt.datetime.fromtimestamp(t), v) for t, v in sel]}]
+            c = build_chart(series, unit="", include_zero=fixed, yfmt=fmt, fixed=(0, 100) if fixed else None)
+            if c:
+                s0 = c["series"][0]
+                bottom = c["h"] - c["B"]
+                s0["area"] = f'{s0["path"]} L{c["w"] - c["R"]},{bottom} L{c["L"]},{bottom} Z'
+                first, last = sel[0][1], sel[-1][1]
+                out.append({"key": key, "days": days, "chart": c, "last": last, "first": first, "fmt": fmt,
+                            "change": (last / first - 1) * 100 if first and not fixed else last - first})
+    return out

@@ -10,11 +10,19 @@ from app.engine import coingecko, marketdata
 from app.main import app
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 40
-STATE = {"alt_fail": False}
+STATE = {"alt_fail": False, "cmc_fail": False}
+FIX = __import__("pathlib").Path(__file__).parent / "fixtures"  # real CoinMarketCap answers (Nov 2026)
+CMC_FIX = {"/v3/fear-greed/chart": "cmc_fng_chart", "/v3/altcoin-season/chart": "cmc_alt_chart",
+           "/v3/global-metrics/quotes/latest": "cmc_global_latest", "/v3/global-metrics/quotes/historical": "cmc_global_hist"}
 
 
 def handler(request: httpx.Request) -> httpx.Response:
     u = str(request.url)
+    if "api.coinmarketcap.com/data-api" in u:
+        if STATE["cmc_fail"]:
+            return httpx.Response(503)
+        name = next((v for k, v in CMC_FIX.items() if k in u), None)
+        return httpx.Response(200, content=(FIX / f"{name}.json").read_bytes()) if name else httpx.Response(404)
     if "alternative.me/fng" in u:
         return httpx.Response(200, json={"data": [{"value": "23", "value_classification": "Extreme Fear"},
                                                   {"value": "31", "value_classification": "Fear"}]})
@@ -53,15 +61,38 @@ def mocked(monkeypatch, tmp_path):
     monkeypatch.setattr(coingecko, "GAP_KEYLESS", 0)
     monkeypatch.setattr(marketdata, "ICON_DIR", tmp_path / "icons")
     monkeypatch.setattr(marketdata, "MAP_FILE", tmp_path / "icons" / "map.json")
-    STATE["alt_fail"] = False
+    STATE["alt_fail"] = STATE["cmc_fail"] = False
     yield
     with SessionLocal() as s:
         get_global(s).market_widgets = None
         s.commit()
 
 
-def test_widgets_refresh_and_view(mocked):
+def test_coinmarketcap_first_with_charts(mocked):
+    """The numbers users compare with are CoinMarketCap's: index, totals, dominance, plus daily charts."""
+    import json
     d = asyncio.run(marketdata.refresh_widgets())
+    assert d["errors"] == {}
+    fng = json.loads((FIX / "cmc_fng_chart.json").read_text())["data"]["historicalValues"]
+    assert d["fng"]["value"] == fng["now"]["score"] and d["fng"]["source"] == "CoinMarketCap"
+    assert d["fng"]["prev"] == fng["yesterday"]["score"] and d["fng"]["week"] == fng["lastWeek"]["score"]
+    g = json.loads((FIX / "cmc_global_latest.json").read_text())["data"]
+    assert d["global"]["source"] == "CoinMarketCap" and d["global"]["total_usd"] == g["quotes"][0]["totalMarketCap"]
+    assert d["global"]["btc_dom"] == g["btcDominance"] and d["alt"]["source"] == "CoinMarketCap"
+    assert {"mcap", "vol", "btc_dom", "fng", "alt"} <= set(d["hist"])
+    charts = marketdata.view()["mcharts"]
+    assert {(c["key"], c["days"]) for c in charts} >= {("mcap", 30), ("fng", 30), ("alt", 30), ("btc_dom", 30)}
+    mc = next(c for c in charts if c["key"] == "mcap" and c["days"] == 30)
+    assert mc["last"] == pytest.approx(g["quotes"][0]["totalMarketCap"] / 1e9)  # ends at the live value
+    assert all(label.startswith("$") and label.endswith("B") for _, label in mc["chart"]["yticks"])
+    html = TestClient(app).get("/").text
+    assert 'id="mcharts"' in html and 'data-m="fng"' in html and "CoinMarketCap" in html
+
+
+def test_widgets_refresh_and_view(mocked):
+    STATE["cmc_fail"] = True  # CoinMarketCap down: the other sources stand in
+    d = asyncio.run(marketdata.refresh_widgets())
+    d["errors"].pop("hist", None)
     assert d["errors"] == {}
     assert d["fng"] == {"value": 23, "label": "Extreme Fear", "prev": 31, "source": "alternative.me"}
     assert d["alt"]["value"] == 47 and d["global"]["btc_dom"] == 58.4 and d["global"]["total_usd"] == 3.21e12
@@ -73,6 +104,7 @@ def test_widgets_refresh_and_view(mocked):
     STATE["alt_fail"] = True
     d = asyncio.run(marketdata.refresh_widgets())
     assert d["alt"]["value"] == 47 and "alt" in d["errors"]
+    assert d["global"]["source"] == "CoinGecko"
 
 
 def test_altcoin_index_answer_shapes():
@@ -84,6 +116,7 @@ def test_altcoin_index_answer_shapes():
 
 
 def test_home_page_shows_widgets(mocked):
+    STATE["cmc_fail"] = True  # the fallback sources' numbers
     asyncio.run(marketdata.refresh_widgets())
     html = TestClient(app).get("/?lang=en").text
     assert "Fear &amp; Greed Index" in html and "Extreme fear" in html and "$3.21T" in html and "58.4%" in html

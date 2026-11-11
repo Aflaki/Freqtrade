@@ -389,4 +389,10 @@ C: dict[str, tuple[str, str, str, str]] = {
     "srv_bots_bad": ("{n} مشکل", "{n} with a problem", "{n} mit Problem", "{n} con problema"),
     "srv_bots_all_ok": ("همه سالم", "all fine", "alle in Ordnung", "todos bien"),
     "api_gid_help": ("نام فنی همین بخش در کتابخانه ccxt. فیوچرز و اسپات بایننس سقف درخواست جدا دارند.", "The technical name of this part in the ccxt library. Binance futures and spot have separate request limits.", "Technischer Name in der ccxt-Bibliothek. Binance Futures und Spot haben getrennte Limits.", "Nombre técnico en la librería ccxt. Futuros y spot de Binance tienen límites separados."),
+    # ---------------------------------------------------------------- CoinMarketCap charts (home page)
+    "mc_title": ("نمودارهای بازار", "Market charts", "Marktcharts", "Gráficos del mercado"),
+    "mc_volume": ("حجم معاملات ۲۴س", "24h volume", "24h-Volumen", "Volumen 24h"),
+    "mc_btc_dom": ("دامیننس بیت‌کوین", "Bitcoin dominance", "Bitcoin-Dominanz", "Dominancia de Bitcoin"),
+    "mc_change": ("تغییر در {days} روز", "change over {days} days", "Änderung in {days} Tagen", "cambio en {days} días"),
+    "mc_note": ("داده‌ها از CoinMarketCap، روزانه؛ آخرین نقطه همین الان است. خطوط نقطه‌چین در ترس و طمع و فصل آلت‌کوین مرز ۲۵ و ۷۵ است.", "Data from CoinMarketCap, daily; the last point is now. Dotted lines on Fear & Greed and Altcoin season mark 25 and 75.", "Daten von CoinMarketCap, täglich; der letzte Punkt ist jetzt. Gepunktete Linien bei Fear & Greed und Altcoin-Season markieren 25 und 75.", "Datos de CoinMarketCap, diarios; el último punto es ahora. Las líneas punteadas en Miedo y Codicia y Temporada de altcoins marcan 25 y 75."),
 }

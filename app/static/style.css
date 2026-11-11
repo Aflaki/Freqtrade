@@ -258,3 +258,8 @@ tr.grid-frow td{padding:4px 6px}tr.grid-frow input{width:100%;min-width:60px;pad
 .card.collapsed .cl-toggle::before{content:"▸ "}[dir=rtl] .card.collapsed .cl-toggle::before{content:"◂ "}
 .card.collapsed>:not(.cl-head){display:none}.card.collapsed{padding-bottom:12px}.card.collapsed .cl-head{margin-bottom:0}
 details.srv-bots-box{margin:10px 0}details.srv-bots-box>summary{cursor:pointer;font-weight:600;padding:6px 0;list-style-position:inside}
+
+/* CoinMarketCap charts (home page) */
+.mc-pick{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 10px}
+.mc-head{display:flex;align-items:baseline;gap:10px;margin:4px 0}.mc-v{font-size:24px;font-weight:800}
+.mc-area{opacity:.12}.mc-band{stroke-dasharray:3,4;stroke-width:1;opacity:.5}.mc-band.neg{stroke:var(--short)}.mc-band.pos{stroke:var(--long)}

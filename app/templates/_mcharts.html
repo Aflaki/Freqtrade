@@ -1,0 +1,44 @@
+{# CoinMarketCap charts on the home page: total market cap, volume, BTC dominance, Fear & Greed, Altcoin season.
+   Needs: mcharts (marketdata.charts) #}
+{% if mcharts %}
+{% set names = {'mcap': _('mw_mcap'), 'vol': _('mc_volume'), 'btc_dom': _('mc_btc_dom'), 'fng': _('mw_fng'), 'alt': _('mw_alt')} %}
+{% set keys = [] %}{% for m in mcharts %}{% if m.key not in keys %}{% if keys.append(m.key) %}{% endif %}{% endif %}{% endfor %}
+<div class="card mcharts" id="mcharts"><h2>📈 {{ _('mc_title') }} <span class="small muted">CoinMarketCap</span></h2>
+<div class="mc-pick">
+  <div class="seg" role="group">{% for k in keys %}<a href="#mcharts" class="mc-m" data-m="{{ k }}">{{ names[k] }}</a>{% endfor %}</div>
+  <div class="seg" role="group">{% for d in [30, 90, 365] %}<a href="#mcharts" class="mc-r" data-r="{{ d }}">{{ _('period_' ~ d) }}</a>{% endfor %}</div>
+</div>
+{% for m in mcharts %}{% set c = m.chart %}{% set s0 = c.series[0] %}
+<div class="mc" data-m="{{ m.key }}" data-r="{{ m.days }}" hidden>
+  <div class="mc-head"><span class="mc-v num">{{ m.fmt.format(m.last) if m.key not in ('mcap', 'vol') else '$' ~ '{:,.2f}'.format(m.last / 1000) ~ 'T' if m.key == 'mcap' else m.fmt.format(m.last) }}</span>
+  <span class="num {{ 'pos' if m.change >= 0 else 'neg' }}">{{ ('%+.1f%%'|format(m.change)) if m.key in ('mcap', 'vol') else ('%+.1f'|format(m.change)) }}</span>
+  <span class="small muted">{{ _('mc_change', days=m.days) }}</span></div>
+  <div class="chartbox" dir="ltr"><svg class="xchart" viewBox="0 0 {{ c.w }} {{ c.h }}" role="img" aria-label="{{ names[m.key] }}">
+    {% for y, label in c.yticks %}<line x1="{{ c.L }}" x2="{{ c.w - c.R }}" y1="{{ y }}" y2="{{ y }}" class="grid"/>
+    <text x="{{ c.L - 6 }}" y="{{ y + 4 }}" text-anchor="end" class="tick">{{ label }}</text>{% endfor %}
+    {% for x, label in c.xticks %}<text x="{{ x }}" y="{{ c.h - 9 }}" text-anchor="{{ 'start' if loop.first else 'end' if loop.last else 'middle' }}" class="tick">{{ label }}</text>{% endfor %}
+    {% if m.key in ('fng', 'alt') %}{% for v, cls in [(25, 'neg'), (75, 'pos')] %}<line x1="{{ c.L }}" x2="{{ c.w - c.R }}" y1="{{ c.T + (c.h - c.T - c.B) * (1 - v / 100) }}" y2="{{ c.T + (c.h - c.T - c.B) * (1 - v / 100) }}" class="mc-band {{ cls }}"/>{% endfor %}{% endif %}
+    <path d="{{ s0.area }}" class="mc-area" style="fill:{{ s0.color }}"/>
+    <path d="{{ s0.path }}" fill="none" style="stroke:{{ s0.color }}" stroke-width="2.2" vector-effect="non-scaling-stroke"/>
+  </svg></div>
+</div>{% endfor %}
+<p class="small muted">{{ _('mc_note') }}</p>
+<script>
+(function(){
+  const box=document.getElementById('mcharts'); if(!box) return;
+  let m='mcap', r='90';
+  try{ m=localStorage.getItem('mc-m')||m; r=localStorage.getItem('mc-r')||r; }catch(e){}
+  const show=()=>{
+    if(!box.querySelector(`.mc[data-m="${m}"][data-r="${r}"]`)){ const f=box.querySelector('.mc'); m=f.dataset.m; if(!box.querySelector(`.mc[data-m="${m}"][data-r="${r}"]`)) r=f.dataset.r; }
+    box.querySelectorAll('.mc').forEach(e=>e.hidden=!(e.dataset.m===m&&e.dataset.r===r));
+    box.querySelectorAll('.mc-m').forEach(a=>a.classList.toggle('on',a.dataset.m===m));
+    box.querySelectorAll('.mc-r').forEach(a=>a.classList.toggle('on',a.dataset.r===r));
+    try{ localStorage.setItem('mc-m',m); localStorage.setItem('mc-r',r); }catch(e){}
+  };
+  box.querySelectorAll('.mc-m').forEach(a=>a.addEventListener('click',e=>{e.preventDefault(); m=a.dataset.m; show();}));
+  box.querySelectorAll('.mc-r').forEach(a=>a.addEventListener('click',e=>{e.preventDefault(); r=a.dataset.r; show();}));
+  show();
+})();
+</script>
+</div>
+{% endif %}

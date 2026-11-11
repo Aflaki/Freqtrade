@@ -436,7 +436,8 @@ def _nice_step(span: float, n: int = 5) -> float:
     return 10 * mag
 
 
-def build_chart(series: list[dict], unit: str = "%", w: int = 820, h: int = 280) -> dict | None:
+def build_chart(series: list[dict], unit: str = "%", w: int = 820, h: int = 280, include_zero: bool = True,
+                yfmt: str | None = None, fixed: tuple[float, float] | None = None) -> dict | None:
     """series: [{"key","name","color","points":[(datetime, value)], "dash": bool, "on": bool}] -> SVG geometry."""
     import datetime as _dt
     L, R, T, B = 62, 14, 12, 30
@@ -446,9 +447,14 @@ def build_chart(series: list[dict], unit: str = "%", w: int = 820, h: int = 280)
     t0 = min(p[0] for p in pts).timestamp()
     t1 = max(p[0] for p in pts).timestamp()
     tspan = (t1 - t0) or 1.0
-    lo, hi = min(0.0, min(p[1] for p in pts)), max(0.0, max(p[1] for p in pts))
-    step = _nice_step((hi - lo) or 1)
-    lo, hi = step * (lo // step), step * (-(-hi // step))
+    if fixed:  # e.g. an index that always runs 0..100
+        lo, hi = fixed
+        step = _nice_step(hi - lo)
+    else:
+        vals = [p[1] for p in pts]
+        lo, hi = (min(0.0, min(vals)), max(0.0, max(vals))) if include_zero else (min(vals), max(vals))
+        step = _nice_step((hi - lo) or abs(hi) or 1)
+        lo, hi = step * (lo // step), step * (-(-hi // step))
     span = (hi - lo) or 1.0
     pw, ph = w - L - R, h - T - B
 
@@ -468,13 +474,16 @@ def build_chart(series: list[dict], unit: str = "%", w: int = 820, h: int = 280)
     xticks = [(X(t0 + tspan * i / 4), _dt.datetime.fromtimestamp(t0 + tspan * i / 4).strftime(fmt)) for i in range(5)]
     yticks, v = [], lo
     while v <= hi + 1e-9:
-        label = (f"{v:+.0f}%" if step >= 1 else f"{v:+.1f}%") if unit == "%" else f"{v:,.0f}"
-        yticks.append((Y(v), label if v else "0"))
+        if yfmt:
+            yticks.append((Y(v), yfmt.format(v)))
+        else:
+            label = (f"{v:+.0f}%" if step >= 1 else f"{v:+.1f}%") if unit == "%" else f"{v:,.0f}"
+            yticks.append((Y(v), label if v else "0"))
         v += step
     start = _dt.datetime.fromtimestamp(t0)
     end = _dt.datetime.fromtimestamp(t1)
     return {"w": w, "h": h, "L": L, "R": R, "T": T, "B": B, "series": out, "xticks": xticks, "yticks": yticks,
-            "zero": Y(0), "unit": unit, "start": start, "end": end, "days": max(1, round(tspan / 86400)),
+            "zero": Y(0) if lo <= 0 <= hi else None, "unit": unit, "start": start, "end": end, "days": max(1, round(tspan / 86400)),
             # dates wrapped in Unicode LTR isolates so they read correctly inside Persian text
             "start_s": "\u2066" + start.strftime("%Y-%m-%d") + "\u2069", "end_s": "\u2066" + end.strftime("%Y-%m-%d") + "\u2069"}
 
