@@ -527,6 +527,7 @@ def live_trades(bots: list[Bot], market: str = "all") -> dict:
     The bot's pair filter and the side filter apply, like for closed trades.
     """
     from .botmonitor import monitor
+    monitor.want_live()
     rows: list[dict] = []
     fallback = []
     updated, stale = [], []

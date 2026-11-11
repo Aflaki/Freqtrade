@@ -38,6 +38,7 @@ def key(pair: str, side: str, kind: str) -> str:
 async def compare(acc_id: int) -> dict[str, Any]:
     from . import livepos
     from .botmonitor import monitor
+    monitor.want_live()
     with SessionLocal() as s:
         acc = s.get(ExchangeAccount, acc_id)
         if acc is None or not can_scan(acc):

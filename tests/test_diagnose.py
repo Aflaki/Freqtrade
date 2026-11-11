@@ -52,3 +52,55 @@ def test_wrong_password_and_refused():
         raise httpx.ConnectError("Connection refused")
     steps = _run(refused, lambda: bm.diagnose("http://h:8015", "u", "p"))
     assert steps[-1]["step"] == "reach" and steps[-1]["hint"] == "refused"
+
+
+def test_polling_asks_only_what_changes():
+    """Every request is work inside the bot (and /balance makes it call the exchange): the minute poll only checks
+    that it is alive; configuration every 10 min, balance every 30 min, closed trades every 5 min."""
+    import datetime as dt
+
+    from app.db import Bot, BotTrade, SessionLocal, init_db, utcnow
+    from app.security import encrypt
+    init_db()
+    with SessionLocal() as s:
+        b = Bot(name="PollMe", webhook_secret="poll-me", api_url="http://h:8015", api_user="FreqTrader",
+                api_pass_enc=encrypt("secret"))
+        s.add(b)
+        s.commit()
+        bot_id = b.id
+    calls = []
+    inner = freqtrade()
+
+    def handler(request):
+        calls.append(request.url.path.replace("/api/v1", ""))
+        if request.url.path == "/api/v1/trades":
+            return httpx.Response(200, json={"trades": []})
+        return inner(request)
+    try:
+        def poll(**kw):
+            calls.clear()
+            _run(handler, lambda: bm.monitor.poll_bot(bot_id, alert=False, **kw))
+            return sorted(calls)
+        assert poll() == sorted(["/show_config", "/health", "/count", "/whitelist", "/balance", "/trades"])  # first time
+        assert poll() == ["/count", "/health"]  # a minute later: only "alive?"
+
+        def age(**ago):
+            with SessionLocal() as s:
+                st = dict(s.get(Bot, bot_id).state)
+                for k, sec in ago.items():
+                    st[k] = (utcnow() - dt.timedelta(seconds=sec)).isoformat(timespec="seconds")
+                s.get(Bot, bot_id).state = st
+                s.commit()
+        age(config_at=bm.CONFIG_EVERY + 5)
+        assert poll() == sorted(["/show_config", "/health", "/count", "/whitelist"])  # config, but not the balance
+        age(synced_at=bm.TRADES_EVERY + 5)
+        assert poll() == ["/count", "/health", "/trades"]
+        assert "/balance" in poll(force=True)  # after a start/stop from the panel: everything
+        with SessionLocal() as s:
+            st = s.get(Bot, bot_id).state
+            assert st["api"] == "ok" and st["strategy"] == "S" and st["open_trades"] == 1  # kept between light polls
+    finally:
+        with SessionLocal() as s:
+            s.query(BotTrade).filter_by(bot_id=bot_id).delete()
+            s.query(Bot).filter_by(id=bot_id).delete()
+            s.commit()

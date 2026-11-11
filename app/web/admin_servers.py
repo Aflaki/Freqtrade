@@ -74,6 +74,8 @@ def _series(samples: list[ServerSample], attr: str) -> list[float | None]:
 
 
 def _view(admin_id: int) -> dict:
+    from ..engine.botmonitor import monitor
+    monitor.want_live()
     since = utcnow() - dt.timedelta(hours=HISTORY_HOURS)
     with SessionLocal() as s:
         bots = list(s.scalars(select(Bot).order_by(Bot.sort, Bot.id)))

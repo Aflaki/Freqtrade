@@ -33,7 +33,15 @@ EVENT_TYPES = {"status", "startup", "warning", "exception", "entry_cancel", "exi
                "protection_trigger", "protection_trigger_global", "strategy_msg", "liquidation_warning"}
 CONTROL_ACTIONS = ("start", "stop", "pause", "stopentry", "reload_config")
 STALL_MINUTES = 10
-LIVE_SECONDS = 15  # how often open trades (/status) are refreshed
+LIVE_SECONDS = 15  # how often open trades (/status) are refreshed while someone looks at live data
+LIVE_IDLE_SECONDS = 60  # ... and when nobody does
+LIVE_WANTED_FOR = 120   # a page that shows live data keeps the fast rate this long
+# every request is work inside the Freqtrade process (and /balance makes the bot itself call the exchange):
+# ask for things only as often as they change
+CONFIG_EVERY = 600      # /show_config + /whitelist
+BALANCE_EVERY = 1800    # /balance (starting capital)
+TRADES_EVERY = 300      # closed trades (the webhooks bring them at once; this only fills gaps)
+TRADES_LIMIT = 30
 
 
 def esc(v: Any) -> str:
@@ -94,6 +102,11 @@ async def fetch_info(url: str, user: str, pw: str) -> dict[str, Any]:
     Only /show_config is required (it proves address + login are right). /health, /count and
     /whitelist are optional, so older Freqtrade versions still work.
     """
+    return await _fetch(url, user, pw, full=True, balance=True)
+
+
+async def _fetch(url: str, user: str, pw: str, full: bool, balance: bool) -> dict:
+    """full: configuration + whitelist too; balance: /balance too (the bot asks the exchange for it)."""
     async with httpx.AsyncClient(base_url=normalize_api_url(url) + "/api/v1", auth=(user, pw), timeout=10) as c:
         async def get(path: str, required: bool = False) -> Any:
             try:
@@ -104,11 +117,15 @@ async def fetch_info(url: str, user: str, pw: str) -> dict[str, Any]:
                 if required:
                     raise
                 return {}
+        if not full:  # every minute: is it alive, is it working, how many trades
+            count = await get("/count", required=True)
+            health = await get("/health")
+            return _light(count, health)
         cfg = await get("/show_config", required=True)
         health = await get("/health")
         count = await get("/count")
         wl = (await get("/whitelist")).get("whitelist", [])
-        bal = await get("/balance")
+        bal = await get("/balance") if balance else {}
     last = health.get("last_process")
     stalled = False
     if last:
@@ -118,14 +135,37 @@ async def fetch_info(url: str, user: str, pw: str) -> dict[str, Any]:
             stalled = cfg.get("state") == "running" and utcnow() - lp > dt.timedelta(minutes=STALL_MINUTES)
         except ValueError:
             pass
-    return dict(api="ok", error="", state=cfg.get("state"), bot_name=cfg.get("bot_name"),
+    out = dict(api="ok", error="", state=cfg.get("state"), bot_name=cfg.get("bot_name"),
                 strategy=cfg.get("strategy"), exchange=cfg.get("exchange"), dry_run=cfg.get("dry_run"),
                 trading_mode=cfg.get("trading_mode"), margin_mode=cfg.get("margin_mode"),
                 stake_currency=cfg.get("stake_currency"), timeframe=cfg.get("timeframe"),
                 max_open_trades=_clean(cfg.get("max_open_trades")), version=cfg.get("version"),
                 open_trades=count.get("current"), last_process=last, stalled=stalled,
-                starting_capital=bal.get("starting_capital"),
                 whitelist=sorted({p.split(":")[0].upper() for p in wl}))
+    if balance:
+        out["starting_capital"] = bal.get("starting_capital")
+    return out
+
+
+def _light(count: dict, health: dict) -> dict:
+    last = health.get("last_process")
+    out = dict(api="ok", error="", open_trades=count.get("current"))
+    if last:
+        out["last_process"] = last
+        try:
+            lp = dt.datetime.fromisoformat(str(last).replace("Z", "+00:00"))
+            lp = lp.astimezone(dt.UTC).replace(tzinfo=None) if lp.tzinfo else lp
+            out["_lp_age_min"] = (utcnow() - lp).total_seconds() / 60
+        except ValueError:
+            pass
+    return out
+
+
+def _age(st: dict, key: str) -> float:
+    try:
+        return (utcnow() - dt.datetime.fromisoformat(st[key])).total_seconds()
+    except (KeyError, TypeError, ValueError):
+        return float("inf")
 
 
 async def diagnose(url: str, user: str, pw: str) -> list[dict[str, Any]]:
@@ -217,6 +257,7 @@ def parse_open_trades(rows: Any) -> list[dict[str, Any]]:
 class BotMonitor:
     def __init__(self) -> None:
         self._bg: set[asyncio.Task] = set()
+        self.live_wanted_until = 0.0
         # bot id -> {"at": datetime, "trades": [...], "error": str}; refreshed every LIVE_SECONDS
         self.live: dict[int, dict[str, Any]] = {}
 
@@ -246,6 +287,11 @@ class BotMonitor:
         for k in [k for k in self.live if k not in keep]:
             self.live.pop(k, None)
 
+    def want_live(self) -> None:
+        """A page shows live bot trades: refresh them every LIVE_SECONDS for a while (else every minute)."""
+        import time as _time
+        self.live_wanted_until = _time.monotonic() + LIVE_WANTED_FOR
+
     async def live_loop(self) -> None:
         while True:
             try:
@@ -254,7 +300,14 @@ class BotMonitor:
                 raise
             except Exception:
                 log.exception("live trades poll failed")
-            await asyncio.sleep(LIVE_SECONDS)
+            import time as _time
+            if _time.monotonic() < self.live_wanted_until:
+                await asyncio.sleep(LIVE_SECONDS)
+            else:  # nobody looks: once a minute, but at once when a page asks
+                for _ in range(LIVE_IDLE_SECONDS):
+                    await asyncio.sleep(1)
+                    if _time.monotonic() < self.live_wanted_until:
+                        break
 
     # ------------------------------------------------------------ admin notifications
     def notify_admins(self, kind: str, make_text, critical: bool = False, title=None, tag: str = "") -> None:
@@ -328,7 +381,7 @@ class BotMonitor:
         self.notify_admins("bot_trades", text)
 
     # ------------------------------------------------------------ REST API side
-    async def poll_bot(self, bot_id: int, alert: bool = True) -> dict:
+    async def poll_bot(self, bot_id: int, alert: bool = True, force: bool = False) -> dict:
         from ..db import get_global
         with SessionLocal() as s:
             b = s.get(Bot, bot_id)
@@ -344,9 +397,21 @@ class BotMonitor:
             st.update(api="not_configured", error="")
         else:
             try:
-                st.update(await fetch_info(url, user, pw))
-                st["missing_pairs"] = [p for p in st["whitelist"] if p not in allowed and bot_allows(p)]
-                st.update(await self._sync_trades(bot_id, url, user, pw, full=not old.get("history_synced")))
+                full = force or old.get("api") != "ok" or _age(old, "config_at") > CONFIG_EVERY
+                with_balance = full and (force or _age(old, "balance_at") > BALANCE_EVERY)
+                got = await _fetch(url, user, pw, full=full, balance=with_balance)
+                lp_age = got.pop("_lp_age_min", None)
+                st.update(got)
+                now = utcnow().isoformat(timespec="seconds")
+                if full:
+                    st["config_at"] = now
+                    st["missing_pairs"] = [p for p in st.get("whitelist", []) if p not in allowed and bot_allows(p)]
+                elif lp_age is not None:
+                    st["stalled"] = st.get("state") == "running" and lp_age > STALL_MINUTES
+                if with_balance:
+                    st["balance_at"] = now
+                if force or not old.get("history_synced") or _age(old, "synced_at") > TRADES_EVERY:
+                    st.update(await self._sync_trades(bot_id, url, user, pw, full=not old.get("history_synced")))
             except Exception as e:
                 st.update(_error_state(e))
         if alert and url:
@@ -365,7 +430,7 @@ class BotMonitor:
             if full:
                 n = await perf.import_from_api(bot_id, normalize_api_url(url), user, pw)
             else:
-                n = await perf.sync_recent_from_api(bot_id, normalize_api_url(url), user, pw)
+                n = await perf.sync_recent_from_api(bot_id, normalize_api_url(url), user, pw, limit=TRADES_LIMIT)
             return {"history_synced": True, "synced_at": utcnow().isoformat(timespec="seconds"), "sync_error": "",
                     **({"history_count": n} if full else {})}
         except Exception as e:
@@ -432,7 +497,7 @@ class BotMonitor:
             r.raise_for_status()
             msg = str(r.json().get("status", r.text))[:200]
         await asyncio.sleep(1)
-        await self.poll_bot(bot_id, alert=False)
+        await self.poll_bot(bot_id, alert=False, force=True)
         return msg
 
     async def loop(self) -> None:
