@@ -10,6 +10,32 @@
 <button name="action" value="clear" class="danger sm" onclick="return confirm('{{ _('confirm_clear_perf') }}')">{{ _('btn_clear_perf') }}</button></form></td></tr>{% endfor %}
 </table></div>
 <p class="small muted">{{ _('perf_import_help_bots') }}</p></div>
+<div class="card" id="markets"><h2>🧪 {{ _('mt_title') }}</h2>
+<p class="small muted">{{ _('mt_intro') }}</p>
+<div class="seg" role="group" style="margin-bottom:10px">{% for k, lbl in [('30', _('period_30')), ('90', _('period_90')), ('all', _('period_all'))] %}<a href="?cmp={{ k }}#markets" class="{{ 'on' if cmp_period == k }}">{{ lbl }}</a>{% endfor %}</div>
+{% if cmp.markets %}
+<div class="table-wrap"><table class="small">
+<thead><tr><th>{{ _('mt_market') }}</th><th data-k="n">{{ _('perf_trades') }}</th><th data-k="n">{{ _('mt_paper') }}</th><th data-k="n">{{ _('mt_ours') }}</th><th data-k="n">{{ _('mt_bot') }}</th>
+<th data-k="n">{{ _('mt_diff') }}</th><th data-k="n">{{ _('mt_better') }}</th><th data-k="n">{{ _('mt_worse') }}</th><th data-k="n">{{ _('perf_profit_abs') }}</th></tr></thead><tbody>
+{% for m in cmp.markets %}<tr><td><b>{{ m.market }}</b></td><td>{{ m.trades }}</td><td>{{ m.paper }}</td>
+<td data-v="{{ m.ours }}" class="{{ 'pos' if m.ours >= 0 else 'neg' }}">{{ '%+.2f'|format(m.ours) }}%</td>
+<td data-v="{{ m.bot }}" class="{{ 'pos' if m.bot >= 0 else 'neg' }}">{{ '%+.2f'|format(m.bot) }}%</td>
+<td data-v="{{ m.diff }}" class="{{ 'pos' if m.diff >= 0 else 'neg' }}"><b>{{ '%+.2f'|format(m.diff) }}</b></td>
+<td class="pos">{{ m.better }}</td><td class="neg">{{ m.worse }}</td>
+<td data-v="{{ m.pnl }}" class="{{ 'pos' if m.pnl >= 0 else 'neg' }}">{{ m.pnl|signed }} <span class="muted">{{ m.cur }}</span></td></tr>{% endfor %}
+</tbody></table></div>
+<details class="more" style="margin-top:10px"><summary>{{ _('mt_by_pair') }}</summary>
+<div class="table-wrap"><table class="small">
+<thead><tr><th>{{ _('mt_market') }}</th><th>{{ _('col_pair') }}</th><th data-k="n">{{ _('perf_trades') }}</th><th data-k="n">{{ _('mt_ours') }}</th><th data-k="n">{{ _('mt_bot') }}</th><th data-k="n">{{ _('mt_diff') }}</th></tr></thead><tbody>
+{% for p in cmp.pairs %}<tr><td>{{ p.market }}</td><td class="mono">{{ coin(p.pair) }}{{ p.pair }}</td><td>{{ p.trades }}</td>
+<td data-v="{{ p.ours }}" class="{{ 'pos' if p.ours >= 0 else 'neg' }}">{{ '%+.2f'|format(p.ours) }}%</td>
+<td data-v="{{ p.bot }}" class="{{ 'pos' if p.bot >= 0 else 'neg' }}">{{ '%+.2f'|format(p.bot) }}%</td>
+<td data-v="{{ p.diff }}" class="{{ 'pos' if p.diff >= 0 else 'neg' }}"><b>{{ '%+.2f'|format(p.diff) }}</b></td></tr>{% endfor %}
+</tbody></table></div></details>
+<p class="small muted">{{ _('mt_note', n=cmp.matched, u=cmp.unmatched) }}</p>
+{% else %}<p class="muted">{{ _('mt_none') }}</p>{% endif %}
+</div>
+
 <div class="card" id="bench"><h2>📈 {{ _('bench_title') }}</h2>
 <p class="small muted">{{ _('bench_admin_intro') }}</p>
 <div class="table-wrap"><table class="small">

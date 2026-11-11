@@ -111,3 +111,39 @@ def test_form_quote_currency(catalog_env):
     assert r.status_code == 200
     with SessionLocal() as s:
         assert s.query(ExchangeAccount).filter_by(label="cat-q-eur2").one().quote == "EUR"
+
+
+def test_market_test_compares_with_the_bot(eur):
+    """Our BTC/EUR spot trade next to the bot's own BTC/USDT futures trade, both without leverage."""
+    import datetime as dt
+
+    from app.db import BotTrade, utcnow
+    from app.engine import marketcompare
+    acc_id, bot_id, uid = eur
+    with SessionLocal() as s:
+        s.add(Trade(user_id=uid, account_id=acc_id, bot_id=bot_id, ft_trade_id=77, pair="BTC/USDT", symbol="BTC/EUR",
+                    side="long", status="closed", stake=500, leverage=1, realized_pnl=10.0, entry_price=55000,
+                    closed_at=utcnow() - dt.timedelta(days=1)))
+        s.add(BotTrade(bot_id=bot_id, ft_trade_id=77, pair="BTC/USDT", side="long", leverage=5, is_open=False,
+                       profit_ratio=0.05, profit_abs=5, open_date=utcnow() - dt.timedelta(days=2),
+                       close_date=utcnow() - dt.timedelta(days=1)))
+        s.commit()
+    try:
+        r = marketcompare.compare()
+        m = next(x for x in r["markets"] if x["market"] == "Binance · spot · EUR")
+        assert m["trades"] == 1 and m["ours"] == pytest.approx(2.0) and m["bot"] == pytest.approx(1.0)  # 10/500; 5%/5x
+        assert m["diff"] == pytest.approx(1.0) and m["better"] == 1 and m["cur"] == "EUR"
+        assert [p["pair"] for p in r["pairs"] if p["market"] == "Binance · spot · EUR"] == ["BTC/USDT"]
+        from tests.test_watchdog import _admin_client
+        admin, aid = _admin_client()
+        try:
+            html = admin.get("/admin/performance").text
+            assert 'id="markets"' in html and "Binance · spot · EUR" in html and "+1.00" in html
+        finally:
+            with SessionLocal() as s:
+                s.query(User).filter_by(id=aid).delete()
+                s.commit()
+    finally:
+        with SessionLocal() as s:
+            s.query(BotTrade).filter_by(bot_id=bot_id).delete()
+            s.commit()

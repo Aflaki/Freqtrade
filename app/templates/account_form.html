@@ -79,7 +79,7 @@
   <option value="custom_amounts" {{ 'selected' if cm == 'custom_amounts' }}>{{ _('mode_cat_per_pair') }}</option>
   {% if not is_signal %}<option value="wallet_pct" {{ 'selected' if cm == 'wallet_pct' }}>{{ _('mode_cat_wallet') }}</option>{% endif %}</select>
   <div class="small muted" id="modehelp"></div></div>
-<div id="capbox"><label class="qlabel">{{ _('f_capital_total', cur=gs.stake_currency, min='%.0f'|format(gs.min_capital)) }}</label>
+<div id="capbox"><label class="qlabel" data-min="{{ '%.0f'|format(gs.min_capital) }}">{{ _('f_capital_total', cur=gs.stake_currency, min='%.0f'|format(gs.min_capital)) }}</label>
   <input type="number" step="any" min="0" name="capital" id="capital" value="{{ (v.capital or '') if v else '' }}">
   <div class="small muted">{{ _('capital_cap_help', pct='%g'|format(cap_pct)) }}</div></div>
 <div id="walletbox"><label>{{ _('f_wallet_pct', max='%g'|format(cap_pct)) }}</label>
@@ -216,13 +216,14 @@
     const tw=sel.reduce((a,p)=>a+val(p),0), mot=isCat?Math.max(1,sel.filter(p=>!($(`.pc[data-p="${p}"]`)||{dataset:{}}).dataset.blocked).length):(parseInt($('#mot').value)||defMot);
     let ts=0, tn=0;
     const exn=($('#exchange')||{}).value||'';
-    const mSel=$('#mode'), only=spotOnly.includes(exn);  // spot-only exchanges: no futures
-    if(mSel){ mSel.querySelector('option[value=futures]').disabled=only; if(only&&mSel.value!=='spot'){ mSel.value='spot'; return upd(); } }
-    if($('#spotonly')) $('#spotonly').hidden=!only;
+    const mSel=$('#mode'), spotOnlyEx=spotOnly.includes(exn);  // spot-only exchanges: no futures
+    if(mSel){ mSel.querySelector('option[value=futures]').disabled=spotOnlyEx; if(spotOnlyEx&&mSel.value!=='spot'){ mSel.value='spot'; return upd(); } }
+    if($('#spotonly')) $('#spotonly').hidden=!spotOnlyEx;
     if($('.spotq')) $('.spotq').style.display=spot?'':'none';
     const quote=spot&&qsel?(qsel.value||stakeCur):stakeCur;
-    $$('.qlabel').forEach(l=>{ if(!l.dataset.t) l.dataset.t=l.textContent; l.textContent=l.dataset.t.split(stakeCur).join(quote); });
     const toQuote=v=>{ const a=usdRates[stakeCur]||1, b=usdRates[quote]; return b?v*a/b:v; };  // admin minimums are in the stake coin
+    $$('.qlabel').forEach(l=>{ if(!l.dataset.t) l.dataset.t=l.textContent; let t=l.dataset.t.split(stakeCur).join(quote);
+      if(l.dataset.min && quote!==stakeCur) t=t.replace(l.dataset.min, Math.ceil(toQuote(+l.dataset.min))); l.textContent=t; });
     const optOf=p=>{const sb=$(`.pb[data-p="${p}"]`); return sb&&sb.selectedOptions[0];};
     const plev=p=>{ if(spot) return 1; const o=optOf(p), fixed=o?parseInt(o.dataset.lev):0, blev=o?parseInt(o.dataset.blev):0;
       return Math.max(1,Math.min(fixed||blev||lev,maxLev)); };

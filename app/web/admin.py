@@ -247,7 +247,11 @@ async def admin_performance(request: Request):
                                       .group_by(BenchmarkPrice.symbol)).all())
         bench_last = dict(s.execute(select(BenchmarkPrice.symbol, func.max(BenchmarkPrice.day))
                                     .group_by(BenchmarkPrice.symbol)).all())
-    return render(request, "admin/performance.html", gs=gs, bots=bots, counts=counts, recent=recent,
+    from ..engine import marketcompare
+    cmp_days = {"30": 30, "90": 90}.get(request.query_params.get("cmp", ""))
+    cmp = marketcompare.compare(cmp_days)
+    return render(request, "admin/performance.html", gs=gs, bots=bots, counts=counts, recent=recent, cmp=cmp,
+                  cmp_period=request.query_params.get("cmp", "all") if cmp_days else "all",
                   bench=gs.bench_state or {}, bench_counts=bench_counts, bench_last=bench_last,
                   has_cg_key=bool(gs.coingecko_key_enc),
                   names={b.id: b.name for b in bots}, tab="performance")
