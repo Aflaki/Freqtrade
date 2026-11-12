@@ -40,7 +40,7 @@
 <td class="tnum">{{ r.open }}{% if r.max_open %}/{{ r.max_open }}{% endif %}</td>
 <td class="{{ 'pos' if r.upnl >= 0 else 'neg' }}">{{ r.upnl|signed if r.open else '—' }}</td>
 <td><form method="post" action="/admin/servers/action" class="inline srv-actions"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="bot_id" value="{{ r.b.id }}">
-{% if r.st.state == 'running' and r.health != 'paused' %}<button class="ghost sm" name="action" value="stop" title="/stop" onclick="return confirm('{{ _('srv_confirm_stop', bot=r.b.name) }}')">⏸</button>
+{% if r.st.state == 'running' and r.health != 'paused' %}<button class="ghost sm" name="action" value="stop" title="/stop" onclick='return confirm({{ (_('srv_confirm_stop', bot=r.b.name))|tojson }})'>⏸</button>
 {% else %}<button class="ghost sm" name="action" value="start" title="/start">▶</button>{% endif %}
 <button class="ghost sm" name="action" value="reload_config" title="/reload_config">⟳</button></form></td></tr>{% endfor %}
 </tbody></table></div>
@@ -153,10 +153,10 @@
 </details>
 
 <form method="post" action="/admin/servers/action" class="srv-host-actions"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="host" value="{{ sv.h.hostname }}">
-<button class="ghost sm" name="action" value="stop_all" onclick="return confirm('{{ _('srv_confirm_stop_all', host=sv.h.alias or sv.h.hostname) }}')">⏸ {{ _('srv_stop_all') }}</button>
+<button class="ghost sm" name="action" value="stop_all" onclick='return confirm({{ (_('srv_confirm_stop_all', host=sv.h.alias or sv.h.hostname))|tojson }})'>⏸ {{ _('srv_stop_all') }}</button>
 <button class="ghost sm" name="action" value="start_all">▶ {{ _('srv_start_all') }}</button>
 <button class="ghost sm" name="action" value="reload_all">⟳ {{ _('btn_reload_all') }}</button></form>
-<form method="post" action="/admin/servers/remove" class="inline" onsubmit="return confirm({{ _('srv_confirm_remove', host=sv.h.alias or sv.h.hostname)|tojson }})"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="host" value="{{ sv.h.hostname }}">
+<form method="post" action="/admin/servers/remove" class="inline" onsubmit='return confirm({{ _('srv_confirm_remove', host=sv.h.alias or sv.h.hostname)|tojson }})'><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="host" value="{{ sv.h.hostname }}">
 <button class="danger sm">🗑 {{ _('srv_remove') }}</button></form>
 </div>
 {% endfor %}

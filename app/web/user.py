@@ -4,7 +4,7 @@ import asyncio
 import secrets
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import func, select
 
 from ..db import (utcnow, 
@@ -697,6 +697,9 @@ async def account_positions(acc_id: int, request: Request):
                   bot_names=bot_names)
 
 
+_recon_locks: dict[int, asyncio.Lock] = {}
+
+
 @router.post("/accounts/{acc_id}/reconcile")
 async def account_reconcile(acc_id: int, request: Request):
     user = require_user(request)
@@ -705,7 +708,23 @@ async def account_reconcile(acc_id: int, request: Request):
     with SessionLocal() as s:
         _own(s, user, acc_id)
     decisions = {k[3:]: str(v) for k, v in f.items() if k.startswith("r__") and str(v) in ("close", "keep", "open", "skip")}
-    out = await reconcile.act(acc_id, user.id, decisions)
+    wants_json = request.headers.get("x-requested-with") == "fetch"
+    lock = _recon_locks.setdefault(acc_id, asyncio.Lock())
+    if lock.locked():  # an earlier "apply" is still placing its orders: never twice
+        if wants_json:
+            return JSONResponse({"busy": True, "text": tr(request, "rc_busy")}, 409)
+        flash(request, tr(request, "rc_busy"), "warn")
+        return RedirectResponse(f"/accounts/{acc_id}/positions#recon", 303)
+    async with lock:
+        out = await reconcile.act(acc_id, user.id, decisions)
+    if wants_json:  # the page shows the result, then reads everything again
+        lines = [{"ok": True, "text": tr(request, "rc_closed", pair=r["pair"], side=r["side"].upper())} for r in out["closed"]]
+        lines += [{"ok": True, "text": tr(request, "rc_opened", pair=r["pair"], side=r["side"].upper())} for r in out["opened"]]
+        if out["kept"]:
+            lines.append({"ok": True, "text": tr(request, "rc_kept", n=len(out["kept"]))})
+        lines += [{"ok": False, "text": tr(request, "rc_failed", pair=r["pair"], err=r.get("error") or r.get("message") or "?")}
+                  for r in out["failed"]]
+        return JSONResponse({"lines": lines, "failed": len(out["failed"])})
     for r in out["closed"]:
         flash(request, tr(request, "rc_closed", pair=r["pair"], side=r["side"].upper()))
     for r in out["opened"]:

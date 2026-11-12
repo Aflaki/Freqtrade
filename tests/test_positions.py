@@ -241,3 +241,22 @@ def test_live_numbers_from_the_exchange_and_reconcile(env):
         assert new.id != btc.id and new.enter_tag == "catch-up"
     last = fx.FakeExchange.instances[-1].orders[-1]  # really ordered this time
     assert last["symbol"] == "BTC/USDT:USDT" and last["side"] == "sell" and not last["params"].get("reduceOnly")
+
+    # the page applies over fetch: a JSON answer (then it reads everything again); never two applies at once
+    from app.web import user as uweb
+    r = c.post(f"/accounts/{acc_id}/reconcile", data={"csrf": csrf}, headers={"X-Requested-With": "fetch"})
+    assert r.status_code == 200 and r.json() == {"lines": [], "failed": 0}
+
+    async def while_busy():
+        lock = uweb._recon_locks.setdefault(acc_id, asyncio.Lock())
+        async with lock:
+            import httpx
+            from app.main import app as _app
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=_app), base_url="http://testserver",
+                                         cookies=dict(c.cookies)) as ac:
+                return await ac.post(f"/accounts/{acc_id}/reconcile", data={"csrf": csrf},
+                                     headers={"X-Requested-With": "fetch"})
+    r = asyncio.run(while_busy())
+    assert r.status_code == 409 and r.json()["busy"]
+    page = c.get(f"/accounts/{acc_id}/positions").text
+    assert 'id="rcbusy"' in page or "rc_all_matched" not in page

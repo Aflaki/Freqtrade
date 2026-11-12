@@ -14,7 +14,7 @@
 <td class="small">{% if u.subscription_until %}<span class="{{ '' if u.subscription_active else 'neg' }}">{{ u.subscription_until|lt('%Y-%m-%d') }}</span>{% else %}{{ _('unlimited') }}{% endif %}</td>
 <td><form class="inline" method="post" action="/admin/users/{{ u.id }}"><input type="hidden" name="csrf" value="{{ csrf }}">
 {% if u.status != 'active' %}<button class="sm" name="action" value="approve">{{ _('btn_approve') }}</button>{% endif %}
-{% if u.status != 'suspended' %}<button class="sm danger" name="action" value="suspend" onclick="return confirm('{{ _('confirm_suspend') }}')">{{ _('btn_suspend') }}</button>{% endif %}
+{% if u.status != 'suspended' %}<button class="sm danger" name="action" value="suspend" onclick='return confirm({{ (_('confirm_suspend'))|tojson }})'>{{ _('btn_suspend') }}</button>{% endif %}
 </form> <a class="btn ghost sm" href="/admin/users/{{ u.id }}">{{ _('btn_details') }}</a></td></tr>{% endfor %}
 </table></div>
 <form method="post" action="/admin/broadcast" class="card"><input type="hidden" name="csrf" value="{{ csrf }}">

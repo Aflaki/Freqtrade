@@ -19,7 +19,7 @@ Telegram: {{ ('@' ~ u.telegram_username) if u.telegram_username else (u.telegram
 <form method="post" action="/admin/users/{{ u.id }}" style="margin-top:10px"><input type="hidden" name="csrf" value="{{ csrf }}">
 {% if u.status != 'active' %}<button class="sm" name="action" value="approve">{{ _('btn_approve') }}</button>{% endif %}
 {% if u.status != 'suspended' %}<button class="sm danger" name="action" value="suspend">{{ _('btn_suspend') }}</button>{% endif %}
-{% if u.totp_enabled %}<button class="sm ghost" name="action" value="reset_2fa" onclick="return confirm('{{ _('confirm_reset_2fa') }}')">{{ _('btn_reset_2fa') }}</button>{% endif %}
+{% if u.totp_enabled %}<button class="sm ghost" name="action" value="reset_2fa" onclick='return confirm({{ (_('confirm_reset_2fa'))|tojson }})'>{{ _('btn_reset_2fa') }}</button>{% endif %}
 {% if not u.email_verified %}<button class="sm ghost" name="action" value="verify_email">{{ _('btn_mark_verified') }}</button>{% endif %}
 <button class="sm ghost" name="action" value="logout_all">{{ _('btn_logout_all') }}</button>
 {% if not u.is_admin %}<button class="sm ghost" name="action" value="promote">{{ _('btn_promote') }}</button>{% else %}<button class="sm ghost" name="action" value="demote">{{ _('btn_demote') }}</button>{% endif %}

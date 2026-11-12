@@ -29,10 +29,36 @@
 <td class="small">{% if r.pos %}<span class="{{ 'pos' if r.pos.side == 'long' else 'neg' }}">{{ r.pos.side|upper }}</span> {{ (r.pos.contracts * r.pos.contract_size)|price }} @ {{ r.pos.entry|price }} · <span class="{{ 'pos' if r.pos.upnl >= 0 else 'neg' }}">{{ r.pos.upnl|signed }}</span>{% else %}—{% endif %}</td></tr>{% endfor %}
 </table></div>
 <p class="small muted">{{ _('rc_open_note') }}</p>
-<p><button>{{ _('pos_apply') }}</button></p></form>
-<script>document.getElementById('rcform').addEventListener('submit',e=>{const f=e.target,
-  n=f.querySelectorAll('input[value=close]:checked').length, o=f.querySelectorAll('input[value=open]:checked').length;
-  if((n||o)&&!confirm({{ _('rc_confirm')|tojson }}.replace('{n}',n).replace('{o}',o))) e.preventDefault();});</script>
+<div id="rcbusy"></div>
+<p><button id="rcapply">{{ _('pos_apply') }}</button></p></form>
+<script>(() => {
+  const f = document.getElementById('rcform'), btn = document.getElementById('rcapply'), box = document.getElementById('rcbusy');
+  const T = {ask: {{ _('rc_confirm')|tojson }}, none: {{ _('rc_choose')|tojson }}, working: {{ _('rc_working')|tojson }},
+             done: {{ _('rc_done')|tojson }}, reload: {{ _('rc_reloading')|tojson }}, err: {{ _('rc_net_err')|tojson }}};
+  let running = false;
+  const esc = t => { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; };
+  f.addEventListener('submit', async e => {
+    e.preventDefault();
+    if (running) return;  // one apply at a time
+    const n = f.querySelectorAll('input[value=close]:checked').length, o = f.querySelectorAll('input[value=open]:checked').length,
+          all = f.querySelectorAll('input[type=radio]:checked').length;
+    if (!all) { await siteConfirm(T.none, {alert: true}); return; }
+    if ((n || o) && !(await siteConfirm(T.ask.replace('{n}', n).replace('{o}', o), {danger: true}))) return;
+    running = true; btn.disabled = true; f.classList.add('is-busy');
+    box.innerHTML = '<div class="busy"><div class="spin"></div><div>' + esc(T.working.replace('{n}', all)) + '</div></div>';
+    try {
+      const r = await fetch(f.action, {method: 'POST', body: new FormData(f), headers: {'X-Requested-With': 'fetch'}});
+      const j = await r.json();
+      const lines = (j.lines || []).map(l => '<li class="' + (l.ok ? 'pos' : 'neg') + '">' + (l.ok ? '✔ ' : '✖ ') + esc(l.text) + '</li>').join('');
+      box.innerHTML = '<div class="busy"><div class="spin"></div><div><b>' + esc(j.busy ? j.text : T.done) + '</b>' +
+        (lines ? '<ul class="busy-res">' + lines + '</ul>' : '') + '<div class="small muted">' + esc(T.reload) + '</div></div></div>';
+      setTimeout(() => { location.hash = 'recon'; location.reload(); }, j.failed ? 6000 : 2500);  // read everything again
+    } catch (err) {
+      box.innerHTML = '<div class="busy"><div>' + esc(T.err) + '</div></div>';
+      setTimeout(() => location.reload(), 4000);
+    }
+  });
+})();</script>
 {% else %}<p class="pos">✔ {{ _('rc_all_matched') }}</p>{% endif %}</div>{% endif %}
 
 <div class="card" id="adopted"><h2>🤝 {{ _('pos_adopted_title') }} <span class="badge">{{ adopted|length }}</span></h2>
@@ -75,7 +101,10 @@
   });
   f.addEventListener('submit', function (e) {
     var n = f.querySelectorAll('input[type=radio][value=close]:checked').length;
-    if (n && !confirm({{ _('pos_confirm_close')|tojson }}.replace('{n}', n))) e.preventDefault();
+    if (n && !confirm({{ _('pos_confirm_close')|tojson }}.replace('{n}', n))) { e.preventDefault(); return; }
+    var b = f.querySelector('button:not([type=button])'); if (b) { b.disabled = true; }
+    var d = document.createElement('div'); d.className = 'busy';
+    d.innerHTML = '<div class="spin"></div><div>' + {{ _('rc_working_plain')|tojson }} + '</div>'; f.appendChild(d);
   });
 })();
 </script>

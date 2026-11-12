@@ -264,3 +264,21 @@ details.srv-bots-box{margin:10px 0}details.srv-bots-box>summary{cursor:pointer;f
 .mc-head{display:flex;align-items:baseline;gap:10px;margin:4px 0}.mc-v{font-size:24px;font-weight:800}
 .mc-area{opacity:.12}.mc-band{stroke-dasharray:3,4;stroke-width:1;opacity:.5}.mc-band.neg{stroke:var(--short)}.mc-band.pos{stroke:var(--long)}
 .mono .exnote{font:12px/1.6 Vazirmatn,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;unicode-bidi:plaintext;text-align:start}
+
+/* the site's confirmation dialog (dialog.js) */
+.dlg-back{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px;
+  background:rgba(8,10,16,.55);backdrop-filter:blur(3px);opacity:0;transition:opacity .15s}
+.dlg-back.in{opacity:1}
+.dlg{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:var(--radius);box-shadow:0 18px 50px rgba(0,0,0,.35);
+  width:min(440px,100%);padding:22px 22px 18px;text-align:center;transform:translateY(8px) scale(.98);transition:transform .15s}
+.dlg-back.in .dlg{transform:none}
+.dlg-icon{font-size:30px;line-height:1;margin-bottom:10px}
+.dlg-text{font-size:15px;line-height:1.8;white-space:pre-line;margin-bottom:18px}
+.dlg-actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}.dlg-actions button{min-width:110px;text-align:center;justify-content:center}
+/* a long action on the exchange in progress / its result */
+.busy{display:flex;gap:12px;align-items:center;border:1px solid var(--line);border-radius:var(--radius);background:var(--brand-soft);
+  padding:12px 14px;margin:12px 0}
+.spin{width:20px;height:20px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--brand);animation:spin .8s linear infinite;flex:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+.busy-res{list-style:none;margin:6px 0 0;padding:0}.busy-res li{padding:2px 0}
+form.is-busy table{opacity:.5;pointer-events:none}

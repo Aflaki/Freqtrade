@@ -45,7 +45,7 @@
 <div style="max-width:110px"><label>{{ _('col_order') }}</label><input type="number" name="group_sort" value="{{ g.sort }}"></div>
 <div><label class="check"><input type="checkbox" name="group_public" {{ 'checked' if g.public }}> {{ _('bot_f_public') }}</label>
 <button name="action" value="group_save" class="sm">{{ _('btn_save') }}</button>
-<button name="action" value="group_delete" class="danger sm" onclick="return confirm('{{ _('confirm_delete_group') }}')">{{ _('btn_delete') }}</button></div>
+<button name="action" value="group_delete" class="danger sm" onclick='return confirm({{ (_('confirm_delete_group'))|tojson }})'>{{ _('btn_delete') }}</button></div>
 </form>{% endfor %}
 <form method="post" class="row" style="align-items:end"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="group_add">
 <div><label>{{ _('group_new') }}</label><input type="text" name="group_name" placeholder="Version 1" required></div>
@@ -111,7 +111,7 @@ journalctl -u relay-watchdog -f</pre>
 <li>{{ _('export_one_step1') }}<pre class="ltr copy" style="white-space:pre-wrap;word-break:break-all">{{ wd.hook_preview }}</pre></li>
 <li>{{ _('export_one_step2') }}<pre class="ltr copy" style="white-space:pre-wrap;word-break:break-all">{{ wd.hook_apply }}</pre></li>
 <li>{{ _('export_step4') }}
-<form method="post" style="display:inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button name="action" value="reload_all" class="sm" onclick="return confirm('{{ _('confirm_reload_all') }}')">{{ ic('refresh') }}{{ _('btn_reload_all') }}</button></form></li>
+<form method="post" style="display:inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button name="action" value="reload_all" class="sm" onclick='return confirm({{ (_('confirm_reload_all'))|tojson }})'>{{ ic('refresh') }}{{ _('btn_reload_all') }}</button></form></li>
 </ol>
 <p class="small muted">{{ _('export_note') }}</p></div>
 

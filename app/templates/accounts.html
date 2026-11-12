@@ -41,10 +41,10 @@
     <form class="inline" method="post" action="/accounts/{{ a.id }}/toggle"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost sm">{{ _('btn_disable') if a.enabled else _('btn_enable') }}</button></form>
     {% if r.open %}<details class="inline-details"><summary class="btn danger sm">{{ _('btn_delete') }}</summary>
     <div class="card small" style="margin-top:8px"><p>{{ _('del_open_q', n=r.open) }}</p>
-    <form method="post" action="/accounts/{{ a.id }}/delete" onsubmit="return confirm({{ _('confirm_delete')|tojson }})"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <form method="post" action="/accounts/{{ a.id }}/delete" onsubmit='return confirm({{ _('confirm_delete')|tojson }})'><input type="hidden" name="csrf" value="{{ csrf }}">
     <p><button class="danger sm" name="open" value="leave">{{ _('del_leave') }}</button> <span class="muted">{{ _('del_leave_help') }}</span></p>
     <p><button class="danger sm ghost" name="open" value="close">{{ _('del_close') }}</button> <span class="muted">{{ _('del_close_help') }}</span></p></form></div></details>
-    {% else %}<form class="inline" method="post" action="/accounts/{{ a.id }}/delete" onsubmit="return confirm({{ _('confirm_delete')|tojson }})"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger sm">{{ _('btn_delete') }}</button></form>{% endif %}
+    {% else %}<form class="inline" method="post" action="/accounts/{{ a.id }}/delete" onsubmit='return confirm({{ _('confirm_delete')|tojson }})'><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger sm">{{ _('btn_delete') }}</button></form>{% endif %}
   </p>
 </div>
 {% else %}<div class="card muted">{{ _('no_portfolios') }}</div>{% endfor %}

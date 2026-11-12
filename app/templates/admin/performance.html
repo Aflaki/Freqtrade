@@ -7,7 +7,7 @@
 {% for b in bots %}<tr><td><a href="/admin/bots/{{ b.id }}">{{ b.name }}</a></td><td>{{ counts.get(b.id, 0) }}</td>
 <td>{% if not b.public %}<span class="badge">{{ _('flag_hidden') }}</span>{% endif %}</td>
 <td><form class="inline" method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="bot_id" value="{{ b.id }}">
-<button name="action" value="clear" class="danger sm" onclick="return confirm('{{ _('confirm_clear_perf') }}')">{{ _('btn_clear_perf') }}</button></form></td></tr>{% endfor %}
+<button name="action" value="clear" class="danger sm" onclick='return confirm({{ (_('confirm_clear_perf'))|tojson }})'>{{ _('btn_clear_perf') }}</button></form></td></tr>{% endfor %}
 </table></div>
 <p class="small muted">{{ _('perf_import_help_bots') }}</p></div>
 <div class="card" id="markets"><h2>🧪 {{ _('mt_title') }}</h2>

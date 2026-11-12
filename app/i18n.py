@@ -224,6 +224,7 @@ T: dict[str, tuple[str, str, str, str]] = {
     "btn_delete": ("حذف", "Delete", "Löschen", "Eliminar"),
     "btn_save": ("ذخیره", "Save", "Speichern", "Guardar"),
     "btn_cancel": ("انصراف", "Cancel", "Abbrechen", "Cancelar"),
+    "btn_ok": ("تأیید", "OK", "OK", "Aceptar"),
     "confirm_delete": ("حذف شود؟ کلیدهای API پاک می‌شوند.", "Delete? API keys will be erased.", "Löschen? API-Schlüssel werden entfernt.", "¿Eliminar? Las claves API se borrarán."),
     "title_new": ("سبد جدید", "New portfolio", "Neues Portfolio", "Nueva cartera"),
     "title_edit": ("ویرایش سبد", "Edit portfolio", "Portfolio bearbeiten", "Editar cartera"),

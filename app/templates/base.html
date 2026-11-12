@@ -15,7 +15,7 @@
 <link rel="stylesheet" href="/static/style.css?v=31">
 <link rel="stylesheet" href="/static/themes.css?v=7">
 </head>
-<body>{{ sprite() }}
+<body data-ok="{{ _('btn_ok') }}" data-cancel="{{ _('btn_cancel') }}">{{ sprite() }}
 <nav class="nav"><div class="in">
   <a class="brand" href="/"><img src="/site-icon?v={{ icon_v }}" alt="" width="26" height="26"><span>{{ site.site_name }}</span></a>
   {% set p = request.url.path %}
@@ -107,5 +107,6 @@ document.querySelectorAll('tr.rowlink').forEach(r => r.addEventListener('click',
 </script>
 <script id="grid-i18n" type="application/json">{{ {'filter': _('grid_filter'), 'cfilters': _('grid_col_filters'), 'columns': _('grid_columns'), 'show_all': _('grid_show_all'), 'rows': _('grid_rows'), 'filter_help': _('grid_filter_help')}|tojson }}</script>
 <script src="/static/grid.js?v=1" defer></script>
+<script src="/static/dialog.js?v=1" defer></script>
 <script src="/static/collapse.js?v=1" defer></script>
 </body></html>

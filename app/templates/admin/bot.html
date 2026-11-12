@@ -20,7 +20,7 @@
 <input class="ltr" type="text" readonly value="{{ webhook_url }}" onclick="this.select()">
 <p class="small muted">{{ _('bot_webhook_help') }}</p>
 {% if not st.last_webhook %}<div class="flash warn small">{{ _('bot_no_webhook_help') }}</div>{% endif %}
-<form method="post" style="margin-top:6px"><input type="hidden" name="csrf" value="{{ csrf }}"><button name="action" value="regenerate" class="danger sm" onclick="return confirm('{{ _('confirm_regen') }}')">{{ _('btn_regen') }}</button></form></div>
+<form method="post" style="margin-top:6px"><input type="hidden" name="csrf" value="{{ csrf }}"><button name="action" value="regenerate" class="danger sm" onclick='return confirm({{ (_('confirm_regen'))|tojson }})'>{{ _('btn_regen') }}</button></form></div>
 
 {% if api == 'ok' and st.missing_pairs %}<div class="flash error">⚠️ {{ _('bot_pairs_missing') }}: <span class="mono">{{ st.missing_pairs|join(', ') }}</span> — <a href="/admin/settings#trading">{{ _('adm_settings') }}</a></div>{% endif %}
 
@@ -50,9 +50,9 @@
 <button name="action" value="diagnose" class="ghost">🩺 {{ _('btn_diagnose') }}</button>
 {% if api == 'ok' %}
 <button name="action" value="start">{{ _('btn_bot_start') }}</button>
-<button name="action" value="stopentry" class="ghost" onclick="return confirm('{{ _('confirm_bot_stopentry') }}')">{{ _('btn_bot_stopentry') }}</button>
+<button name="action" value="stopentry" class="ghost" onclick='return confirm({{ (_('confirm_bot_stopentry'))|tojson }})'>{{ _('btn_bot_stopentry') }}</button>
 <button name="action" value="reload_config" class="ghost">{{ _('btn_bot_reload') }}</button>
-<button name="action" value="stop" class="danger" onclick="return confirm('{{ _('confirm_bot_stop') }}')">{{ _('btn_bot_stop') }}</button>
+<button name="action" value="stop" class="danger" onclick='return confirm({{ (_('confirm_bot_stop'))|tojson }})'>{{ _('btn_bot_stop') }}</button>
 {% endif %}</div>
 {% if api != 'ok' %}<p class="small muted">{{ _('bot_control_needs_api') }}</p>{% endif %}
 <p class="small muted">{{ _('bot_tg_hint') }} <span class="num mono">/bot {{ b.id }} · /botstart {{ b.id }} · /botstop {{ b.id }}</span></p></form>
@@ -103,6 +103,6 @@
 {% else %}<tr><td colspan="5" class="muted">{{ _('bot_never') }}</td></tr>{% endfor %}</table></div></div>
 
 <form method="post" class="card"><input type="hidden" name="csrf" value="{{ csrf }}">
-<button name="action" value="delete" class="danger sm" onclick="return confirm('{{ _('confirm_bot_delete') }}')">{{ _('btn_delete') }}</button>
+<button name="action" value="delete" class="danger sm" onclick='return confirm({{ (_('confirm_bot_delete'))|tojson }})'>{{ _('btn_delete') }}</button>
 <span class="small muted">{{ _('bot_delete_help') }}</span></form>
 {% endblock %}
