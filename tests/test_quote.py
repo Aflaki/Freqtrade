@@ -285,3 +285,72 @@ def test_a_portfolio_form_sent_twice_saves_once(catalog_env, monkeypatch):
     assert t2 != token
     page = save(c, csrf, label="cat-twice2", api_key="", secret="", form_token=t2).text  # missing keys: an error
     assert "already saved" not in page
+
+
+class FakeHL(fx.FakeExchange):
+    """Like Hyperliquid: the order answer has the real average price but no fee and no status; the order status
+    later carries only the slippage cap as "price" (5% away); the fills have the exact price and the fee."""
+    id = "hyperliquid"
+    fills_log: list = []
+
+    async def create_order(self, symbol, type_, side, amount, price, params):
+        await super().create_order(symbol, type_, side, amount, price, params)
+        o = self.orders[-1]
+        FakeHL.fills_log.append({"order": o["id"], "symbol": symbol, "side": side, "amount": amount, "price": o["price"],
+                                 "fee": {"cost": 0.01, "currency": "USDC"}, "timestamp": 1})
+        return {"id": o["id"], "status": None, "filled": amount, "average": o["price"]}
+
+    async def fetch_order(self, oid, symbol):
+        o = next(o for o in self.orders if o["id"] == oid)
+        cap = o["price"] * (1.05 if o["side"] == "buy" else 0.95)
+        return {"id": oid, "status": "closed", "filled": o["amount"], "average": None, "price": cap}
+
+    async def fetch_my_trades(self, symbol, since=None, limit=None, params=None):
+        return [dict(f) for f in FakeHL.fills_log if f["symbol"] == symbol]
+
+
+def test_hyperliquid_fill_price_and_fees(eur, monkeypatch):
+    """Seen live: exits were recorded at Hyperliquid's 5% slippage cap (a +0.66 profit shown as -0.53) and fees
+    as zero. The real fill price and fee are used; the result is net of entry and exit fees."""
+    acc_id, bot_id, _ = eur
+    monkeypatch.setattr(exmod.ccxt, "hyperliquid", FakeHL)
+    FakeHL.fills_log = []
+    with SessionLocal() as s:
+        gs = get_global(s)
+        gs.allowed_exchanges = ["binance", "hyperliquid"]
+        acc = s.get(ExchangeAccount, acc_id)
+        acc.exchange, acc.trading_mode, acc.quote, acc.capital = "hyperliquid", "futures", "USDC", 900
+        acc.pairs, acc.pair_bot = {"BTC/USDT": 1.0}, {"BTC/USDT": bot_id}
+        s.commit()
+    fx.FakeExchange.positions = []
+
+    def sig(action, n, **kw):
+        return asyncio.run(dispatch(Signal(action=action, symbol="BTCUSDT", pair="BTC/USDT", ft_trade_id=n,
+                                           id=f"hl-{action}-{n}", **kw), None, bot_id))
+    assert [o.status for o in sig("short", 31, leverage=3)] == ["opened"]
+    fx.PRICES["BTC/USDC:USDC"] = 59000.0  # the price falls: the short is in profit
+    try:
+        assert [o.status for o in sig("close_short", 31)] == ["closed"]
+    finally:
+        fx.PRICES["BTC/USDC:USDC"] = 60010.0
+    with SessionLocal() as s:
+        tr = s.query(Trade).filter_by(account_id=acc_id, pair="BTC/USDT").one()
+        assert tr.entry_price == pytest.approx(60010) and tr.exit_price == pytest.approx(59000)  # not the cap (61950)
+        assert tr.fees == pytest.approx(0.02)
+        assert tr.realized_pnl == pytest.approx((60010 - 59000) * tr.closed_amount - 0.02)
+        assert tr.realized_pnl > 0
+        # the repair reads the same fills: nothing left to change
+        tid = tr.id
+    from app.engine.repair import from_fills
+    rows = asyncio.run(from_fills(acc_id))
+    r = next(x for x in rows if x["id"] == tid)
+    assert r["missing"] == 0 and r["new"]["pnl"] == pytest.approx(r["old"]["pnl"], abs=1e-6)
+    # an old record (exit at the cap, no fees) is corrected by it
+    with SessionLocal() as s:
+        tr = s.get(Trade, tid)
+        tr.exit_value, tr.realized_pnl, tr.fees = 61950 * tr.closed_amount, -1.0, 0.0
+        s.commit()
+    rows = asyncio.run(from_fills(acc_id, apply=True))
+    with SessionLocal() as s:
+        tr = s.get(Trade, tid)
+        assert tr.exit_price == pytest.approx(59000) and tr.realized_pnl > 0 and tr.fees == pytest.approx(0.02)

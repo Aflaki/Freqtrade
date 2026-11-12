@@ -29,7 +29,8 @@ EXCHANGES = {
 }
 NEEDS_PASSWORD = {"okx", "bitget", "kucoin", "myokx"}
 SPOT_ONLY = {"kraken", "coinbase", "bitvavo", "myokx"}  # no perpetual futures through this site there
-PRICED_MARKET = {"hyperliquid"}  # a market order needs a reference price (the exchange caps slippage from it)
+PRICED_MARKET = {"hyperliquid"}
+FILLS_FOR_FEES = {"hyperliquid"}  # order answers carry no fee: read the fills (exact price and fee) after each order  # a market order needs a reference price (the exchange caps slippage from it)
 # Hyperliquid has no API key: the two key fields carry the wallet address and the API wallet's private key
 CREDENTIAL_NAMES = {"hyperliquid": ("walletAddress", "privateKey", None)}
 QUOTES = ("USDT", "USDC", "USD", "EUR", "GBP", "FDUSD", "TRY", "BRL", "AUD", "CAD", "JPY")
@@ -392,12 +393,20 @@ class ExchangeClient:
             streams.unexpect(self.account_id, symbol)
             raise
         oid = str(order.get("id") or "")
+        exid = getattr(self.ex, "id", "")
+        sent_at = int(time.time() * 1000) - 60_000
+        best = order  # the answer with the real fill (average price, filled amount) wins over later, poorer ones
         for i in range(6):  # poll until the real fill is visible
-            if order.get("status") == "closed" and order.get("filled") and order.get("average"):
+            if best.get("filled") and best.get("average") and (best.get("status") in ("closed", None)
+                                                               or exid in PRICED_MARKET):
                 break
             await asyncio.sleep(0.5 * (i + 1))
             try:
-                order = await self._call("fetch_order", {"id": oid, "symbol": symbol}, self.ex.fetch_order(oid, symbol))
+                got = await self._call("fetch_order", {"id": oid, "symbol": symbol}, self.ex.fetch_order(oid, symbol))
+                # Hyperliquid's order status carries the slippage cap ("price"), not the fill price: keep the fill
+                best = got if got.get("average") or not best.get("average") else {**got, "average": best["average"],
+                                                                                  "filled": best.get("filled") or got.get("filled")}
+                order = best
             except Exception:
                 try:
                     trades = await self._call("fetch_my_trades", {"symbol": symbol},
@@ -411,8 +420,14 @@ class ExchangeClient:
                         break
                 except Exception:
                     pass
+        if exid in FILLS_FOR_FEES:  # the exchange's own fills: exact price and fee (its order answer has no fee)
+            mine = await self.fills_of(symbol, oid, sent_at)
+            if mine:
+                order = {**order, **mine}
         filled = float(order.get("filled") or 0) or amount
-        avg = float(order.get("average") or order.get("price") or 0) or await self.price(symbol, price_hint)
+        # a market order's "price" is only its slippage cap on some exchanges: never the fill price there
+        cap_price = order.get("price") if exid not in PRICED_MARKET else None
+        avg = float(order.get("average") or cap_price or 0) or await self.price(symbol, price_hint)
         m = self.market(symbol)
         fee_quote = fee_base = 0.0
         for f in order.get("fees") or ([order["fee"]] if order.get("fee") else []):
@@ -427,6 +442,22 @@ class ExchangeClient:
         if self.is_spot:
             self._bal = None  # spot: the coin balance itself changed (an exit reads it right after an entry)
         return Fill(oid, filled, avg, fee_quote, fee_base, str(order.get("status") or "unknown"))
+
+    async def fills_of(self, symbol: str, oid: str, since_ms: int | None = None) -> dict | None:
+        """{"filled", "average", "fees", "status"} from the exchange's own fills of order `oid`, None if not found."""
+        try:
+            trades = await self._call("fetch_my_trades", {"symbol": symbol, "since": since_ms},
+                                      self.ex.fetch_my_trades(symbol, since_ms, 100))
+        except Exception as e:
+            log.info("[acc %s] fills of %s unavailable: %s", self.account_id, oid, e)
+            return None
+        mine = [t for t in trades or [] if str(t.get("order")) == oid]
+        if not mine:
+            return None
+        qty = sum(float(t["amount"]) for t in mine)
+        cost = sum(float(t["amount"]) * float(t["price"]) for t in mine)
+        return {"filled": qty, "average": cost / qty if qty else None, "status": "closed",
+                "fees": [t.get("fee") for t in mine if t.get("fee")]}
 
     async def place_stop(self, symbol: str, side: str, amount: float, stop_price: float) -> str | None:
         """Exchange-side protective stop (futures). Returns order id."""

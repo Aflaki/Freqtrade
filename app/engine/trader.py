@@ -310,7 +310,11 @@ async def _close(s: Session, acc: ExchangeAccount, user: User, gs: GlobalSetting
         raise
 
     direction = 1 if trade.side == "long" else -1
-    pnl = (fill.price - trade.entry_price) * fill.amount * trade.contract_size * direction - fill.fee_quote
+    entry_fees = s.scalar(select(func.coalesce(func.sum(Order.fee), 0)).where(
+        Order.trade_id == trade.id, Order.kind.in_(("entry", "dca")))) or 0.0
+    held_total = trade.amount + trade.closed_amount
+    entry_fee_part = entry_fees * fill.amount / held_total if held_total else 0.0
+    pnl = (fill.price - trade.entry_price) * fill.amount * trade.contract_size * direction - fill.fee_quote - entry_fee_part
     stake_part = trade.stake * (fill.amount / trade.amount) if trade.amount else 0
     trade.amount = max(0.0, trade.amount - fill.amount)
     trade.closed_amount += fill.amount
