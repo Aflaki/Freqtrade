@@ -19,12 +19,17 @@ from app.signal import Signal
 class FakeStream:
     """What ccxt pro gives: first the snapshot, then updates pushed by the exchange (here: one, then silence)."""
 
-    def __init__(self, balance=None, positions=None, marks=None):
+    def __init__(self, balance=None, positions=None, marks=None, rest_positions=None):
         self.b, self.p, self.m = balance, positions, marks
+        self.rest_b = balance
+        self.rest_p = list(positions or []) if rest_positions is None else rest_positions  # what REST says
         self.closed = False
 
-    async def fetch_balance(self):  # the starting balance (REST, once)
-        return self.b
+    async def fetch_balance(self):  # the starting balance (REST, once) and the periodic check
+        return self.b if self.b is not None else self.rest_b
+
+    async def fetch_positions(self):  # the periodic check against the stream
+        return self.rest_p
 
     async def watch_balance(self):
         if self.b is None:
@@ -50,6 +55,8 @@ class FakeStream:
 
 @pytest.fixture
 def live(monkeypatch):
+    import app.engine.streams as streams_mod
+    monkeypatch.setattr(streams_mod, "VERIFY_FIRST", 0)
     init_db()
     monkeypatch.setattr(exmod.ccxt, "binanceusdm", fx.FakeExchange)
     fx.FakeExchange.positions = []
@@ -111,7 +118,8 @@ def test_entry_and_live_view_from_the_stream(live):
             # 8,000 wallet (from the stream) x 50% / 2 pairs = 2,000 margin, x2 at the mark price 3,000
             assert tr.amount == pytest.approx(1.333)
             calls = [c["method"] for c in s.query(ExecutionLog).filter_by(account_id=acc_id).one().calls]
-        assert "fetch_balance" not in calls and "fetch_positions" not in calls, calls  # all pushed, nothing asked
+        assert "fetch_balance" not in calls, calls  # the balance is pushed
+        assert "fetch_positions" in calls  # but whether a position is open is always asked of the exchange itself
         assert fx.FakeExchange.instances[-1].orders[-1]["params"].get("newOrderRespType") == "RESULT"
         # live page numbers: the BTC short we hold is priced from the mark stream, no request
         from app.engine import livepos
@@ -275,4 +283,39 @@ def test_wallet_balances(live):
         assert b["live"] and b["wallet"] == 700 and b["equity"] == pytest.approx(710)  # +10 open profit
         await manager.stop(acc_id)
         livepos._bal.clear()
+    asyncio.run(go())
+
+
+def test_a_silent_stream_is_caught_and_replaced(live):
+    """Seen in production: the user-data stream stayed 'connected' but delivered nothing for hours, so the relay
+    believed closed positions were still open (and 'adopted' them instead of opening new ones) and didn't see the
+    ones it had just opened. The periodic REST check replaces the stream's state and rebuilds the connection;
+    trading never decides from the stream."""
+    acc_id, bot_id, _ = live
+    stale = [{"symbol": "BTC/USDT:USDT", "side": "short", "contracts": 0.01, "contractSize": 1, "entryPrice": 61000.0}]
+    real = [{"symbol": "ETH/USDT:USDT", "side": "long", "contracts": 0.5, "contractSize": 1, "entryPrice": 3000.0}]
+    pushed = FakeStream(balance={"USDT": {"free": 900.0, "total": 900.0}, "total": {"USDT": 900.0}},
+                        positions=stale, rest_positions=real)
+    manager.factory = lambda acc: pushed
+    fx.FakeExchange.positions = []  # what the trading client reads: no BTC position
+
+    async def go():
+        with SessionLocal() as s:
+            acc = s.get(ExchangeAccount, acc_id)
+            s.expunge(acc)
+        await manager.start(acc, exmod.client_version(acc))
+        st = manager.accounts[acc_id]
+        for _ in range(50):
+            await asyncio.sleep(0.02)
+            if st.drifts:
+                break
+        assert st.drifts == 1 and "BTC/USDT short" in st.last_drift and "ETH/USDT long" in st.last_drift
+        assert set(st.positions) == {"ETH/USDT:USDT|long"}  # replaced by what the exchange really has
+        assert st.version[0] == "drift"  # sync() rebuilds the connection
+        # the trading path doesn't use the stream: a BTC entry opens a real position, nothing is "adopted"
+        st.positions = {"BTC/USDT:USDT|short": stale[0]}  # even if the stream froze again
+        out = await dispatch(Signal(action="short", symbol="BTCUSDT", pair="BTC/USDT:USDT", ft_trade_id=9, leverage=2,
+                                    id="ws-drift"), None, bot_id)
+        assert [o.status for o in out] == ["opened"], out
+        await manager.stop(acc_id)
     asyncio.run(go())

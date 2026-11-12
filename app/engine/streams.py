@@ -24,6 +24,9 @@ SYNC_EVERY = 30        # seconds between checks of which portfolios need a strea
 START_GAP = 0.5        # seconds between two new connections
 MARK_FRESH = 15        # a mark price older than this is not used
 SUPPORTED = {"binanceusdm"}
+VERIFY_EVERY = 120     # seconds: the stream's positions and balance are checked against a REST read this often
+VERIFY_FIRST = 5       # seconds after the start before the first check
+VERIFY_GRACE = 90      # a stream not verified for VERIFY_EVERY + this is not trusted (readers fall back to REST)
 
 
 class AccountStream:
@@ -39,6 +42,9 @@ class AccountStream:
         self.tasks: list[asyncio.Task] = []
         self.failures = 0
         self.pos_ready = False  # the positions snapshot has arrived
+        self.verified_at = 0.0  # last time a REST read agreed with (or replaced) the stream's state
+        self.drifts = 0         # times the stream had drifted from the exchange (it is then reconnected)
+        self.last_drift = ""
 
 
 def _key(p: dict) -> str | None:
@@ -64,7 +70,9 @@ class StreamManager:
     # ------------------------------------------------------------ readers
     def live(self, acc_id: int) -> AccountStream | None:
         st = self.accounts.get(acc_id)
-        return st if st and st.connected and st.balance is not None and st.pos_ready else None
+        ok = st and st.connected and st.balance is not None and st.pos_ready and \
+            time.time() - st.verified_at < VERIFY_EVERY + VERIFY_GRACE
+        return st if ok else None
 
     def wallet(self, acc_id: int, currency: str) -> float | None:
         st = self.live(acc_id)
@@ -179,10 +187,52 @@ class StreamManager:
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, 300)
 
+    async def _verify(self, st: AccountStream) -> None:
+        """Every VERIFY_EVERY s: read positions and balance over REST and compare. A user-data stream can stop
+        delivering events without disconnecting; then its state is replaced by the REST read and the
+        connection is rebuilt (by sync)."""
+        from .ratelimit import prio
+        await asyncio.sleep(VERIFY_FIRST)
+        while True:
+            if st.connected and st.pos_ready:
+                tok = prio.set("background")
+                try:
+                    raw = await st.ex.fetch_positions()
+                    bal = await st.ex.fetch_balance()
+                    real = {}
+                    for p in raw or []:
+                        k = _key(p)
+                        if k and abs(float(p.get("contracts") or 0)) > 0:
+                            real[k] = p
+                    have = {k: abs(float(p.get("contracts") or 0)) for k, p in st.positions.items()}
+                    want = {k: abs(float(p.get("contracts") or 0)) for k, p in real.items()}
+                    diff = sorted(k for k in set(have) | set(want)
+                                  if abs(have.get(k, 0) - want.get(k, 0)) > 1e-9 * max(1.0, want.get(k, 0)))
+                    st.positions = {k: {**st.positions.get(k, {}), **{kk: vv for kk, vv in p.items() if vv is not None}}
+                                    for k, p in real.items()}
+                    st.balance = bal
+                    st.verified_at = time.time()
+                    if diff:
+                        st.drifts += 1
+                        st.last_drift = f"{time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())} UTC: " + \
+                            ", ".join(f"{k.split('|')[0].split(':')[0]} {k.split('|')[1]}" for k in diff[:12]) + \
+                            (f" (+{len(diff) - 12})" if len(diff) > 12 else "")
+                        log.warning("[acc %s] stream had drifted from the exchange (%d positions: %s); "
+                                    "replaced by REST and reconnecting", st.acc_id, len(diff), st.last_drift)
+                        st.version = ("drift", time.time())  # sync() rebuilds the connection
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    log.info("[acc %s] stream check skipped: %s", st.acc_id, e)
+                finally:
+                    prio.reset(tok)
+            await asyncio.sleep(VERIFY_EVERY if st.verified_at else VERIFY_FIRST or 0.01)
+
     async def start(self, acc: ExchangeAccount, version: tuple) -> None:
         st = AccountStream(acc.id, version)
         st.ex = self._client(acc)
-        st.tasks = [asyncio.create_task(self._watch(st, "balance")), asyncio.create_task(self._watch(st, "positions"))]
+        st.tasks = [asyncio.create_task(self._watch(st, "balance")), asyncio.create_task(self._watch(st, "positions")),
+                    asyncio.create_task(self._verify(st))]
         self.accounts[acc.id] = st
 
     async def stop(self, acc_id: int) -> None:
@@ -281,8 +331,10 @@ class StreamManager:
         if st is None:
             return {"mode": "api", "error": "", "since": None, "ip": acc.out_ip}
         if self.live(acc.id):
-            return {"mode": "live", "error": "", "since": st.at, "ip": acc.out_ip}
-        waiting = [w for w, ok in (("balance", st.balance is not None), ("positions", st.pos_ready)) if not ok]
+            return {"mode": "live", "error": "", "since": st.at, "ip": acc.out_ip, "drifts": st.drifts,
+                    "last_drift": st.last_drift}
+        waiting = [w for w, ok in (("balance", st.balance is not None), ("positions", st.pos_ready),
+                                   ("check", time.time() - st.verified_at < VERIFY_EVERY + VERIFY_GRACE)) if not ok]
         return {"mode": "connecting" if not st.error else "api",
                 "error": st.error or ("waiting for: " + ", ".join(waiting) if waiting else ""),
                 "since": st.at or None, "ip": acc.out_ip}
@@ -290,7 +342,9 @@ class StreamManager:
     def summary(self) -> dict:
         sts = list(self.accounts.values())
         return {"total": len(sts), "connected": sum(1 for s in sts if s.connected), "marks": len(self.marks),
-                "mark_ok": self.mark_ok, "errors": [{"acc": s.acc_id, "error": s.error} for s in sts if s.error][:10]}
+                "mark_ok": self.mark_ok, "errors": [{"acc": s.acc_id, "error": s.error} for s in sts if s.error][:10],
+                "drifts": sum(s.drifts for s in sts),
+                "drift_list": [{"acc": s.acc_id, "n": s.drifts, "last": s.last_drift} for s in sts if s.drifts][:10]}
 
 
 manager = StreamManager()

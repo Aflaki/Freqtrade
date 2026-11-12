@@ -225,3 +225,19 @@ def test_live_numbers_from_the_exchange_and_reconcile(env):
     assert [p["symbol"] for p in fx.FakeExchange.positions] == ["BTC/USDT:USDT"]  # ETH closed on the exchange
     with SessionLocal() as s:
         assert s.get(Trade, tid).status == "closed"
+
+    # a ghost: our record says BTC is open, the exchange has nothing (e.g. 'adopted' from a frozen stream)
+    fx.FakeExchange.positions = []
+    livepos._cache.clear()
+    res = run(reconcile.compare(acc_id))
+    ghost = next(r for r in res["diffs"] if r["pair"] == "BTC/USDT")
+    assert ghost["kind"] == "bot_only" and ghost["ghost"] and ghost["trade_id"] == btc.id
+    assert "no position on the exchange" in c.get(f"/accounts/{acc_id}/positions").text
+    c.post(f"/accounts/{acc_id}/reconcile", data={"csrf": csrf, f"r__{ghost['key']}": "open"})
+    with SessionLocal() as s:
+        old = s.get(Trade, btc.id)
+        assert old.status == "void" and old.exit_reason == "not_on_exchange" and old.realized_pnl == 0
+        new = s.query(Trade).filter_by(account_id=acc_id, pair="BTC/USDT", status="open").one()
+        assert new.id != btc.id and new.enter_tag == "catch-up"
+    last = fx.FakeExchange.instances[-1].orders[-1]  # really ordered this time
+    assert last["symbol"] == "BTC/USDT:USDT" and last["side"] == "sell" and not last["params"].get("reduceOnly")

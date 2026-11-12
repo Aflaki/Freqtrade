@@ -19,7 +19,7 @@
 <div class="table-wrap"><table class="small">
 <tr><th>{{ _('col_pair') }}</th><th>{{ _('rc_col_what') }}</th><th>{{ _('pos_col_decision') }}</th><th>{{ _('pos_col_bot') }}</th><th>{{ _('rc_col_bot_trade') }}</th><th>{{ _('rc_col_exchange') }}</th></tr>
 {% for r in recon.diffs %}<tr><td class="mono">{{ coin(r.pair) }}{{ r.pair }}</td>
-<td><span class="badge {{ 'warn' if r.kind != 'opposite' else 'err' }}">{{ _('rc_kind_' ~ r.kind) }}</span>{% if r.ack %} <span class="badge ok">{{ _('rc_acked') }}</span>{% endif %}</td>
+<td><span class="badge {{ 'warn' if r.kind != 'opposite' else 'err' }}">{{ _('rc_kind_' ~ r.kind) }}</span>{% if r.ack %} <span class="badge ok">{{ _('rc_acked') }}</span>{% endif %}{% if r.ghost %}<div class="small muted">{{ _('rc_ghost') }}</div>{% endif %}</td>
 <td>{% if r.kind == 'bot_only' %}<label class="check inline"><input type="radio" name="r__{{ r.key }}" value="open"> {{ _('rc_open') }}</label>
 <label class="check inline"><input type="radio" name="r__{{ r.key }}" value="skip" {{ 'checked' if r.ack }}> {{ _('rc_skip') }}</label>
 {% else %}<label class="check inline"><input type="radio" name="r__{{ r.key }}" value="close"> {{ _('pos_close') }}</label>

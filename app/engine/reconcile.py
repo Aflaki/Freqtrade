@@ -35,7 +35,7 @@ def key(pair: str, side: str, kind: str) -> str:
     return f"{pair}|{side}|{kind}"
 
 
-async def compare(acc_id: int) -> dict[str, Any]:
+async def compare(acc_id: int, rest: bool = True) -> dict[str, Any]:
     from . import livepos
     from .botmonitor import monitor
     monitor.want_live()
@@ -48,7 +48,7 @@ async def compare(acc_id: int) -> dict[str, Any]:
                                                                          Trade.status == "open"))}
         for t in ours.values():
             s.expunge(t)
-    st = await livepos.refresh(acc_id)
+    st = await livepos.refresh(acc_id, max_age=10 if rest else livepos.MAX_AGE, rest=rest)  # the exchange itself
     on_ex: dict[str, dict] = {}
     for p in st["rows"].values():
         on_ex.setdefault(p["pair"], p)
@@ -70,8 +70,10 @@ async def compare(acc_id: int) -> dict[str, Any]:
             continue
         kind = ("matched" if bt["side"] == p["side"] else "opposite") if bt and p else ("bot_only" if bt else "exch_only")
         side = (p or bt)["side"]
-        rows.append({"pair": pair, "kind": kind, "side": side, "bot_id": b, "bot": bt, "pos": p,
-                     "trade_id": getattr(ours.get((pair, side)), "id", None), "key": key(pair, side, kind)})
+        tid = getattr(ours.get((pair, side)), "id", None)
+        rows.append({"pair": pair, "kind": kind, "side": side, "bot_id": b, "bot": bt, "pos": p, "trade_id": tid,
+                     "ghost": kind == "bot_only" and tid is not None,  # our record says open, the exchange has none
+                     "key": key(pair, side, kind)})
     ack = set(acc.recon_ack or [])
     diffs = [r for r in rows if r["kind"] != "matched"]
     for r in diffs:
@@ -90,6 +92,17 @@ async def compare(acc_id: int) -> dict[str, Any]:
     return out
 
 
+def _close_ghost(trade_id: int) -> None:
+    """Our trade record is open but the exchange has no such position (e.g. 'adopted' from a stale view):
+    close the record without any order, at no profit or loss."""
+    with SessionLocal() as s:
+        t = s.get(Trade, trade_id)
+        if t is not None and t.status == "open":
+            t.status, t.exit_reason, t.closed_at = "void", "not_on_exchange", utcnow()
+            t.closed_amount, t.amount = 0.0, 0.0
+            s.commit()
+
+
 async def act(acc_id: int, user_id: int, decisions: dict[str, str]) -> dict[str, list]:
     """decisions: {row key: "close" | "keep" | "open" | "skip"}. Returns what happened, per row."""
     from ..signal import Signal
@@ -102,6 +115,8 @@ async def act(acc_id: int, user_id: int, decisions: dict[str, str]) -> dict[str,
         r = rows.get(k)
         if r is None:
             continue
+        if r.get("ghost") and what in ("open", "skip"):
+            _close_ghost(r["trade_id"])  # not on the exchange: our open record would block a new entry / exit
         if what in ("keep", "skip"):
             ack.add(k)
             done["kept"].append(r)

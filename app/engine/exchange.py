@@ -241,10 +241,9 @@ class ExchangeClient:
         from it. Raises if the exchange can't list them."""
         if not getattr(self.ex, "has", {}).get("fetchPositions"):
             raise ValueError("this exchange can't list positions")
-        from .streams import manager as streams
-        live = streams.positions(self.account_id)
-        if live is not None:  # the account's WebSocket: up to date and free
-            return [p for p in live if not symbols or p.get("symbol") in symbols]
+        # Trading decisions (adopt / skip / exit size) always read the exchange itself, never the WebSocket:
+        # a user-data stream can go silent while still "connected" (seen in production: a frozen snapshot made
+        # the relay "adopt" positions it had closed hours before instead of opening new ones).
         if fresh or not self._pos or time.monotonic() - self._pos[0] > CACHE_S:
             raw = await self._call("fetch_positions", {}, self.ex.fetch_positions())
             self._pos = (time.monotonic(), list(raw or []))

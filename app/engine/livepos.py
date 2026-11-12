@@ -68,12 +68,12 @@ async def _open_time(ex, symbol: str, side: str, contracts: float) -> dt.datetim
     return None
 
 
-async def _read_account(acc: ExchangeAccount) -> dict[str, Any]:
+async def _read_account(acc: ExchangeAccount, rest: bool = False) -> dict[str, Any]:
     from .exchange import pool
     from .ratelimit import prio
     from .streams import manager as streams
     client = await pool.get(acc)
-    live = streams.positions(acc.id)
+    live = None if rest else streams.positions(acc.id)
     if live is not None:  # pushed by the exchange: no request at all
         return {"rows": {p["key"]: p for p in normalize(live)}, "ex": client.ex}
     tok = prio.set("view")  # skipped (cache shown) when the request budget is busy with trading
@@ -84,7 +84,7 @@ async def _read_account(acc: ExchangeAccount) -> dict[str, Any]:
     return {"rows": {p["key"]: p for p in normalize(raw)}, "ex": client.ex}
 
 
-async def refresh(acc_id: int, max_age: float = MAX_AGE) -> dict[str, Any]:
+async def refresh(acc_id: int, max_age: float = MAX_AGE, rest: bool = False) -> dict[str, Any]:
     """The account's positions on the exchange (cached), with our open trades brought in line with them."""
     hit = _cache.get(acc_id)
     if hit and time.monotonic() - hit["at"] < max_age:
@@ -95,7 +95,7 @@ async def refresh(acc_id: int, max_age: float = MAX_AGE) -> dict[str, Any]:
             return {"rows": {}, "error": "", "at": time.monotonic()}
         s.expunge(acc)
     try:
-        got = await asyncio.wait_for(_read_account(acc), 20)
+        got = await asyncio.wait_for(_read_account(acc, rest), 20)
     except Exception as e:
         from .ratelimit import ApiBusy
         if isinstance(e, ApiBusy) and hit:  # trading needs the budget now: show the last numbers a bit longer
