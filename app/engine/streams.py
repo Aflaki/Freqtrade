@@ -45,6 +45,9 @@ class AccountStream:
         self.verified_at = 0.0  # last time a REST read agreed with (or replaced) the stream's state
         self.drifts = 0         # times the stream had drifted from the exchange (it is then reconnected)
         self.last_drift = ""
+        self.started = time.time()
+        self.pos_events = 0       # position updates pushed by the exchange since the connection was made
+        self.last_pos_event = 0.0
 
 
 def _key(p: dict) -> str | None:
@@ -157,7 +160,11 @@ class StreamManager:
                     else:
                         st.balance = await st.ex.watch_balance()
                 else:
-                    for p in await st.ex.watch_positions() or []:
+                    got = await st.ex.watch_positions() or []
+                    if st.pos_ready:
+                        st.pos_events += 1
+                        st.last_pos_event = time.time()
+                    for p in got:
                         k = _key(p)
                         if not k:
                             continue
@@ -217,8 +224,12 @@ class StreamManager:
                         st.last_drift = f"{time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())} UTC: " + \
                             ", ".join(f"{k.split('|')[0].split(':')[0]} {k.split('|')[1]}" for k in diff[:12]) + \
                             (f" (+{len(diff) - 12})" if len(diff) > 12 else "")
-                        log.warning("[acc %s] stream had drifted from the exchange (%d positions: %s); "
-                                    "replaced by REST and reconnecting", st.acc_id, len(diff), st.last_drift)
+                        now = time.time()
+                        log.warning("[acc %s] stream had drifted from the exchange (%d positions: %s); connected "
+                                    "%.0f min ago, %d position updates received, last one %s; replaced by REST and "
+                                    "reconnecting", st.acc_id, len(diff), st.last_drift, (now - st.started) / 60,
+                                    st.pos_events, f"{(now - st.last_pos_event) / 60:.0f} min ago"
+                                    if st.last_pos_event else "never")
                         st.version = ("drift", time.time())  # sync() rebuilds the connection
                 except asyncio.CancelledError:
                     raise
