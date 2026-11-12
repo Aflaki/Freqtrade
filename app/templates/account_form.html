@@ -2,7 +2,7 @@
 {% set is_signal = kind == 'signal' %}{% set v = draft or acc %}
 {% set cur_mode = (v.sizing_mode if v and v.sizing_mode in modes else modes[0]) %}
 <h1>{{ (_('title_edit') if acc else _('title_new')) }} — {{ _('plan_signal_title') if is_signal else _('plan_auto_title') }}</h1>
-<form method="post" class="card" id="f"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="kind" value="{{ kind }}">
+<form method="post" class="card" id="f"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="form_token" value="{{ form_token }}"><input type="hidden" name="kind" value="{{ kind }}">
 {% if is_signal %}
 <div class="flash ok small">{{ _('signal_form_intro') }}</div>
 <label>{{ _('f_label') }}</label><input type="text" name="label" value="{{ v.label if v else '' }}">
@@ -171,7 +171,11 @@
 <label class="check"><input type="checkbox" name="dry_run" {{ 'checked' if not v or v.dry_run }}> <span>{{ _('f_dry_run') }}</span></label>
 <label class="check"><input type="checkbox" name="sandbox" {{ 'checked' if v and v.sandbox }}> <span>{{ _('f_sandbox') }}</span></label>
 {% endif %}
-<p><button>{{ _('btn_save') }}</button> <a class="btn ghost" href="/accounts">{{ _('btn_cancel') }}</a></p>
+<p><button id="savebtn">{{ _('btn_save') }}</button> <a class="btn ghost" href="/accounts">{{ _('btn_cancel') }}</a></p>
+<script>(() => { const f = document.getElementById('f'), b = document.getElementById('savebtn'); let sent = false;
+  f.addEventListener('submit', e => { if (sent) { e.preventDefault(); return; }  // the exchange check takes a few seconds
+    sent = true; b.disabled = true; b.textContent = {{ _('btn_saving')|tojson }}; });
+  window.addEventListener('pageshow', () => { sent = false; b.disabled = false; b.textContent = {{ _('btn_save')|tojson }}; }); })();</script>
 </form>
 <script>
 (function(){

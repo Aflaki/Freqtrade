@@ -407,6 +407,8 @@ C: dict[str, tuple[str, str, str, str]] = {
                   "This exchange's market data isn't loaded yet (up to a minute); reopen the page shortly to see only its real quote coins.",
                   "Die Marktdaten dieser Börse sind noch nicht geladen (bis zu einer Minute); öffnen Sie die Seite gleich erneut.",
                   "Los datos de mercado de este exchange aún no se han cargado (hasta un minuto); vuelva a abrir la página en breve."),
+    "msg_already_saved": ("این سبد قبلاً ذخیره شده بود (فرم دو بار ارسال شد)؛ سبد تکراری ساخته نشد.", "This portfolio was already saved (the form was sent twice); no duplicate was created.", "Dieses Portfolio war schon gespeichert (Formular zweimal gesendet); kein Duplikat erstellt.", "Esta cartera ya se había guardado (formulario enviado dos veces); no se creó un duplicado."),
+    "btn_saving": ("در حال ذخیره و بررسی با صرافی…", "Saving and checking with the exchange…", "Speichern und mit der Börse prüfen…", "Guardando y comprobando con el exchange…"),
     "cr_key": ("API Key", "API Key", "API Key", "API Key"),
     "cr_secret": ("Secret Key", "Secret Key", "Secret Key", "Secret Key"),
     "cr_hl_key": ("آدرس کیف پول اصلی (0x…)", "Main wallet address (0x…)", "Adresse der Haupt-Wallet (0x…)", "Dirección de la wallet principal (0x…)"),

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import secrets
 
 from fastapi import APIRouter, HTTPException, Request
@@ -224,6 +225,7 @@ def _form_ctx(gs, acc, kind, draft=None, issues=None, user=None):
     rest = [b for b in bots if b.group_id not in gids]
     if rest:
         sections.append((None, rest))
+    import secrets as _secrets
     src = draft or acc  # draft: what the user typed, shown again after an error
     return dict(gs=gs, acc=acc, kind=kind, key_mask=mask(acc.api_key_enc) if acc and not acc.is_signal else "",
                 stats_json=perf.stats_json(ids, 90), modes=[m for m in SIZING_MODES if m in (gs.sizing_modes or []) and m != "wallet_pct"],
@@ -231,7 +233,7 @@ def _form_ctx(gs, acc, kind, draft=None, issues=None, user=None):
                 followed=(src.bots or []) if src else (ids if len(ids) == 1 else []), sections=sections,
                 pair_bot=(src.pair_bot or {}) if src else {}, server_ip=_server_ip(), **_catalog_ctx(gs, bots),
                 draft=draft, issues=issues or [], cap_pct=round(_cap(gs, user) * 100, 2),
-                cred_ui=_CRED_UI, multiline=sorted(_MULTILINE))
+                cred_ui=_CRED_UI, multiline=sorted(_MULTILINE), form_token=_secrets.token_urlsafe(16))
 
 
 def _cap(gs, user) -> float:
@@ -360,9 +362,39 @@ async def account_edit(acc_id: int, request: Request):
     return render(request, "account_form.html", **_form_ctx(gs, acc, acc.kind, user=user))
 
 
+_form_tokens: dict[str, tuple[float, int | None]] = {}  # form token -> (time, saved portfolio id; None = saving)
+_save_locks: dict[int, asyncio.Lock] = {}
+
+
 async def _save_account(request: Request, acc_id: int | None):
+    """One save per form: a second submit of the same form (double click, Enter + click, a resent request while the
+    first one is still checking the exchange) never creates a second portfolio."""
+    import time as _time
     user = require_user(request)
     f = await form_with_csrf(request)
+    token = str(f.get("form_token", ""))[:64]
+    now = _time.time()
+    for k in [k for k, v in _form_tokens.items() if now - v[0] > 3600]:
+        _form_tokens.pop(k, None)
+    async with _save_locks.setdefault(user.id, asyncio.Lock()):  # one save at a time per user
+        if token and token in _form_tokens:  # this form was already saved
+            saved = _form_tokens[token][1]
+            flash(request, tr(request, "msg_already_saved"))
+            return RedirectResponse(f"/accounts/{saved}/edit" if saved and acc_id else "/accounts", 303)
+        if token:
+            _form_tokens[token] = (now, None)
+        request.state.saved_id = None
+        try:
+            return await _save_account_inner(request, acc_id, user, f)
+        finally:
+            if token:
+                if request.state.saved_id:
+                    _form_tokens[token] = (now, request.state.saved_id)
+                else:
+                    _form_tokens.pop(token, None)  # not saved (errors shown): the form can be sent again
+
+
+async def _save_account_inner(request: Request, acc_id: int | None, user, f):
     back = f"/accounts/{acc_id}/edit" if acc_id else f"/accounts/new?kind={f.get('kind', 'exchange')}"
     with SessionLocal() as s:
         gs = get_global(s)
@@ -562,6 +594,7 @@ async def _save_account(request: Request, acc_id: int | None):
             acc.dry_run = True
         s.commit()
         new_id = acc.id
+        request.state.saved_id = new_id
     await pool.drop(new_id)
     flash(request, tr(request, "msg_saved_test" if kind == "exchange" else "msg_saved"))
     return await _after_activation(request, new_id)

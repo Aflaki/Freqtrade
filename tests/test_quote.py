@@ -244,3 +244,44 @@ def test_credentials_per_exchange(catalog_env):
     assert pem == _pem(one_line) and pem.splitlines() == ["-----BEGIN EC PRIVATE KEY-----", "Q" * 64, "Q" * 36,
                                                           "-----END EC PRIVATE KEY-----"]
     assert credential_problem("coinbase", "-----BEGIN PUBLIC", one_line) == "err_cb_keyname"
+
+
+def test_a_portfolio_form_sent_twice_saves_once(catalog_env, monkeypatch):
+    """Saving checks the key with the exchange (a few seconds): a second submit of the same form (double click,
+    Enter + click) arrives meanwhile. Only one portfolio is created; the second answer says it was saved."""
+    import re as _re
+
+    import httpx
+
+    from app.main import app as _app
+    from tests.test_catalog import FakeBinance
+    a, _b = catalog_env
+    offer("BTC/USDT", a)
+    c, csrf = login("cat-twice-u@x.com")
+    form = c.get("/accounts/new?kind=exchange").text
+    token = _re.search(r'name="form_token" value="([^"]+)"', form).group(1)
+    assert 'id="savebtn"' in form
+    slow = FakeBinance.fetch_balance
+
+    async def fetch_balance(self):  # the exchange takes its time
+        await asyncio.sleep(0.3)
+        return await slow(self)
+    monkeypatch.setattr(FakeBinance, "fetch_balance", fetch_balance)
+    data = {"csrf": csrf, "kind": "exchange", "label": "cat-twice", "exchange": "binance", "trading_mode": "futures",
+            "api_key": "twice-k", "secret": "s", "no_withdraw": "on", "form_token": token, "pair__BTC/USDT": "on",
+            "capital": "300"}
+
+    async def both():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=_app), base_url="http://testserver",
+                                     cookies=dict(c.cookies)) as ac:
+            return await asyncio.gather(ac.post("/accounts/new", data=data), ac.post("/accounts/new", data=data))
+    results = asyncio.run(both())
+    with SessionLocal() as s:
+        assert s.query(ExchangeAccount).filter_by(label="cat-twice").count() == 1
+    assert sorted(r.status_code for r in results) == [303, 303]
+    # a fresh form (new token) is a new save as usual; errors don't use the token up
+    form2 = c.get("/accounts/new?kind=exchange").text
+    t2 = _re.search(r'name="form_token" value="([^"]+)"', form2).group(1)
+    assert t2 != token
+    page = save(c, csrf, label="cat-twice2", api_key="", secret="", form_token=t2).text  # missing keys: an error
+    assert "already saved" not in page
