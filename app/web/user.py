@@ -211,6 +211,9 @@ def _public_bots() -> list[Bot]:
         return list(s.scalars(select(Bot).where(Bot.enabled.is_(True), Bot.public.is_(True)).order_by(Bot.sort, Bot.id)))
 
 
+from ..engine.exchange import CRED_UI as _CRED_UI, MULTILINE_SECRET as _MULTILINE  # noqa: E402
+
+
 def _form_ctx(gs, acc, kind, draft=None, issues=None, user=None):
     bots = _public_bots()
     ids = [b.id for b in bots]
@@ -227,7 +230,8 @@ def _form_ctx(gs, acc, kind, draft=None, issues=None, user=None):
                 bots=bots, cards={m: perf.bot_summaries(ids, m, 90) for m in ("all", "long")},
                 followed=(src.bots or []) if src else (ids if len(ids) == 1 else []), sections=sections,
                 pair_bot=(src.pair_bot or {}) if src else {}, server_ip=_server_ip(), **_catalog_ctx(gs, bots),
-                draft=draft, issues=issues or [], cap_pct=round(_cap(gs, user) * 100, 2))
+                draft=draft, issues=issues or [], cap_pct=round(_cap(gs, user) * 100, 2),
+                cred_ui=_CRED_UI, multiline=sorted(_MULTILINE))
 
 
 def _cap(gs, user) -> float:
@@ -468,6 +472,13 @@ async def _save_account(request: Request, acc_id: int | None):
                 errors.append(tr(request, "err_passphrase"))
             if not f.get("no_withdraw"):
                 errors.append(tr(request, "err_no_withdraw"))
+            from ..engine.exchange import credential_problem
+            if api_key or secret:  # the right kind of credentials for this exchange (e.g. Hyperliquid: wallet)
+                from ..security import decrypt as _dec
+                bad = credential_problem(exchange, api_key or (_dec(acc.api_key_enc) if acc else "") or "",
+                                         secret or (_dec(acc.secret_enc) if acc else "") or "")
+                if bad:
+                    errors.append(tr(request, bad))
         new_hash = None
         if kind == "exchange" and not errors:
             from ..db import key_hash
@@ -898,6 +909,10 @@ async def account_check(request: Request):
         stake = gs.stake_currency
     if not key or not secret:
         return JSONResponse({"ok": False, "items": [{"status": "error", "text": tr(request, "err_keys")}]})
+    from ..engine.exchange import credential_problem
+    bad = credential_problem(exchange, key, secret)
+    if bad:
+        return JSONResponse({"ok": False, "items": [{"status": "error", "text": tr(request, bad)}]})
     from ..db import key_hash
     with SessionLocal() as s:
         other = _key_owner(s, key_hash(exchange, key), int(acc_id) if str(acc_id or "").isdigit() else None)

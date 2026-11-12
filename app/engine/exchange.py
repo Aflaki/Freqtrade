@@ -45,8 +45,48 @@ def options_for(exchange_id: str, **base: Any) -> dict:
     return {**base, **EXTRA_OPTIONS.get(exchange_id, {})}
 
 
+# What each exchange calls its two credentials in the form (i18n keys; default: "API Key" / "Secret Key")
+CRED_UI = {"hyperliquid": ("cr_hl_key", "cr_hl_secret", "cr_hl_help"),
+           "coinbase": ("cr_cb_key", "cr_cb_secret", "cr_cb_help"),
+           "kraken": (None, "cr_kr_secret", "cr_kr_help"),
+           "bitvavo": (None, None, "cr_bv_help"),
+           "myokx": (None, None, "cr_mo_help")}
+MULTILINE_SECRET = {"coinbase"}  # a PEM private key over several lines
+
+
+def _pem(secret: str) -> str:
+    """A PEM key pasted into a one-line field loses its line breaks (or arrives with literal \\n): rebuild it."""
+    s = secret.strip().replace("\\n", "\n")
+    if not s.startswith("-----BEGIN") or "\n" in s.strip():
+        return s
+    import re
+    m = re.match(r"(-----BEGIN [A-Z ]+-----)\s*(.*?)\s*(-----END [A-Z ]+-----)$", s)
+    if not m:
+        return s
+    body = re.sub(r"\s+", "", m.group(2))
+    return "\n".join([m.group(1)] + [body[i:i + 64] for i in range(0, len(body), 64)] + [m.group(3)]) + "\n"
+
+
+def credential_problem(exchange: str, key: str, secret: str) -> str | None:
+    """An i18n key when the credentials can't be right for this exchange (checked before asking it)."""
+    import re
+    key, secret = (key or "").strip(), (secret or "").strip()
+    if exchange == "hyperliquid":
+        if not re.fullmatch(r"0x[0-9a-fA-F]{40}", key):
+            return "err_hl_address"
+        if not re.fullmatch(r"(0x)?[0-9a-fA-F]{64}", secret):
+            return "err_hl_privkey"
+    if exchange == "coinbase" and secret.startswith("-----BEGIN") and not key.startswith("organizations/"):
+        return "err_cb_keyname"
+    return None
+
+
 def credentials(exchange: str, key: str | None, secret: str | None, password: str | None) -> dict:
     """ccxt parameter names for this exchange's credentials."""
+    if secret and exchange in MULTILINE_SECRET:
+        secret = _pem(secret)
+    if exchange == "hyperliquid" and secret and not secret.strip().startswith("0x"):
+        secret = "0x" + secret.strip()
     k, sec, pw = CREDENTIAL_NAMES.get(exchange, ("apiKey", "secret", "password"))
     out = {}
     for name, v in ((k, key), (sec, secret), (pw, password)):

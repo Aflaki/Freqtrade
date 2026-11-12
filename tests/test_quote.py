@@ -216,3 +216,31 @@ def test_fixed_leverage_above_the_exchange_max_is_refused_in_the_form_check():
         with SessionLocal() as s:
             get_global(s).market_cache = saved
             s.commit()
+
+
+def test_credentials_per_exchange(catalog_env):
+    """Hyperliquid asks for a wallet address and an API wallet's private key (not an API key/secret); wrong formats
+    are named before asking the exchange; a Coinbase PEM key pasted on one line is rebuilt."""
+    from app.engine.exchange import _pem, credential_problem, credentials
+    with SessionLocal() as s:
+        gs = get_global(s)
+        gs.allowed_exchanges = ["binance", "hyperliquid", "coinbase"]
+        s.commit()
+    c, csrf = login("cat-cred-u@x.com")
+    form = c.get("/accounts/new?kind=exchange").text
+    assert "Main wallet address (0x" in form and "API wallet private key" in form and "API key name (organizations/" in form
+    page = save(c, csrf, label="cat-hl", exchange="hyperliquid", api_key="my-api-key", secret="s").text
+    assert "0x followed by 40 hex" in page
+    page = save(c, csrf, label="cat-hl", exchange="hyperliquid", api_key="0x" + "a" * 40, secret="short").text
+    assert "64 hex characters" in page
+    r = c.post("/accounts/check", json={"csrf": csrf, "exchange": "hyperliquid", "trading_mode": "futures",
+                                         "api_key": "nope", "secret": "x", "pairs": {}})
+    assert "0x followed by 40 hex" in r.text
+    assert credential_problem("hyperliquid", "0x" + "a" * 40, "b" * 64) is None
+    assert credentials("hyperliquid", "0x" + "a" * 40, "b" * 64, None) == {"walletAddress": "0x" + "a" * 40,
+                                                                          "privateKey": "0x" + "b" * 64}
+    one_line = "-----BEGIN EC PRIVATE KEY-----" + "Q" * 100 + "-----END EC PRIVATE KEY-----"
+    pem = credentials("coinbase", "organizations/o/apiKeys/k", one_line, None)["secret"]
+    assert pem == _pem(one_line) and pem.splitlines() == ["-----BEGIN EC PRIVATE KEY-----", "Q" * 64, "Q" * 36,
+                                                          "-----END EC PRIVATE KEY-----"]
+    assert credential_problem("coinbase", "-----BEGIN PUBLIC", one_line) == "err_cb_keyname"

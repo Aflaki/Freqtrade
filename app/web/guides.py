@@ -53,7 +53,8 @@ GUIDES: dict[str, dict] = {
                    ("IP whitelist / bind IP", True)]},
         {"t": "g_ex_s4_t", "b": "g_ex_s4_b"},
         {"t": "g_ex_s5_t", "b": "g_ex_s5_b", "path": ["_nav_portfolios", "_btn_test"]},
-    ], "notes": ["bybit", "okx", "bitget", "kucoin", "gate", "mexc", "htx", "bingx"]},
+    ], "notes": ["bybit", "okx", "bitget", "kucoin", "gate", "mexc", "htx", "bingx",
+                                    "hyperliquid", "kraken", "coinbase", "bitvavo", "myokx"]},
 }
 ORDER = ("telegram", "binance", "exchanges")
 

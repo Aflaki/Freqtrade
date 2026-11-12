@@ -22,10 +22,25 @@
   const upd = () => { a.href = sel.value === 'binance' ? '/guides/binance' : '/guides/exchanges#ex-' + sel.value; };
   sel.addEventListener('change', upd); upd(); })();</script>
 <div class="row">
-  <div><label>API Key</label><input class="ltr" type="text" name="api_key" autocomplete="off" value="{{ draft.api_key if draft else '' }}" placeholder="{{ key_mask ~ ' — ' ~ _('keep_blank') if acc else '' }}"></div>
-  <div><label>Secret Key</label><input class="ltr" type="password" name="secret" autocomplete="new-password" value="{{ draft.secret if draft else '' }}" placeholder="{{ _('keep_blank') if acc else '' }}"></div>
+  <div><label id="lbl_key">API Key</label><input class="ltr" type="text" name="api_key" autocomplete="off" value="{{ draft.api_key if draft else '' }}" placeholder="{{ key_mask ~ ' — ' ~ _('keep_blank') if acc else '' }}"></div>
+  <div><label id="lbl_secret">Secret Key</label><input class="ltr" type="password" name="secret" id="sec1" autocomplete="new-password" value="{{ draft.secret if draft else '' }}" placeholder="{{ _('keep_blank') if acc else '' }}">
+    <textarea class="ltr" id="sec2" rows="5" autocomplete="off" spellcheck="false" style="display:none;font-family:ui-monospace,monospace;font-size:12px" placeholder="-----BEGIN EC PRIVATE KEY-----&#10;…&#10;-----END EC PRIVATE KEY-----"></textarea></div>
   <div id="pwbox"><label>Passphrase <span class="small muted">(OKX, Bitget, KuCoin)</span></label><input class="ltr" type="password" name="password" autocomplete="new-password" value="{{ draft.password if draft else '' }}"></div>
 </div>
+<p class="small muted" id="cred_help" style="display:none"></p>
+<script>(() => { const sel = document.getElementById('exchange'); if (!sel) return;
+  const ui = { {% for e, ks in cred_ui.items() %}{{ e|tojson }}: {key: {{ (_(ks[0]) if ks[0] else 'API Key')|tojson }},
+      secret: {{ (_(ks[1]) if ks[1] else 'Secret Key')|tojson }}, help: {{ (_(ks[2]) if ks[2] else '')|tojson }}},
+    {% endfor %}"": {key: "API Key", secret: "Secret Key", help: ""} }, ml = {{ multiline|tojson }};
+  const k = document.getElementById('lbl_key'), sc = document.getElementById('lbl_secret'), h = document.getElementById('cred_help'),
+        s1 = document.getElementById('sec1'), s2 = document.getElementById('sec2');
+  const upd = () => { const u = ui[sel.value] || ui[''];
+    k.textContent = u.key; sc.textContent = u.secret; h.textContent = u.help || ''; h.style.display = u.help ? '' : 'none';
+    const multi = ml.includes(sel.value);  // a PEM key over several lines
+    if (multi && s1.name) { s2.value = s2.value || s1.value; s1.removeAttribute('name'); s2.name = 'secret'; }
+    if (!multi && s2.name) { s1.value = s1.value || s2.value; s2.removeAttribute('name'); s1.name = 'secret'; }
+    s1.style.display = multi ? 'none' : ''; s2.style.display = multi ? '' : 'none'; };
+  sel.addEventListener('change', upd); upd(); })();</script>
 <label class="check"><input type="checkbox" name="no_withdraw" required {{ 'checked' if draft and draft.no_withdraw }}> {{ _('f_no_withdraw') }}</label>
 <p><button type="button" class="ghost" id="ckbtn" data-acc="{{ acc.id if acc else '' }}">🔍 {{ _('ck_button') }}</button>
 <span class="small muted">{{ _('ck_button_help') }}</span></p>
