@@ -128,6 +128,13 @@ async def _open(s: Session, acc: ExchangeAccount, user: User, gs: GlobalSettings
     cur = acc.currency(gs.stake_currency)  # spot: the portfolio's quote coin (BTC/USDT is traded as BTC/<cur>)
     if acc.is_spot and side == "short":
         return Outcome(acc.id, "none", "short not possible on spot")
+    try:  # the bot's BTC/USDT on this exchange, in this portfolio's coin (BTC/EUR spot, BTC/USDC:USDC futures...)
+        client.resolve(pair)
+    except ValueError:
+        if cur != pair.split("/")[1]:  # e.g. the coin has no EUR market / USDC perpetual on this exchange
+            return _skip(acc, user, pair, t(L, "why_not_in_quote", base=pair.split("/")[0], quote=cur,
+                                            ex=EXCHANGES.get(acc.exchange, acc.exchange)))
+        raise
 
     existing = open_trade_for(s, acc.id, pair, side, bot_id)
     is_dca = existing is not None
@@ -167,14 +174,14 @@ async def _open(s: Session, acc: ExchangeAccount, user: User, gs: GlobalSettings
     if stake <= 0:
         return Outcome(acc.id, "none", "zero stake")
 
-    try:
-        symbol = client.resolve(pair)
-    except ValueError:
-        if acc.is_spot and cur != pair.split("/")[1]:  # e.g. the coin has no EUR market on this exchange
-            return _skip(acc, user, pair, t(L, "why_not_in_quote", base=pair.split("/")[0], quote=cur,
-                                            ex=EXCHANGES.get(acc.exchange, acc.exchange)))
-        raise
+    symbol = client.resolve(pair)
     lev = leverage_for(gs, acc, pair, sig.leverage)
+    lev_note = ""
+    if not acc.is_spot and not client.simulated:
+        mx = client.max_leverage(symbol)
+        if mx and lev > mx:  # e.g. Hyperliquid allows 3x on many coins: same margin, smaller position
+            lev_note = f" (leverage {lev}x > max {int(mx)}x on {EXCHANGES.get(acc.exchange, acc.exchange)}: {int(mx)}x)"
+            lev = int(mx)
     if not client.dry_run:
         free = await client.free_balance(cur, estimate_ok=True)
         if free < stake * 1.3:  # close call: ask the exchange itself
@@ -189,7 +196,7 @@ async def _open(s: Session, acc: ExchangeAccount, user: User, gs: GlobalSettings
     await client.setup_leverage(symbol, lev, acc.margin_mode)
     amount = client.amount_for_notional(symbol, stake * lev, price)
     fill = await client.market_order(symbol, "buy" if side == "long" else "sell", amount,
-                                     reduce_only=False, price_hint=sig.price)
+                                     reduce_only=False, price_hint=price)  # in this market's coin
 
     cs = client.contract_size(symbol)
     held = fill.amount - (fill.fee_base if acc.is_spot else 0.0)
@@ -235,7 +242,7 @@ async def _open(s: Session, acc: ExchangeAccount, user: User, gs: GlobalSettings
                 f"{t(L, 'tg_amount')}: {fmt_num(qty)} | {t(L, 'tg_value')}: {value:,.2f} {cur}\n"
                 f"{t(L, 'tg_margin')}: {real_stake:,.2f} | {t(L, 'tg_leverage')}: {lev}x{sl_line}{tag_line}")
     bot.notify(user, "entry_fill", text)
-    return Outcome(acc.id, "added" if is_dca else "opened", f"{side} {fill.amount} {symbol} @ {fill.price}")
+    return Outcome(acc.id, "added" if is_dca else "opened", f"{side} {fill.amount} {symbol} @ {fill.price}{lev_note}")
 
 
 async def _on_exchange(s: Session, acc: ExchangeAccount, user: User, client, sig: Signal, pair: str, side: str,
@@ -292,7 +299,8 @@ async def _close(s: Session, acc: ExchangeAccount, user: User, gs: GlobalSetting
     trade.sl_order_id = None
     close_side = "sell" if trade.side == "long" else "buy"
     try:
-        fill = await client.market_order(trade.symbol, close_side, amount, reduce_only=True, price_hint=sig.price)
+        fill = await client.market_order(trade.symbol, close_side, amount, reduce_only=True,
+                                         price_hint=sig.price if trade.symbol.split(":")[0] == trade.pair else None)
     except ccxt.InvalidOrder as e:
         msg = str(e).lower()
         if any(k in msg for k in ("reduce", "position", "110017", "-2022", "51169")):

@@ -248,7 +248,7 @@ def _catalog_ctx(gs, bots) -> dict:
         if not offers:
             continue
         r = pair_rules(offers)
-        ex, spot = {}, {}
+        ex, spot, fut = {}, {}, {}
         base = pair.split("/")[0]
         for e in gs.allowed_exchanges or []:
             pairs = (cache.get(e) or {}).get("pairs")
@@ -259,13 +259,18 @@ def _catalog_ctx(gs, bots) -> dict:
             if sp:  # spot: {quote: [min order, 24h volume]} for this coin; a missing quote = not listed
                 spot[e] = {k.split("/")[1]: [markets.min_order(i), i.get("volume")]
                            for k, i in sp.items() if k.split("/")[0] == base}
-        catalog.append({"pair": pair, "mandatory": r["mandatory"], "default_bot": r["default_bot"], "ex": ex, "spot": spot,
+            fu = (cache.get(e) or {}).get("fut")
+            if fu:  # futures: {settle coin: [min order, 24h volume, max leverage]}
+                fut[e] = {k.split("/")[1]: [markets.min_order(i), i.get("volume"), i.get("max_leverage")]
+                          for k, i in fu.items() if k.split("/")[0] == base}
+        catalog.append({"pair": pair, "mandatory": r["mandatory"], "default_bot": r["default_bot"], "ex": ex, "spot": spot, "fut": fut,
                         "bots": [{"id": o.bot_id, "name": names[o.bot_id], "lev": o.leverage, "min": o.min_capital,
                                   "blev": blev.setdefault(o.bot_id, bot_leverage(o.bot_id))} for o in offers]})
     from ..engine.exchange import QUOTES, SPOT_ONLY
     quotes = {e: markets.quotes_on(e, cache) for e in gs.allowed_exchanges or []}
+    fut_quotes = {e: markets.quotes_on(e, cache, mode="futures") for e in gs.allowed_exchanges or []}
     rates = {q: markets.usd_rate(q, cache) for q in QUOTES}
-    return {"catalog": catalog, "spot_quotes": quotes, "all_quotes": list(QUOTES), "usd_rates": rates, "spot_only": sorted(SPOT_ONLY),
+    return {"catalog": catalog, "spot_quotes": quotes, "fut_quotes": fut_quotes, "all_quotes": list(QUOTES), "usd_rates": rates, "spot_only": sorted(SPOT_ONLY),
             "shallow": markets.SHALLOW_VOLUME}
 
 
@@ -371,12 +376,15 @@ async def _save_account(request: Request, acc_id: int | None):
         from ..engine.exchange import EXCHANGES as _EX, QUOTES, SPOT_ONLY
         if kind == "exchange" and exchange in SPOT_ONLY and mode != "spot":
             errors.append(tr(request, "err_spot_only", ex=_EX.get(exchange, exchange)))
-        quote = ""  # spot: the coin this portfolio trades against (BTC/USDT -> BTC/<quote>)
-        if kind == "exchange" and mode == "spot":
-            quote = str(f.get("quote", "")).strip().upper() or gs.stake_currency
-            have = _mk.quotes_on(exchange)
+        quote = ""  # the coin this portfolio trades in: BTC/USDT -> BTC/<quote> spot or the BTC perpetual settled in it
+        if kind == "exchange":
+            have = _mk.quotes_on(exchange, mode=mode)
+            default = gs.stake_currency if not have or gs.stake_currency in have else have[0]
+            quote = str(f.get("quote", "")).strip().upper() or default
             if quote not in QUOTES or (have and quote not in have):
                 errors.append(tr(request, "err_quote", quote=quote, ex=_EX.get(exchange, exchange)))
+            if mode == "futures" and quote == gs.stake_currency:
+                quote = ""  # the bots' own coin: nothing to convert (as before)
         cur = quote or gs.stake_currency
         from ..engine.offers import offers_by_pair as _obp
         simple = bool(_obp())  # pair catalog in use: the user only gives the total capital
@@ -886,7 +894,7 @@ async def account_check(request: Request):
             from ..security import decrypt
             key, secret = key or decrypt(acc.api_key_enc) or "", secret or decrypt(acc.secret_enc) or ""
             pw = pw or decrypt(acc.password_enc) or ""
-        cur = (str(data.get("quote") or "").upper() or gs.stake_currency) if mode == "spot" else gs.stake_currency
+        cur = str(data.get("quote") or "").upper() or gs.stake_currency
         stake = gs.stake_currency
     if not key or not secret:
         return JSONResponse({"ok": False, "items": [{"status": "error", "text": tr(request, "err_keys")}]})

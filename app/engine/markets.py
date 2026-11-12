@@ -35,6 +35,18 @@ def wanted_pairs() -> set[str]:
     return out
 
 
+_wb: tuple[float, set[str]] = (0.0, set())
+
+
+def wanted_bases() -> set[str]:
+    """The bots' coin names (cached for a minute)."""
+    import time
+    global _wb
+    if time.monotonic() - _wb[0] > 60:
+        _wb = (time.monotonic(), {p.split("/")[0].upper() for p in wanted_pairs()})
+    return _wb[1]
+
+
 SHALLOW_VOLUME = 100_000  # 24h volume (in the quote coin) below which the form says "thin market"
 
 
@@ -46,10 +58,11 @@ async def load_spot(name: str, pairs: set[str]) -> dict:
     if klass is None:
         return {}
     bases = {p.split("/")[0] for p in pairs} | set(exmod.QUOTES)
-    ex = klass({"enableRateLimit": True, "timeout": 20000, "options": {"defaultType": "spot", "fetchCurrencies": False}})
+    ex = klass({"enableRateLimit": True, "timeout": 20000,
+                "options": exmod.options_for(name, defaultType="spot", fetchCurrencies=False)})
     from .ratelimit import governor, prio
     governor.attach(ex)
-    tok = prio.set("background")
+    tok = prio.set("market")
     try:
         markets = await ex.load_markets()
         rows: dict[str, dict] = {}
@@ -87,7 +100,7 @@ async def load_spot(name: str, pairs: set[str]) -> dict:
 async def load_exchange(name: str, pairs: set[str]) -> dict:
     """{"pairs": {pair: info}, "spot": {...}, "error": ""}: one exchange's futures (linear perpetual) markets
     and its spot markets in every quote coin."""
-    spot = await load_spot(name, pairs)
+    spot = await load_spot(name, pairs)  # then futures, not both at once: gentle on the exchange's limits
     if name in exmod.SPOT_ONLY:
         return {"pairs": {}, "spot": spot, "error": "" if spot else f"{name}: no spot markets"}
     res = await _load_futures(name, pairs)
@@ -95,39 +108,68 @@ async def load_exchange(name: str, pairs: set[str]) -> dict:
     return res
 
 
+def base_candidates(base: str) -> list[str]:
+    """The bots' coin name and what other exchanges call the same contract: Binance's 1000PEPE (price of 1,000
+    PEPE) is KPEPE on Hyperliquid."""
+    base = base.upper()
+    out = [base]
+    if base.startswith("1000") and len(base) > 4 and not base[4:].startswith("0"):
+        out.append("K" + base[4:])
+    return out
+
+
+def _alias_map(pairs: set[str]) -> dict[str, str]:
+    """exchange coin name -> the bots' coin name, for the wanted coins."""
+    out: dict[str, str] = {}
+    for p in pairs:
+        b = p.split("/")[0].upper()
+        for c in base_candidates(b):
+            out.setdefault(c, b)
+    return out
+
+
 async def _load_futures(name: str, pairs: set[str]) -> dict:
     klass_id, default_type = exmod.ccxt_target(name, "futures")
     klass = getattr(exmod.ccxt, klass_id, None)
     if klass is None:
         return {"pairs": {}, "error": f"{name} not supported"}
-    ex = klass({"enableRateLimit": True, "timeout": 20000, "options": {"defaultType": default_type}})
+    ex = klass({"enableRateLimit": True, "timeout": 20000, "options": exmod.options_for(klass_id, defaultType=default_type)})
     from .ratelimit import governor, prio
     governor.attach(ex)
-    tok = prio.set("background")
+    tok = prio.set("market")
     try:
         markets = await ex.load_markets()
-        rows: dict[str, dict] = {}
+        alias = _alias_map(pairs)
+        rows: dict[str, dict] = {}  # the bots' own pairs (X/USDT), as before
+        fut: dict[str, dict] = {}   # "BOTCOIN/QUOTE" -> market, for every settle coin the site supports
         for m in markets.values():
             if not m.get("swap") or m.get("inverse") or m.get("settle") != m.get("quote"):
                 continue
-            pair = f"{m.get('base')}/{m.get('quote')}"
-            if pair not in pairs:
-                continue
             lim = m.get("limits") or {}
-            rows[pair] = {"symbol": m["symbol"], "active": m.get("active") is not False,
-                          "min_cost": _num((lim.get("cost") or {}).get("min")),
-                          "min_amount": _num((lim.get("amount") or {}).get("min")),
-                          "contract_size": _num(m.get("contractSize")) or 1.0,
-                          "max_leverage": _num((lim.get("leverage") or {}).get("max"))}
-        if rows:
+            info = {"symbol": m["symbol"], "active": m.get("active") is not False,
+                    "min_cost": _num((lim.get("cost") or {}).get("min")),
+                    "min_amount": _num((lim.get("amount") or {}).get("min")),
+                    "contract_size": _num(m.get("contractSize")) or 1.0,
+                    "max_leverage": _num((lim.get("leverage") or {}).get("max"))}
+            pair = f"{m.get('base')}/{m.get('quote')}"
+            if pair in pairs:
+                rows[pair] = info
+            bot_base = alias.get(str(m.get("base") or "").upper())
+            if bot_base and m.get("quote") in exmod.QUOTES and info["active"]:
+                key = f"{bot_base}/{m['quote']}"
+                if key not in fut or m.get("base", "").upper() == bot_base:  # the exact name wins over an alias
+                    fut[key] = dict(info)
+        if rows or fut:
+            syms = sorted({r["symbol"] for r in list(rows.values()) + list(fut.values())})
             try:
-                tickers = await ex.fetch_tickers([r["symbol"] for r in rows.values()])
+                tickers = await ex.fetch_tickers(syms)
             except Exception:  # some exchanges only allow all tickers at once
                 tickers = await ex.fetch_tickers()
-            for r in rows.values():
+            for r in list(rows.values()) + list(fut.values()):
                 t = tickers.get(r["symbol"]) or {}
                 r["price"] = _num(t.get("last") or t.get("close"))
-        return {"pairs": rows, "error": ""}
+                r["volume"] = _num(t.get("quoteVolume")) or ((_num(t.get("baseVolume")) or 0) * (r["price"] or 0) or None)
+        return {"pairs": rows, "fut": fut, "error": ""}
     except Exception as e:
         return {"pairs": {}, "error": f"{type(e).__name__}: {str(e)[:150]}"}
     finally:
@@ -148,8 +190,9 @@ async def refresh(exchanges: list[str] | None = None) -> dict:
     now = utcnow().isoformat(timespec="seconds")
     for name, res in zip(names, results):
         old = cache.get(name) or {}
-        if not res.get("spot") and old.get("spot"):
-            res["spot"] = old["spot"]
+        for part in ("spot", "fut"):
+            if not res.get(part) and old.get(part):
+                res[part] = old[part]
         if res["error"] and (old.get("pairs") or old.get("spot")):  # keep the last good data, note the error
             cache[name] = {**old, "error": res["error"]}
         else:
@@ -173,16 +216,37 @@ def spot_info(pair: str, quote: str, exchange: str) -> dict | None:
     return ((cache.get(exchange) or {}).get("spot") or {}).get(f"{pair.split('/')[0].upper()}/{quote.upper()}")
 
 
+def fut_info(pair: str, quote: str, exchange: str, cache: dict | None = None) -> dict | None:
+    """The perpetual of this pair's coin settled in `quote` (BTC/USDT, USDC -> BTC/USDC:USDC), None if not listed."""
+    if cache is None:
+        cache = all_info()
+    return ((cache.get(exchange) or {}).get("fut") or {}).get(f"{pair.split('/')[0].upper()}/{quote.upper()}")
+
+
+def market_info(pair: str, quote: str, exchange: str, mode: str, cache: dict | None = None) -> dict | None:
+    if mode == "spot":
+        if cache is None:
+            return spot_info(pair, quote, exchange)
+        return ((cache.get(exchange) or {}).get("spot") or {}).get(f"{pair.split('/')[0].upper()}/{quote.upper()}")
+    return fut_info(pair, quote, exchange, cache)
+
+
+def known(exchange: str, mode: str, cache: dict | None = None) -> bool:
+    if cache is None:
+        cache = all_info()
+    return bool((cache.get(exchange) or {}).get("spot" if mode == "spot" else "fut"))
+
+
 def spot_known(exchange: str) -> bool:
     with SessionLocal() as s:
         return bool(((get_global(s).market_cache or {}).get(exchange) or {}).get("spot"))
 
 
-def quotes_on(exchange: str, cache: dict | None = None) -> list[str]:
-    """Quote coins with spot markets on this exchange (in the site's order: USDT, USDC, USD, EUR, ...)."""
+def quotes_on(exchange: str, cache: dict | None = None, mode: str = "spot") -> list[str]:
+    """Quote coins with spot markets (or perpetuals settled in them) on this exchange, in the site's order."""
     if cache is None:
         cache = all_info()
-    have = {k.split("/")[1] for k in ((cache.get(exchange) or {}).get("spot") or {})}
+    have = {k.split("/")[1] for k in ((cache.get(exchange) or {}).get("spot" if mode == "spot" else "fut") or {})}
     return [q for q in exmod.QUOTES if q in have]
 
 

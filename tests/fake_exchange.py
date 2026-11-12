@@ -2,7 +2,8 @@
 import itertools
 
 PRICES = {"BTC/USDT": 60000.0, "ETH/USDT": 3000.0, "BTC/USDT:USDT": 60000.0, "ETH/USDT:USDT": 3000.0,
-          "BTC/EUR": 55000.0}  # spot BTC also trades against EUR; ETH doesn't
+          "BTC/EUR": 55000.0,  # spot BTC also trades against EUR; ETH doesn't
+          "BTC/USDC:USDC": 60010.0, "KPEPE/USDC:USDC": 0.01}  # USDC perpetuals: BTC (max 3x) and 1000PEPE as KPEPE
 _ids = itertools.count(1)
 
 
@@ -28,7 +29,7 @@ class FakeExchange:
         self.markets = {}
         self.stops = []
         self.cancelled = []
-        self.balance = {"USDT": 10_000.0, "EUR": 5_000.0, "BTC": 0.0, "ETH": 0.0}
+        self.balance = {"USDT": 10_000.0, "EUR": 5_000.0, "USDC": 2_000.0, "BTC": 0.0, "ETH": 0.0}
         FakeExchange.instances.append(self)
 
     def set_sandbox_mode(self, on):
@@ -36,8 +37,11 @@ class FakeExchange:
 
     async def load_markets(self):
         spot = self.params["options"]["defaultType"] == "spot"
-        self.markets = {m["symbol"]: m for m in (_mk("BTC", spot), _mk("ETH", spot))
-                        + ((_mk("BTC", True, "EUR"),) if spot else ())}
+        extra = (_mk("BTC", True, "EUR"),) if spot else (_mk("BTC", False, "USDC"), _mk("KPEPE", False, "USDC"))
+        self.markets = {m["symbol"]: m for m in (_mk("BTC", spot), _mk("ETH", spot)) + extra}
+        if not spot:
+            self.markets["BTC/USDC:USDC"]["limits"] = {**self.markets["BTC/USDC:USDC"]["limits"], "leverage": {"max": 3}}
+            self.markets["KPEPE/USDC:USDC"]["precision"] = {"amount": 1}
         return self.markets
 
     def market(self, symbol):
@@ -62,7 +66,7 @@ class FakeExchange:
     async def set_margin_mode(self, mode, symbol):
         self.margin_mode = mode
 
-    async def set_leverage(self, lev, symbol):
+    async def set_leverage(self, lev, symbol, params=None):
         self.leverage[symbol] = lev
 
     async def create_order(self, symbol, type_, side, amount, price, params):

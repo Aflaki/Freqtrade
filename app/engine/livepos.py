@@ -75,13 +75,13 @@ async def _read_account(acc: ExchangeAccount, rest: bool = False) -> dict[str, A
     client = await pool.get(acc)
     live = None if rest else streams.positions(acc.id)
     if live is not None:  # pushed by the exchange: no request at all
-        return {"rows": {p["key"]: p for p in normalize(live)}, "ex": client.ex}
+        return {"rows": {p["key"]: p for p in normalize(live, quote=acc.quote or None)}, "ex": client.ex}
     tok = prio.set("view")  # skipped (cache shown) when the request budget is busy with trading
     try:
         raw = await client.ex.fetch_positions()  # not via client._call: a page view is not a trading action
     finally:
         prio.reset(tok)
-    return {"rows": {p["key"]: p for p in normalize(raw)}, "ex": client.ex}
+    return {"rows": {p["key"]: p for p in normalize(raw, quote=acc.quote or None)}, "ex": client.ex}
 
 
 async def refresh(acc_id: int, max_age: float = MAX_AGE, rest: bool = False) -> dict[str, Any]:

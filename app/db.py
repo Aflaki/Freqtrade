@@ -189,7 +189,7 @@ class ExchangeAccount(Base):
 
     def currency(self, default: str = "USDT") -> str:
         """The coin this portfolio's money is in."""
-        return (self.quote or default).upper() if self.is_spot else default
+        return (self.quote or default).upper()  # spot coin, or the futures' settle coin (USDT, USDC...)
 
     @property
     def undecided_positions(self) -> list[dict]:

@@ -263,3 +263,4 @@ details.srv-bots-box{margin:10px 0}details.srv-bots-box>summary{cursor:pointer;f
 .mc-pick{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 10px}
 .mc-head{display:flex;align-items:baseline;gap:10px;margin:4px 0}.mc-v{font-size:24px;font-weight:800}
 .mc-area{opacity:.12}.mc-band{stroke-dasharray:3,4;stroke-width:1;opacity:.5}.mc-band.neg{stroke:var(--short)}.mc-band.pos{stroke:var(--long)}
+.mono .exnote{font:12px/1.6 Vazirmatn,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;unicode-bidi:plaintext;text-align:start}

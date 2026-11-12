@@ -25,9 +25,28 @@ def key_of(symbol: str, side: str) -> str:
     return f"{symbol}|{side}"
 
 
-def normalize(raw: list[dict], market=None) -> list[dict]:
+def bot_pair(symbol: str, quote: str | None = None, stake: str = "USDT") -> str:
+    """The exchange's market -> the bots' pair: KPEPE/USDC:USDC in a USDC portfolio -> 1000PEPE/USDT."""
+    pair = symbol.split(":")[0].upper()
+    if not quote or "/" not in pair:
+        return pair
+    base, q = pair.split("/", 1)
+    if q != quote.upper():
+        return pair  # not this portfolio's coin: shown as it is
+    from .markets import wanted_bases
+    for b in wanted_bases():
+        if b == base:
+            return f"{b}/{stake}"
+    for b in wanted_bases():
+        from .markets import base_candidates
+        if base in base_candidates(b):
+            return f"{b}/{stake}"
+    return f"{base}/{stake}"
+
+
+def normalize(raw: list[dict], market=None, quote: str | None = None, stake: str = "USDT") -> list[dict]:
     """ccxt positions -> [{symbol, pair, side, contracts, contract_size, amount, entry, mark, leverage, notional,
-    upnl, margin}] for open ones only."""
+    upnl, margin}] for open ones only. `quote`: the portfolio's coin when it isn't the bots' (pair = bots' pair)."""
     out = []
     for p in raw or []:
         contracts = abs(float(p.get("contracts") or 0))
@@ -48,7 +67,8 @@ def normalize(raw: list[dict], market=None) -> list[dict]:
         margin = float(p.get("initialMargin") or p.get("collateral") or 0) or (notional / lev if lev else 0)
         if not lev and margin:
             lev = round(notional / margin, 2)
-        out.append({"symbol": sym, "pair": sym.split(":")[0].upper(), "side": side, "contracts": contracts,
+        out.append({"symbol": sym, "pair": bot_pair(sym, quote if quote and quote != stake else None, stake),
+                    "side": side, "contracts": contracts,
                     "contract_size": cs, "entry": entry, "mark": mark, "leverage": lev or 1.0,
                     "notional": round(notional, 4), "upnl": float(p.get("unrealizedPnl") or 0),
                     "margin": round(margin, 4), "key": key_of(sym, side), "lev_known": lev_known,

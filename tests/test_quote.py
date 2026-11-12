@@ -147,3 +147,46 @@ def test_market_test_compares_with_the_bot(eur):
         with SessionLocal() as s:
             s.query(BotTrade).filter_by(bot_id=bot_id).delete()
             s.commit()
+
+
+def test_futures_in_usdc(eur, monkeypatch):
+    """Futures in another settle coin: the bots' BTC/USDT and 1000PEPE/USDT are traded as the USDC perpetuals
+    (BTC/USDC:USDC, KPEPE/USDC:USDC like on Hyperliquid); the exchange's leverage cap applies; a coin without a
+    USDC perpetual is skipped with the reason; money and results are in USDC."""
+    acc_id, bot_id, _ = eur
+    monkeypatch.setattr(exmod.ccxt, "binanceusdm", fx.FakeExchange)
+    with SessionLocal() as s:
+        gs = get_global(s)
+        gs.allowed_pairs = ["BTC/USDT", "ETH/USDT", "1000PEPE/USDT"]
+        acc = s.get(ExchangeAccount, acc_id)
+        acc.trading_mode, acc.quote, acc.capital = "futures", "USDC", 900
+        acc.pairs = {"BTC/USDT": 1.0, "ETH/USDT": 1.0, "1000PEPE/USDT": 1.0}
+        acc.pair_bot = {p: bot_id for p in acc.pairs}
+        s.commit()
+    fx.FakeExchange.positions = []
+
+    def sig(action, pair, n, **kw):
+        return asyncio.run(dispatch(Signal(action=action, symbol=pair.replace("/", ""), pair=pair, ft_trade_id=n,
+                                           id=f"usdc-{action}-{n}", **kw), None, bot_id))
+    out = sig("short", "BTC/USDT", 21, leverage=5)
+    assert [o.status for o in out] == ["opened"] and "max 3x" in out[0].message, out
+    with SessionLocal() as s:
+        tr = s.query(Trade).filter_by(account_id=acc_id, pair="BTC/USDT").one()
+        assert tr.symbol == "BTC/USDC:USDC" and tr.currency == "USDC" and tr.leverage == 3
+        assert tr.entry_price == 60010  # the USDC market's own price
+    ex = fx.FakeExchange.instances[-1]
+    assert ex.orders[-1]["symbol"] == "BTC/USDC:USDC" and ex.leverage["BTC/USDC:USDC"] == 3
+    out = sig("long", "1000PEPE/USDT", 22, leverage=2)
+    assert [o.status for o in out] == ["opened"], out
+    with SessionLocal() as s:
+        assert s.query(Trade).filter_by(account_id=acc_id, pair="1000PEPE/USDT").one().symbol == "KPEPE/USDC:USDC"
+    out = sig("long", "ETH/USDT", 23)
+    assert [o.status for o in out] == ["skipped"] and "USDC" in out[0].message and "ETH" in out[0].message
+    # positions on the exchange are shown under the bots' pairs (KPEPE/USDC:USDC -> 1000PEPE/USDT)
+    from app.engine.positions import normalize
+    rows = normalize([{"symbol": "KPEPE/USDC:USDC", "side": "long", "contracts": 100, "contractSize": 1,
+                       "entryPrice": 0.01}], quote="USDC")
+    assert rows[0]["pair"] == "1000PEPE/USDT"
+    out = sig("close_short", "BTC/USDT", 21)
+    assert [o.status for o in out] == ["closed"], out
+    assert ex.orders[-1]["symbol"] == "BTC/USDC:USDC" and ex.orders[-1]["params"].get("reduceOnly")

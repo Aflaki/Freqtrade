@@ -115,10 +115,10 @@
 <tr><th></th><th>{{ _('col_pair') }}</th><th>{{ _('pair_from_bot') }}</th><th>{{ _('perf_trades') }}</th><th>{{ _('perf_win_rate') }}</th><th>{{ _('perf_total_abs') }}</th><th>{{ _('perf_avg') }}</th>
 <th>{{ _('col_leverage') }}</th><th class="pvcol qlabel">{{ _('col_amount_pair', cur=gs.stake_currency) }}</th><th>{{ _('col_margin_trade') }}</th><th title="{{ _('pc_need_help') }}">{{ _('pc_need') }}</th><th>{{ _('col_position_value') }}</th></tr>
 {% for c in catalog %}{% set p = c.pair %}{% set sel = (v and p in v.pairs) or (not v and (c.mandatory or c.default_bot)) or c.mandatory %}
-<tr class="catrow" data-p="{{ p }}" data-ex='{{ c.ex|tojson }}' data-spot='{{ c.spot|tojson }}'>
+<tr class="catrow" data-p="{{ p }}" data-ex='{{ c.ex|tojson }}' data-spot='{{ c.spot|tojson }}' data-fut='{{ c.fut|tojson }}'>
 <td>{% if c.mandatory %}<input type="checkbox" class="pc" data-p="{{ p }}" checked disabled><input type="hidden" name="pair__{{ p }}" value="on">
 {% else %}<input type="checkbox" class="pc" name="pair__{{ p }}" data-p="{{ p }}" {{ 'checked' if sel }}>{% endif %}</td>
-<td class="mono">{{ coin(p) }}{{ p }}{% if c.mandatory %} <span class="badge warn" title="{{ _('pc_mandatory_user') }}">🔒</span>{% endif %}<div class="small neg exnote" data-p="{{ p }}"></div></td>
+<td class="mono">{{ coin(p) }}{{ p }}{% if c.mandatory %} <span class="badge warn" title="{{ _('pc_mandatory_user') }}">🔒</span>{% endif %}<div class="small neg exnote" data-p="{{ p }}" dir="auto"></div></td>
 <td>{% set cur = pair_bot.get(p) or c.default_bot %}<select class="pb" name="pbot__{{ p }}" data-p="{{ p }}" style="width:auto;padding:4px 6px">
 {% if c.bots|length > 1 and not cur %}<option value="">— {{ _('pick_bot') }} —</option>{% endif %}
 {% for b in c.bots %}<option value="{{ b.id }}" data-lev="{{ b.lev or '' }}" data-blev="{{ b.blev or '' }}" data-min="{{ b.min or '' }}" {{ 'selected' if b.id == cur }}>{{ b.name }}</option>{% endfor %}</select></td>
@@ -160,17 +160,20 @@
 </form>
 <script>
 (function(){
-  const spotQuotes={{ (spot_quotes or {})|tojson }}, usdRates={{ (usd_rates or {})|tojson }}, spotOnly={{ (spot_only or [])|tojson }},
+  const spotQuotes={{ (spot_quotes or {})|tojson }}, futQuotes={{ (fut_quotes or {})|tojson }},
+        capNote={{ _('q_lev_capped')|tojson }}, usdRates={{ (usd_rates or {})|tojson }}, spotOnly={{ (spot_only or [])|tojson }},
         stakeCur={{ gs.stake_currency|tojson }}, allQuotes={{ (all_quotes or [gs.stake_currency])|tojson }}, shallowVol={{ shallow or 0 }}, notInQuote={{ _('q_not_in_quote')|tojson }},
         thin={{ _('q_thin')|tojson }};
   const qsel=document.getElementById('quote');
-  function fillQuotes(){  // the quote coins this exchange has spot markets in
-    if(!qsel) return; const exn=(document.getElementById('exchange')||{}).value||'', known=spotQuotes[exn]&&spotQuotes[exn].length, list=known?spotQuotes[exn]:allQuotes;
+  function fillQuotes(){  // the coins this exchange has spot markets (or perpetuals settled) in
+    if(!qsel) return; const exn=(document.getElementById('exchange')||{}).value||'', isSpot=(document.getElementById('mode')||{}).value==='spot',
+      src=isSpot?spotQuotes:futQuotes, known=src[exn]&&src[exn].length, list=known?src[exn]:allQuotes;
     const ql=document.getElementById('qloading'); if(ql) ql.style.display=(known||!exn)?'none':'';
-    const want=qsel.value||qsel.dataset.v||stakeCur; qsel.innerHTML='';
+    let want=qsel.value||qsel.dataset.v||stakeCur; if(known&&!list.includes(want)) want=list.includes(stakeCur)?stakeCur:list[0]; qsel.innerHTML='';
     list.forEach(q=>{ const o=document.createElement('option'); o.value=q; o.textContent=q; if(q===want) o.selected=true; qsel.appendChild(o); });
   }
   fillQuotes(); if(document.getElementById('exchange')) document.getElementById('exchange').addEventListener('change',fillQuotes);
+  if(document.getElementById('mode')) document.getElementById('mode').addEventListener('change',fillQuotes);
   const botWord={{ _('lev_from_bot')|tojson }}, maxLev={{ gs.max_leverage }}, exName={{ EXCHANGES|tojson }}, notListed={{ _('ck_not_on_exchange')|tojson }},
         balText={{ _('ck_bal_line')|tojson }}, ckWait={{ _('ck_wait')|tojson }}, ckAllOk={{ _('ck_all_ok')|tojson }}, ckFix={{ _('ck_fix')|tojson }};
   const capPct={{ cap_pct }}, defMot={{ gs.default_max_open_trades }}, maxStake={{ gs.max_stake_per_trade or 0 }},
@@ -221,21 +224,28 @@
     const mSel=$('#mode'), spotOnlyEx=spotOnly.includes(exn);  // spot-only exchanges: no futures
     if(mSel){ mSel.querySelector('option[value=futures]').disabled=spotOnlyEx; if(spotOnlyEx&&mSel.value!=='spot'){ mSel.value='spot'; return upd(); } }
     if($('#spotonly')) $('#spotonly').hidden=!spotOnlyEx;
-    if($('.spotq')) $('.spotq').style.display=spot?'':'none';
-    const quote=spot&&qsel?(qsel.value||stakeCur):stakeCur;
+    const quote=qsel?(qsel.value||stakeCur):stakeCur;
+    const futOf=p=>{ const r=$(`.catrow[data-p="${p}"]`), fu=r?JSON.parse(r.dataset.fut||'{}'):{}; return exn in fu?(fu[exn][quote]||null):undefined; };
     const toQuote=v=>{ const a=usdRates[stakeCur]||1, b=usdRates[quote]; return b?v*a/b:v; };  // admin minimums are in the stake coin
     $$('.qlabel').forEach(l=>{ if(!l.dataset.t) l.dataset.t=l.textContent; let t=l.dataset.t.split(stakeCur).join(quote);
       if(l.dataset.min && quote!==stakeCur) t=t.replace(l.dataset.min, Math.ceil(toQuote(+l.dataset.min))); l.textContent=t; });
     const optOf=p=>{const sb=$(`.pb[data-p="${p}"]`); return sb&&sb.selectedOptions[0];};
     const plev=p=>{ if(spot) return 1; const o=optOf(p), fixed=o?parseInt(o.dataset.lev):0, blev=o?parseInt(o.dataset.blev):0;
-      return Math.max(1,Math.min(fixed||blev||lev,maxLev)); };
+      const fm=futOf(p), mx=fm&&fm[2]?fm[2]:maxLev;  // the exchange's own maximum for this coin
+      return Math.max(1,Math.min(fixed||blev||lev,maxLev,mx)); };
     $$('.catrow').forEach(r=>{  // pairs the chosen exchange doesn't list
       const p=r.dataset.p, ex=JSON.parse(r.dataset.ex||'{}'), sp=JSON.parse(r.dataset.spot||'{}'), cb=r.querySelector('.pc');
       let listed, msg='';
       if(spot){ const known=exn in sp, m=known?sp[exn][quote]:null; listed=!known||!!m;
         if(!listed) msg=notInQuote.replace('{ex}',exName[exn]||exn).replace('{q}',quote);
         else if(m&&m[1]!=null&&m[1]<shallowVol) msg=thin.replace('{v}',fmt(m[1])).replace('{q}',quote); }
-      else { const known=exn in ex; listed=!known||ex[exn]!==null; if(!listed) msg=notListed.replace('{ex}',exName[exn]||exn); }
+      else { const fm=futOf(p);
+        if(fm!==undefined){ listed=!!fm;  // perpetuals settled in the chosen coin
+          if(!listed) msg=notInQuote.replace('{ex}',exName[exn]||exn).replace('{q}',quote);
+          else { const o=optOf(p), want=Math.min((o&&(parseInt(o.dataset.lev)||parseInt(o.dataset.blev)))||lev,maxLev);
+            if(fm[2]&&want>fm[2]) msg=capNote.split('{lev}').join(want).split('{max}').join(fm[2]).split('{ex}').join(exName[exn]||exn);
+            else if(fm[1]!=null&&fm[1]<shallowVol) msg=thin.replace('{v}',fmt(fm[1])).replace('{q}',quote); } }
+        else { const known=exn in ex; listed=!known||ex[exn]!==null; if(!listed) msg=notListed.replace('{ex}',exName[exn]||exn); } }
       const note=r.querySelector('.exnote'); note.textContent=msg; note.className='small exnote '+(listed?'muted':'neg');
       if(!cb.disabled){ if(!listed){ cb.checked=false; } cb.dataset.blocked=listed?'':'1'; }
       r.style.opacity=listed?'':'.55';
@@ -249,7 +259,7 @@
       const nc=$(`.need[data-p="${p}"]`);
       if(nc){ const row=nc.closest('.catrow'), ex=JSON.parse(row.dataset.ex||'{}'), o=optOf(p);
         const sp=JSON.parse(row.dataset.spot||'{}'), sm=spot&&sp[exn]?sp[exn][quote]:null;
-        const exMin=spot?((sm&&sm[0])||0):(ex[exn]||0)/L, adm=o?toQuote(parseFloat(o.dataset.min)||0):0, need=Math.max(exMin,adm);
+        const fm=spot?undefined:futOf(p), exMin=spot?((sm&&sm[0])||0):((fm!==undefined?(fm&&fm[0]):ex[exn])||0)/L, adm=o?toQuote(parseFloat(o.dataset.min)||0):0, need=Math.max(exMin,adm);
         nc.textContent=need?fmt(need)+(on?(s+1e-9>=need?' ✔':' ✗'):''):'-'; nc.className='need '+(on&&need?(s+1e-9>=need?'pos':'neg'):''); }
     });
     if(!$('.catrow')) tn=(mode==='equal_split'?cap:ts)*lev;

@@ -28,11 +28,13 @@ log = logging.getLogger("relay.ratelimit")
 
 # weight per minute per IP (Binance: weight; others: conservative request counts)
 LIMITS = {"binanceusdm": 2400, "binancecoinm": 2400, "binance": 6000, "bybit": 6000, "okx": 3000, "bitget": 3000,
-          "kucoinfutures": 2000, "kucoin": 2000, "gate": 3000, "mexc": 1200, "htx": 3000, "bingx": 1200}
+          "kucoinfutures": 2000, "kucoin": 2000, "gate": 3000, "mexc": 1200, "htx": 3000, "bingx": 1200,
+          "hyperliquid": 1200, "kraken": 900, "coinbase": 1800, "bitvavo": 1000, "myokx": 3000}
 DEFAULT_LIMIT = 1200
 WEIGHT_HEADER = "x-mbx-used-weight-1m"
-SHARE = {"exit": 1.0, "trade": 0.9, "check": 0.8, "view": 0.6, "background": 0.4}  # exits keep 10% to themselves
-MAX_WAIT = {"exit": 120.0, "trade": 60.0, "check": 20.0, "view": 0.0, "background": 30.0}
+SHARE = {"exit": 1.0, "trade": 0.9, "check": 0.8, "view": 0.6, "market": 0.6, "background": 0.4}  # exits keep 10%
+# market: the 6-hourly public market data (listings, minimums, prices); it may wait, it's never urgent
+MAX_WAIT = {"exit": 120.0, "trade": 60.0, "check": 20.0, "view": 0.0, "market": 120.0, "background": 30.0}
 
 prio: contextvars.ContextVar[str] = contextvars.ContextVar("api_prio", default="trade")
 
@@ -116,7 +118,7 @@ class Governor:
                     g.waited[kind] = g.waited.get(kind, 0) + 1
                 return
             if time.monotonic() - start >= MAX_WAIT.get(kind, 0):
-                if kind in ("view", "background", "check"):  # exits and entries never give up silently
+                if kind in ("view", "background", "check", "market"):  # exits and entries never give up silently
                     g.skipped[kind] = g.skipped.get(kind, 0) + 1
                     raise ApiBusy(f"{gid}: request budget for {kind} is used up right now")
                 # trading never gives up silently: go on (the exchange may answer 429, handled below)

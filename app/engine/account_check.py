@@ -20,7 +20,7 @@ def _client(exchange: str, mode: str, api_key: str, secret: str, password: str =
     klass = getattr(exmod.ccxt, klass_id, None)
     if klass is None:
         raise ValueError(f"exchange '{exchange}' is not supported")
-    params: dict[str, Any] = {"enableRateLimit": True, "timeout": 15000, "options": {"defaultType": default_type},
+    params: dict[str, Any] = {"enableRateLimit": True, "timeout": 15000, "options": exmod.options_for(klass_id, defaultType=default_type),
                               **exmod.credentials(exchange, api_key, secret, password)}
     params["options"]["fetchCurrencies"] = False
     ex = klass(params)
@@ -97,7 +97,7 @@ async def _check_keys(exchange, mode, api_key, secret, password, sandbox, curren
             if getattr(ex, "has", {}).get("fetchPositions"):
                 try:
                     from .positions import normalize
-                    pos = normalize(await ex.fetch_positions())
+                    pos = normalize(await ex.fetch_positions(), quote=currency)
                     out["positions"] = pos
                     items.append(_item(OK, "ck_positions", n=len(pos), pairs=", ".join(
                         p["pair"] for p in pos[:6])) if pos else _item(OK, "ck_no_positions"))
@@ -118,12 +118,14 @@ def check_pairs(exchange: str, mode: str, selection: dict[str, dict], offers: di
     Spot: the pair is traded in `quote` (BTC/USDT -> BTC/EUR); margins are in it, the admin's minimums (in `stake`)
     are converted. Returns problems per pair: not listed / inactive / below the exchange or the admin minimum."""
     out = []
-    spot_q = (quote or stake).upper() if mode == "spot" else ""
+    q = (quote or stake).upper()
+    # spot, or futures settled in another coin than the bots' (BTC/USDT -> the BTC/USDC:USDC perpetual)
+    spot_q = q if mode == "spot" or q != stake.upper() else ""
     cache = markets.all_info()
     for pair, sel in selection.items():
         if spot_q:
-            info = markets.spot_info(pair, spot_q, exchange) if exchange else None
-            cache_known = bool((cache.get(exchange) or {}).get("spot")) if exchange else False
+            info = markets.market_info(pair, spot_q, exchange, mode, cache) if exchange else None
+            cache_known = markets.known(exchange, mode, cache) if exchange else False
             if exchange and cache_known and info is None:
                 out.append(_item(ERROR, "ck_pair_not_in_quote", pair=pair, base=pair.split("/")[0], quote=spot_q,
                                  ex=exmod.EXCHANGES.get(exchange, exchange)))
@@ -138,6 +140,10 @@ def check_pairs(exchange: str, mode: str, selection: dict[str, dict], offers: di
             out.append(_item(ERROR, "ck_pair_inactive", pair=pair))
             continue
         lev = max(1, int(sel.get("leverage") or 1)) if mode == "futures" else 1
+        mx = (info or {}).get("max_leverage") if mode == "futures" else None
+        if mx and lev > mx:  # traded at the exchange's maximum: same margin, smaller position
+            out.append(_item(WARN, "ck_lev_capped", pair=pair, lev=lev, max=int(mx), ex=exmod.EXCHANGES.get(exchange, exchange)))
+            lev = int(mx)
         need = markets.min_margin(info, lev)
         margin = float(sel.get("margin") or 0)
         if need and margin and margin < need:

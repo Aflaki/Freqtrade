@@ -28,11 +28,21 @@ EXCHANGES = {
     "hyperliquid": "Hyperliquid",
 }
 NEEDS_PASSWORD = {"okx", "bitget", "kucoin", "myokx"}
-SPOT_ONLY = {"kraken", "coinbase", "bitvavo", "myokx", "hyperliquid"}  # futures stay on the others (USDT) for now
+SPOT_ONLY = {"kraken", "coinbase", "bitvavo", "myokx"}  # no perpetual futures through this site there
+PRICED_MARKET = {"hyperliquid"}  # a market order needs a reference price (the exchange caps slippage from it)
 # Hyperliquid has no API key: the two key fields carry the wallet address and the API wallet's private key
 CREDENTIAL_NAMES = {"hyperliquid": ("walletAddress", "privateKey", None)}
 QUOTES = ("USDT", "USDC", "USD", "EUR", "GBP", "FDUSD", "TRY", "BRL", "AUD", "CAD", "JPY")
 USD_LIKE = {"USDT", "USDC", "USD", "FDUSD", "DAI", "TUSD", "USDE"}
+
+
+# Hyperliquid also lists builder-deployed markets (stocks, commodities: "HIP-3"); the bots trade crypto only,
+# and loading them costs many extra requests.
+EXTRA_OPTIONS = {"hyperliquid": {"fetchMarkets": {"types": ["spot", "swap"]}}}
+
+
+def options_for(exchange_id: str, **base: Any) -> dict:
+    return {**base, **EXTRA_OPTIONS.get(exchange_id, {})}
 
 
 def credentials(exchange: str, key: str | None, secret: str | None, password: str | None) -> dict:
@@ -115,11 +125,11 @@ class ExchangeClient:
             raise ValueError(f"exchange '{acc.exchange}' is not supported")
         # no fetchCurrencies: a private wallet call on every market load, not needed for futures orders
         params = {"enableRateLimit": True, "timeout": 15000,
-                  "options": {"defaultType": default_type, "fetchCurrencies": False}}
+                  "options": options_for(klass_id, defaultType=default_type, fetchCurrencies=False)}
         params.update(credentials(acc.exchange, decrypt(acc.api_key_enc), decrypt(acc.secret_enc),
                                   decrypt(acc.password_enc)))
         self.ex = klass(params)
-        self.quote = acc.currency("") if acc.is_spot else ""  # spot: trade BTC/<this> whatever the bot's pair
+        self.quote = acc.currency("")  # trade BTC/<this> (spot) or the BTC perpetual settled in it, whatever the bot's pair
         if acc.sandbox:
             self.ex.set_sandbox_mode(True)
         from . import netips
@@ -169,11 +179,14 @@ class ExchangeClient:
     def resolve(self, pair: str) -> str:
         """The bots' pair (BTC/USDT) -> this exchange's market; spot in the portfolio's quote coin (BTC/EUR)."""
         base, quote = pair.upper().split("/")
-        if self.is_spot and self.quote:
+        if self.quote:
             quote = self.quote
+        from .markets import base_candidates
+        names = base_candidates(base)  # 1000PEPE is KPEPE on some exchanges
         best = None
-        for m in self.ex.markets.values():
-            if m.get("base") != base or m.get("quote") != quote or m.get("active") is False:
+        for m in sorted(self.ex.markets.values(), key=lambda m: names.index(str(m.get("base") or "").upper())
+                        if str(m.get("base") or "").upper() in names else 99):
+            if str(m.get("base") or "").upper() not in names or m.get("quote") != quote or m.get("active") is False:
                 continue
             if self.is_spot and m.get("spot"):
                 return m["symbol"]
@@ -195,6 +208,13 @@ class ExchangeClient:
     def min_amount(self, symbol: str) -> float:
         return float(((self.market(symbol).get("limits") or {}).get("amount") or {}).get("min") or 0)
 
+    def max_leverage(self, symbol: str) -> float | None:
+        v = ((self.market(symbol).get("limits") or {}).get("leverage") or {}).get("max")
+        try:
+            return float(v) if v else None
+        except (TypeError, ValueError):
+            return None
+
     def min_cost(self, symbol: str) -> float:
         return float(((self.market(symbol).get("limits") or {}).get("cost") or {}).get("min") or 0)
 
@@ -215,7 +235,7 @@ class ExchangeClient:
 
     async def price(self, symbol: str, hint: float | None = None) -> float:
         from .streams import manager as streams
-        mk = streams.mark(symbol)  # pushed by the exchange: costs no request
+        mk = streams.mark(symbol) if self._mkey[0] == "binanceusdm" else None  # Binance's push: costs no request
         if mk:
             return mk
         hit = _prices.get((self._mkey, symbol))
@@ -281,6 +301,14 @@ class ExchangeClient:
     async def setup_leverage(self, symbol: str, leverage: int, margin_mode: str) -> None:
         if self.is_spot or self.dry_run or (symbol, leverage) in self._leverage_done:
             return
+        if getattr(self.ex, "id", "") == "hyperliquid":  # one call sets both (margin mode as a parameter)
+            try:
+                await self._call("set_leverage", {"symbol": symbol, "leverage": leverage, "marginMode": margin_mode},
+                                 self.ex.set_leverage(leverage, symbol, {"marginMode": margin_mode}))
+            except Exception as e:
+                log.info("[acc %s] set_leverage: %s", self.account_id, e)
+            self._leverage_done.add((symbol, leverage))
+            return
         try:
             await self._call("set_margin_mode", {"symbol": symbol, "mode": margin_mode},
                              self.ex.set_margin_mode(margin_mode, symbol))
@@ -304,7 +332,12 @@ class ExchangeClient:
         params = {"reduceOnly": True} if reduce_only and not self.is_spot else {}
         if getattr(self.ex, "id", "") == "binanceusdm":
             params["newOrderRespType"] = "RESULT"  # the fill comes back with the order: no second request
+        ref = None
+        if getattr(self.ex, "id", "") in PRICED_MARKET:
+            ref = await self.price(symbol, price_hint)
         req = {"symbol": symbol, "type": "market", "side": side, "amount": amount, "params": params}
+        if ref:
+            req["price"] = ref
         if reduce_only:
             self._bal = None  # an exit frees margin: read it again next time
         if self._pos:
@@ -314,7 +347,7 @@ class ExchangeClient:
             streams.expect(self.account_id, symbol)  # the account's stream must report this within seconds
         try:
             order = await self._call("create_order", req,
-                                     self.ex.create_order(symbol, "market", side, amount, None, params))
+                                     self.ex.create_order(symbol, "market", side, amount, ref, params))
         except Exception:
             streams.unexpect(self.account_id, symbol)
             raise
