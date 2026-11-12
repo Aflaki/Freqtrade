@@ -44,6 +44,35 @@ def _num(v, default: float = 0.0) -> float:
         return default
 
 
+@router.get("/execution")
+async def execution(request: Request):
+    """Execution quality: each trade next to the bot's own (prices, delays, results). Users see their own
+    portfolios; admins can see every portfolio."""
+    user = require_user(request)
+    from ..engine import execquality
+    qp = request.query_params
+    days = {"7": 7, "30": 30, "90": 90, "all": None}.get(qp.get("days", "30"), 30)
+    side = qp.get("side") if qp.get("side") in ("long", "short") else "all"
+    everyone = bool(user.is_admin and qp.get("all"))
+    with SessionLocal() as s:
+        q = select(ExchangeAccount).where(ExchangeAccount.kind == "exchange")
+        if not everyone:
+            q = q.where(ExchangeAccount.user_id == user.id)
+        accs = list(s.scalars(q.order_by(ExchangeAccount.id)))
+        owners = {u.id: u.email for u in s.scalars(select(User).where(User.id.in_({a.user_id for a in accs} or {-1})))}
+        from ..engine.exchange import EXCHANGES
+        choices = [(a.id, (a.label or EXCHANGES.get(a.exchange, a.exchange)) + (f" · {owners.get(a.user_id, '')}" if everyone else ""))
+                   for a in accs]
+    chosen = qp.get("acc", "")
+    ids = [int(chosen)] if chosen.isdigit() and int(chosen) in {a for a, _ in choices} else [a for a, _ in choices]
+    rep = execquality.report(ids, days, side)
+    with SessionLocal() as s:
+        bot_names = {b.id: b.name for b in s.scalars(select(Bot))}
+    return render(request, "execution.html", rep=rep, choices=choices, chosen=chosen, bot_names=bot_names,
+                  days=qp.get("days", "30") if qp.get("days", "30") in ("7", "30", "90", "all") else "30",
+                  side=side, everyone=everyone)
+
+
 @router.get("/dashboard")
 async def dashboard(request: Request):
     """Like the bots' performance page, but for the user's own trades: live positions, results, chart vs the

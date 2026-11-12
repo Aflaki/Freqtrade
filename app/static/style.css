@@ -282,3 +282,7 @@ details.srv-bots-box{margin:10px 0}details.srv-bots-box>summary{cursor:pointer;f
 @keyframes spin{to{transform:rotate(360deg)}}
 .busy-res{list-style:none;margin:6px 0 0;padding:0}.busy-res li{padding:2px 0}
 form.is-busy table{opacity:.5;pointer-events:none}
+
+.xq-filters{display:flex;flex-wrap:wrap;gap:12px;align-items:center}.xq-filters .seg{display:inline-flex;gap:4px;flex-wrap:wrap}
+.xq-filters select{width:auto;min-width:200px}.xq-table td{white-space:nowrap}
+span.num[dir=ltr]{unicode-bidi:isolate;display:inline-block}

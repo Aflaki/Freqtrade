@@ -1,0 +1,66 @@
+{% extends "base.html" %}{% block title %}{{ _('xq_title') }} · {{ site.site_name }}{% endblock %}{% block content %}
+{% macro bps(v) %}{% if v is none %}<span class="muted">—</span>{% else %}<span dir="ltr" class="num {{ 'neg' if v > 0.5 else ('pos' if v < -0.5 else 'muted') }}" data-v="{{ '%.2f'|format(v) }}">{{ '%+.1f'|format(v) }}</span>{% endif %}{% endmacro %}
+{% macro pct(v) %}{% if v is none %}<span class="muted">—</span>{% else %}<span dir="ltr" class="num {{ 'pos' if v >= 0 else 'neg' }}" data-v="{{ '%.4f'|format(v) }}">{{ '%+.2f'|format(v) }}%</span>{% endif %}{% endmacro %}
+{% macro secs(v) %}{% if v is none %}<span class="muted">—</span>{% else %}<span dir="ltr" class="num" data-v="{{ '%.1f'|format(v) }}">{% if v|abs < 90 %}{{ '%.1f'|format(v) }}s{% elif v|abs < 5400 %}{{ '%.1f'|format(v / 60) }}m{% else %}{{ '%.1f'|format(v / 3600) }}h{% endif %}</span>{% endif %}{% endmacro %}
+<h1>🎯 {{ _('xq_title') }}</h1>
+<p class="muted">{{ _('xq_intro') }}</p>
+
+{% set base = '?acc=' ~ chosen ~ ('&all=1' if everyone else '') %}
+<form method="get" class="card xq-filters"><input type="hidden" name="days" value="{{ days }}"><input type="hidden" name="side" value="{{ side }}">
+  <label>{{ _('col_portfolio') }} <select name="acc" onchange="this.form.submit()"><option value="">{{ _('xq_all_portfolios') }}</option>
+    {% for id, name in choices %}<option value="{{ id }}" {{ 'selected' if chosen == id|string }}>{{ name }}</option>{% endfor %}</select></label>
+  <span class="seg">{% for d, l in (('7', _('xq_7d')), ('30', _('xq_30d')), ('90', _('xq_90d')), ('all', _('xq_all'))) %}
+    <a class="btn sm {{ '' if days == d else 'ghost' }}" href="{{ base }}&days={{ d }}&side={{ side }}">{{ l }}</a>{% endfor %}</span>
+  <span class="seg">{% for v, l in (('all', _('xq_both')), ('long', 'Long'), ('short', 'Short')) %}
+    <a class="btn sm {{ '' if side == v else 'ghost' }}" href="{{ base }}&days={{ days }}&side={{ v }}">{{ l }}</a>{% endfor %}</span>
+  {% if user.is_admin %}<label class="check inline"><input type="checkbox" name="all" value="1" {{ 'checked' if everyone }} onchange="this.form.submit()"> {{ _('xq_everyone') }}</label>{% endif %}
+</form>
+
+{% set T = rep.total %}
+<div class="grid">
+  <div class="stat"><div class="k">{{ _('xq_trades') }}</div><div class="v">{{ T.trades }}</div><div class="small muted">{{ _('xq_matched', n=T.matched, c=T.closed) }}</div></div>
+  <div class="stat"><div class="k">{{ _('xq_slip_entry') }}</div><div class="v">{{ bps(T.slip_entry) }}</div><div class="small muted">{{ _('xq_bps_note') }}</div></div>
+  <div class="stat"><div class="k">{{ _('xq_slip_exit') }}</div><div class="v">{{ bps(T.slip_exit) }}</div><div class="small muted">{{ _('xq_bps_note') }}</div></div>
+  <div class="stat"><div class="k">{{ _('xq_delay') }}</div><div class="v">{{ secs(T.delay_entry) }}</div><div class="small muted">{{ _('xq_delay_note') }} · {{ _('xq_exit') }} {{ secs(T.delay_exit) }}</div></div>
+  <div class="stat"><div class="k">{{ _('xq_result_diff') }}</div><div class="v">{{ pct(T.diff_pct) }}</div><div class="small muted">{{ _('xq_ours') }} {{ pct(T.ours_pct) }} · {{ _('xq_bot') }} {{ pct(T.bot_pct) }}</div></div>
+  <div class="stat"><div class="k">{{ _('xq_fees') }}</div><div class="v">{{ pct(-(T.fees_pct) if T.fees_pct is not none else none) }}</div><div class="small muted">{{ _('xq_better_worse', b=T.better, w=T.worse) }}</div></div>
+</div>
+
+<details class="card" data-remember="xq-help"><summary><b>❔ {{ _('xq_how_title') }}</b></summary>
+<ul class="small">
+  <li>{{ _('xq_how_slip') }}</li><li>{{ _('xq_how_delay') }}</li><li>{{ _('xq_how_result') }}</li><li>{{ _('xq_how_limits') }}</li>
+</ul></details>
+
+{% if rep.accounts|length > 1 %}<div class="card"><h2>{{ _('xq_by_portfolio') }}</h2><div class="table-wrap"><table class="small">
+<tr><th>{{ _('col_portfolio') }}</th>{% if everyone %}<th>{{ _('col_user') }}</th>{% endif %}<th>{{ _('xq_trades') }}</th><th>{{ _('xq_slip_entry') }}</th><th>{{ _('xq_slip_exit') }}</th><th>{{ _('xq_delay') }}</th><th>{{ _('xq_ours') }}</th><th>{{ _('xq_bot') }}</th><th>{{ _('xq_result_diff') }}</th><th>{{ _('xq_better_worse_h') }}</th></tr>
+{% for a in rep.accounts %}<tr><td><a href="?acc={{ a.id }}&days={{ days }}&side={{ side }}{{ '&all=1' if everyone }}">{{ a.account }}</a>{% if a.exchange != a.account %} <span class="muted">{{ a.exchange }}</span>{% endif %}</td>{% if everyone %}<td class="small">{{ a.owner }}</td>{% endif %}
+<td>{{ a.trades }}</td><td>{{ bps(a.slip_entry) }}</td><td>{{ bps(a.slip_exit) }}</td><td>{{ secs(a.delay_entry) }}</td><td>{{ pct(a.ours_pct) }}</td><td>{{ pct(a.bot_pct) }}</td><td>{{ pct(a.diff_pct) }}</td><td>{{ a.better }} / {{ a.worse }}</td></tr>{% endfor %}
+</table></div></div>{% endif %}
+
+<details class="card" data-remember="xq-pairs"><summary><b>{{ _('xq_by_pair') }}</b> <span class="badge">{{ rep.pairs|length }}</span></summary><div class="table-wrap"><table class="small">
+<tr><th>{{ _('col_pair') }}</th><th>{{ _('xq_trades') }}</th><th>{{ _('xq_slip_entry') }}</th><th>{{ _('xq_slip_exit') }}</th><th>{{ _('xq_delay') }}</th><th>{{ _('xq_ours') }}</th><th>{{ _('xq_bot') }}</th><th>{{ _('xq_result_diff') }}</th></tr>
+{% for p in rep.pairs %}<tr><td class="mono">{{ coin(p.pair) }}{{ p.pair }}</td><td>{{ p.trades }}</td><td>{{ bps(p.slip_entry) }}</td><td>{{ bps(p.slip_exit) }}</td><td>{{ secs(p.delay_entry) }}</td><td>{{ pct(p.ours_pct) }}</td><td>{{ pct(p.bot_pct) }}</td><td>{{ pct(p.diff_pct) }}</td></tr>{% endfor %}
+</table></div></details>
+
+<div class="card"><h2>{{ _('xq_per_trade') }} <span class="badge">{{ rep.rows|length }}</span></h2>
+<div class="table-wrap"><table class="small xq-table">
+<tr><th>{{ _('col_pair') }}</th><th>{{ _('col_side') }}</th><th>{{ _('col_bot') }}</th><th>{{ _('col_portfolio') }}</th>
+<th>{{ _('xq_bot_entry') }}</th><th>{{ _('xq_our_entry') }}</th><th>{{ _('xq_slip_entry') }}</th><th>{{ _('xq_delay_entry') }}</th>
+<th>{{ _('xq_bot_exit') }}</th><th>{{ _('xq_our_exit') }}</th><th>{{ _('xq_slip_exit') }}</th><th>{{ _('xq_delay_exit') }}</th>
+<th>{{ _('xq_bot') }}</th><th>{{ _('xq_ours') }}</th><th>{{ _('xq_result_diff') }}</th><th>{{ _('col_fees') }}</th><th>{{ _('col_opened') }}</th></tr>
+{% for r in rep.rows %}<tr>
+<td class="mono">{{ coin(r.pair) }}{{ r.pair }}{% if r.symbol.split(':')[0] != r.pair %}<div class="small muted">{{ r.symbol.split(':')[0] }}</div>{% endif %}</td>
+<td class="{{ 'pos' if r.side == 'long' else 'neg' }}">{{ r.side|upper }} <span class="muted">{{ r.lev|int }}x</span></td>
+<td class="small">{{ bot_names.get(r.bot_id, '—') }}</td>
+<td class="small">{{ r.account }}{% if r.paper %} <span class="badge">{{ _('badge_paper') }}</span>{% endif %}{% if r.adopted %} <span class="badge">{{ _('xq_adopted') }}</span>{% endif %}{% if everyone %}<div class="muted">{{ r.owner }}</div>{% endif %}</td>
+{% if not r.found %}<td colspan="8" class="small muted">{{ _('xq_no_bot_trade') }}</td>{% else %}
+<td class="tnum">{{ r.bot_entry|price if r.bot_entry else '—' }}</td><td class="tnum">{{ r.our_entry|price }}{% if not r.comparable %} <span class="muted">{{ r.cur }}</span>{% endif %}</td>
+<td>{{ bps(r.slip_entry) }}</td><td title="{{ _('xq_delay_split', s=('%.1f'|format(r.signal_entry) if r.signal_entry is not none else '—'), e=('%.1f'|format(r.exec_entry) if r.exec_entry is not none else '—')) }}">{{ secs(r.delay_entry) }}</td>
+<td class="tnum">{{ r.bot_exit|price if r.bot_exit else ('…' if r.status == 'open' else '—') }}</td><td class="tnum">{{ r.our_exit|price if r.our_exit else ('…' if r.status == 'open' else '—') }}</td>
+<td>{{ bps(r.slip_exit) }}</td><td title="{{ _('xq_delay_split', s=('%.1f'|format(r.signal_exit) if r.signal_exit is not none else '—'), e=('%.1f'|format(r.exec_exit) if r.exec_exit is not none else '—')) }}">{{ secs(r.delay_exit) }}</td>
+{% endif %}
+<td>{{ pct(r.bot_pct) }}</td><td>{{ pct(r.ours_pct) }}</td><td><b>{{ pct(r.diff_pct) }}</b></td>
+<td class="tnum small">{{ r.fees|money(4) }} {{ r.cur }}</td><td class="small muted">{{ r.opened|lt('%m-%d %H:%M') }}</td></tr>
+{% else %}<tr><td colspan="17" class="muted">{{ _('xq_none') }}</td></tr>{% endfor %}
+</table></div></div>
+{% endblock %}

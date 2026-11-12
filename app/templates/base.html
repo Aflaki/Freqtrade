@@ -27,6 +27,7 @@
   <a href="/dashboard" class="{{ 'on' if p == '/dashboard' }}" title="{{ _('nav_dashboard') }}">{{ ic('grid') }}<span class="lbl">{{ _('nav_dashboard') }}</span></a>
   <a href="/accounts" class="{{ 'on' if p.startswith('/accounts') }}" title="{{ _('nav_portfolios') }}">{{ ic('wallet') }}<span class="lbl">{{ _('nav_portfolios') }}</span></a>
   <a href="/trades" class="{{ 'on' if p == '/trades' }}" title="{{ _('nav_trades') }}">{{ ic('list') }}<span class="lbl">{{ _('nav_trades') }}</span></a>
+  <a href="/execution" class="{{ 'on' if p == '/execution' }}" title="{{ _('nav_execution') }}">{{ ic('target') }}<span class="lbl">{{ _('nav_execution') }}</span></a>
   <a href="/activity" class="{{ 'on' if p == '/activity' }}" title="{{ _('nav_activity') }}">{{ ic('pulse') }}<span class="lbl">{{ _('nav_activity') }}</span></a>
   <a href="/settings" class="{{ 'on' if p == '/settings' }}" title="{{ _('nav_settings') }}">{{ ic('settings') }}<span class="lbl">{{ _('nav_settings') }}</span></a>
   {% if user.is_admin %}<a href="/admin" class="{{ 'on' if p.startswith('/admin') }}" title="{{ _('nav_admin') }}">{{ ic('shield') }}<span class="lbl">{{ _('nav_admin') }}</span></a>{% endif %}

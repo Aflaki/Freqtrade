@@ -354,3 +354,62 @@ def test_hyperliquid_fill_price_and_fees(eur, monkeypatch):
     with SessionLocal() as s:
         tr = s.get(Trade, tid)
         assert tr.exit_price == pytest.approx(59000) and tr.realized_pnl > 0 and tr.fees == pytest.approx(0.02)
+
+
+def test_execution_quality_against_the_bot(eur):
+    """A short the bot entered at 100 and left at 90; we sold at 99.9 (worse: 10 bp) 4 s after it and bought back at
+    90.18 (worse: 20 bp) 6 s after it. Results without leverage, net of fees, and their difference."""
+    import datetime as dt
+
+    from app.db import BotTrade, Order, WebhookEvent, utcnow
+    from app.engine import execquality
+    acc_id, bot_id, uid = eur
+    t0 = utcnow() - dt.timedelta(hours=3)
+    with SessionLocal() as s:
+        acc = s.get(ExchangeAccount, acc_id)
+        acc.trading_mode, acc.quote = "futures", ""
+        s.add(BotTrade(bot_id=bot_id, ft_trade_id=501, pair="SOL/USDT", side="short", leverage=5, is_open=False,
+                       open_date=t0, close_date=t0 + dt.timedelta(hours=2), open_rate=100.0, close_rate=90.0,
+                       profit_ratio=0.49))  # Freqtrade: 9.8% x 5 after its fees
+        tr = Trade(user_id=uid, account_id=acc_id, bot_id=bot_id, ft_trade_id=501, pair="SOL/USDT",
+                   symbol="SOL/USDT:USDT", side="short", status="closed", stake=20.0, leverage=5, amount=0,
+                   closed_amount=1.0, entry_price=99.9, exit_value=90.18, realized_pnl=9.62, fees=0.1,
+                   opened_at=t0 + dt.timedelta(seconds=4), closed_at=t0 + dt.timedelta(hours=2, seconds=6))
+        s.add(tr)
+        s.flush()
+        w1 = WebhookEvent(bot_id=bot_id, received_at=t0 + dt.timedelta(seconds=1), msg_type="entry", status="accepted")
+        w2 = WebhookEvent(bot_id=bot_id, received_at=t0 + dt.timedelta(hours=2, seconds=2), msg_type="exit", status="accepted")
+        s.add_all([w1, w2])
+        s.flush()
+        s.add_all([Order(trade_id=tr.id, exchange_order_id="a", kind="entry", side="sell", amount=1, filled=1, price=99.9,
+                         created_at=t0 + dt.timedelta(seconds=4)),
+                   Order(trade_id=tr.id, exchange_order_id="b", kind="exit", side="buy", amount=1, filled=1, price=90.18,
+                         created_at=t0 + dt.timedelta(hours=2, seconds=6)),
+                   ExecutionLog(webhook_event_id=w1.id, account_id=acc_id, trade_id=tr.id, action="short",
+                                pair="SOL/USDT", status="opened", duration_ms=2500),
+                   ExecutionLog(webhook_event_id=w2.id, account_id=acc_id, trade_id=tr.id, action="close_short",
+                                pair="SOL/USDT", status="closed", duration_ms=3500)])
+        s.commit()
+        tid, ids = tr.id, (w1.id, w2.id)
+    try:
+        rep = execquality.report([acc_id], 30)
+        r = next(x for x in rep["rows"] if x["id"] == tid)
+        assert r["slip_entry"] == pytest.approx(10.0) and r["slip_exit"] == pytest.approx(20.0)
+        assert r["delay_entry"] == pytest.approx(4) and r["delay_exit"] == pytest.approx(6)
+        assert r["signal_entry"] == pytest.approx(1) and r["exec_entry"] == pytest.approx(2.5)
+        assert r["ours_pct"] == pytest.approx(9.62) and r["bot_pct"] == pytest.approx(9.8)
+        assert r["diff_pct"] == pytest.approx(-0.18) and rep["total"]["worse"] == 1
+        from app.security import hash_password
+        with SessionLocal() as s:
+            s.get(User, uid).password_hash = hash_password("Xy-12345678-zz")
+            s.commit()
+        c, _ = login("eur@x.com")
+        page = c.get("/execution?days=30").text
+        assert "SOL/USDT" in page and "+10.0" in page and "+20.0" in page and "-0.18%" in page
+        assert "Execution quality" in page and "/execution" in c.get("/dashboard").text
+    finally:
+        with SessionLocal() as s:
+            s.query(Order).filter_by(trade_id=tid).delete()
+            s.query(WebhookEvent).filter(WebhookEvent.id.in_(ids)).delete()
+            s.query(BotTrade).filter_by(bot_id=bot_id).delete()
+            s.commit()
