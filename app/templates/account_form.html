@@ -231,8 +231,7 @@
       if(l.dataset.min && quote!==stakeCur) t=t.replace(l.dataset.min, Math.ceil(toQuote(+l.dataset.min))); l.textContent=t; });
     const optOf=p=>{const sb=$(`.pb[data-p="${p}"]`); return sb&&sb.selectedOptions[0];};
     const plev=p=>{ if(spot) return 1; const o=optOf(p), fixed=o?parseInt(o.dataset.lev):0, blev=o?parseInt(o.dataset.blev):0;
-      const fm=futOf(p), mx=fm&&fm[2]?fm[2]:maxLev;  // the exchange's own maximum for this coin
-      return Math.max(1,Math.min(fixed||blev||lev,maxLev,mx)); };
+      return Math.max(1,Math.min(fixed||blev||lev,maxLev)); };
     $$('.catrow').forEach(r=>{  // pairs the chosen exchange doesn't list
       const p=r.dataset.p, ex=JSON.parse(r.dataset.ex||'{}'), sp=JSON.parse(r.dataset.spot||'{}'), cb=r.querySelector('.pc');
       let listed, msg='';
@@ -243,7 +242,8 @@
         if(fm!==undefined){ listed=!!fm;  // perpetuals settled in the chosen coin
           if(!listed) msg=notInQuote.replace('{ex}',exName[exn]||exn).replace('{q}',quote);
           else { const o=optOf(p), want=Math.min((o&&(parseInt(o.dataset.lev)||parseInt(o.dataset.blev)))||lev,maxLev);
-            if(fm[2]&&want>fm[2]) msg=capNote.split('{lev}').join(want).split('{max}').join(fm[2]).split('{ex}').join(exName[exn]||exn);
+            if(fm[2]&&want>fm[2]){ listed=false;  // the leverage is fixed: this coin can't be traded here
+              msg=capNote.split('{lev}').join(want).split('{max}').join(fm[2]).split('{ex}').join(exName[exn]||exn); }
             else if(fm[1]!=null&&fm[1]<shallowVol) msg=thin.replace('{v}',fmt(fm[1])).replace('{q}',quote); } }
         else { const known=exn in ex; listed=!known||ex[exn]!==null; if(!listed) msg=notListed.replace('{ex}',exName[exn]||exn); } }
       const note=r.querySelector('.exnote'); note.textContent=msg; note.className='small exnote '+(listed?'muted':'neg');

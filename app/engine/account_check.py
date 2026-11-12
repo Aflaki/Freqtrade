@@ -141,9 +141,9 @@ def check_pairs(exchange: str, mode: str, selection: dict[str, dict], offers: di
             continue
         lev = max(1, int(sel.get("leverage") or 1)) if mode == "futures" else 1
         mx = (info or {}).get("max_leverage") if mode == "futures" else None
-        if mx and lev > mx:  # traded at the exchange's maximum: same margin, smaller position
-            out.append(_item(WARN, "ck_lev_capped", pair=pair, lev=lev, max=int(mx), ex=exmod.EXCHANGES.get(exchange, exchange)))
-            lev = int(mx)
+        if mx and lev > mx:  # the pair's leverage is fixed: not possible on this exchange
+            out.append(_item(ERROR, "ck_lev_capped", pair=pair, lev=lev, max=int(mx), ex=exmod.EXCHANGES.get(exchange, exchange)))
+            continue
         need = markets.min_margin(info, lev)
         margin = float(sel.get("margin") or 0)
         if need and margin and margin < need:

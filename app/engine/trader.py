@@ -179,9 +179,9 @@ async def _open(s: Session, acc: ExchangeAccount, user: User, gs: GlobalSettings
     lev_note = ""
     if not acc.is_spot and not client.simulated:
         mx = client.max_leverage(symbol)
-        if mx and lev > mx:  # e.g. Hyperliquid allows 3x on many coins: same margin, smaller position
-            lev_note = f" (leverage {lev}x > max {int(mx)}x on {EXCHANGES.get(acc.exchange, acc.exchange)}: {int(mx)}x)"
-            lev = int(mx)
+        if mx and lev > mx:  # the leverage is fixed: never traded at another one
+            return _skip(acc, user, pair, t(L, "why_lev_cap", lev=lev, max=int(mx),
+                                            ex=EXCHANGES.get(acc.exchange, acc.exchange)))
     if not client.dry_run:
         free = await client.free_balance(cur, estimate_ok=True)
         if free < stake * 1.3:  # close call: ask the exchange itself

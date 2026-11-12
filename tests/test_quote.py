@@ -168,8 +168,11 @@ def test_futures_in_usdc(eur, monkeypatch):
     def sig(action, pair, n, **kw):
         return asyncio.run(dispatch(Signal(action=action, symbol=pair.replace("/", ""), pair=pair, ft_trade_id=n,
                                            id=f"usdc-{action}-{n}", **kw), None, bot_id))
-    out = sig("short", "BTC/USDT", 21, leverage=5)
-    assert [o.status for o in out] == ["opened"] and "max 3x" in out[0].message, out
+    # the leverage is fixed: 5x where the exchange allows 3x is refused, never opened at another leverage
+    out = sig("short", "BTC/USDT", 20, leverage=5)
+    assert [o.status for o in out] == ["skipped"] and "5x" in out[0].message and "3x" in out[0].message, out
+    out = sig("short", "BTC/USDT", 21, leverage=3)
+    assert [o.status for o in out] == ["opened"], out
     with SessionLocal() as s:
         tr = s.query(Trade).filter_by(account_id=acc_id, pair="BTC/USDT").one()
         assert tr.symbol == "BTC/USDC:USDC" and tr.currency == "USDC" and tr.leverage == 3
@@ -190,3 +193,26 @@ def test_futures_in_usdc(eur, monkeypatch):
     out = sig("close_short", "BTC/USDT", 21)
     assert [o.status for o in out] == ["closed"], out
     assert ex.orders[-1]["symbol"] == "BTC/USDC:USDC" and ex.orders[-1]["params"].get("reduceOnly")
+
+
+def test_fixed_leverage_above_the_exchange_max_is_refused_in_the_form_check():
+    from app.engine.account_check import check_pairs
+    init_db()
+    with SessionLocal() as s:
+        gs = get_global(s)
+        saved = gs.market_cache
+        gs.market_cache = {"hyperliquid": {"pairs": {}, "spot": {}, "fut": {
+            "1000PEPE/USDC": {"symbol": "KPEPE/USDC:USDC", "active": True, "min_cost": 10.0, "max_leverage": 10.0,
+                              "price": 0.01, "contract_size": 1.0}}}}
+        s.commit()
+    try:
+        sel = {"1000PEPE/USDT": {"margin": 50, "leverage": 20}}
+        items = check_pairs("hyperliquid", "futures", sel, quote="USDC")
+        assert [(i["status"], i["key"]) for i in items] == [("error", "ck_lev_capped")]
+        assert items[0]["params"] == {"pair": "1000PEPE/USDT", "lev": 20, "max": 10, "ex": "Hyperliquid"}
+        sel["1000PEPE/USDT"]["leverage"] = 10
+        assert check_pairs("hyperliquid", "futures", sel, quote="USDC") == []
+    finally:
+        with SessionLocal() as s:
+            get_global(s).market_cache = saved
+            s.commit()
