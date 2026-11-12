@@ -25,6 +25,7 @@ START_GAP = 0.5        # seconds between two new connections
 MARK_FRESH = 15        # a mark price older than this is not used
 SUPPORTED = {"binanceusdm"}
 VERIFY_EVERY = 120     # seconds: the stream's positions and balance are checked against a REST read this often
+ECHO_WAIT = 10         # seconds: after our own order the stream must report that position change within this
 VERIFY_FIRST = 5       # seconds after the start before the first check
 VERIFY_GRACE = 90      # a stream not verified for VERIFY_EVERY + this is not trusted (readers fall back to REST)
 
@@ -47,6 +48,8 @@ class AccountStream:
         self.last_drift = ""
         self.started = time.time()
         self.pos_events = 0       # position updates pushed by the exchange since the connection was made
+        self.expect: dict[str, float] = {}  # symbol -> deadline: our own order, not yet echoed by the stream
+        self.echo_misses = 0
         self.last_pos_event = 0.0
 
 
@@ -73,9 +76,24 @@ class StreamManager:
     # ------------------------------------------------------------ readers
     def live(self, acc_id: int) -> AccountStream | None:
         st = self.accounts.get(acc_id)
+        now = time.time()
         ok = st and st.connected and st.balance is not None and st.pos_ready and \
-            time.time() - st.verified_at < VERIFY_EVERY + VERIFY_GRACE
+            now - st.verified_at < VERIFY_EVERY + VERIFY_GRACE and \
+            not any(d < now for d in st.expect.values())  # our order wasn't echoed in time: not trusted
         return st if ok else None
+
+    def expect(self, acc_id: int, symbol: str) -> None:
+        """We just traded `symbol` on this account: the exchange must push that position change on the stream
+        within ECHO_WAIT s, or the stream is taken as frozen and checked against REST at once."""
+        st = self.accounts.get(acc_id)
+        if st is not None and st.connected and st.pos_ready:
+            st.expect.setdefault(symbol, time.time() + ECHO_WAIT)
+
+    def unexpect(self, acc_id: int, symbol: str) -> None:
+        """The order was refused: nothing to echo."""
+        st = self.accounts.get(acc_id)
+        if st is not None:
+            st.expect.pop(symbol, None)
 
     def wallet(self, acc_id: int, currency: str) -> float | None:
         st = self.live(acc_id)
@@ -165,6 +183,7 @@ class StreamManager:
                         st.pos_events += 1
                         st.last_pos_event = time.time()
                     for p in got:
+                        st.expect.pop(p.get("symbol"), None)  # the echo of our own order (closed ones too)
                         k = _key(p)
                         if not k:
                             continue
@@ -201,7 +220,16 @@ class StreamManager:
         from .ratelimit import prio
         await asyncio.sleep(VERIFY_FIRST)
         while True:
+            missed = []
             if st.connected and st.pos_ready:
+                now = time.time()
+                missed = sorted(k for k, d in st.expect.items() if d < now)
+                for k in missed:
+                    st.expect.pop(k, None)
+                if missed:
+                    st.echo_misses += 1
+                    log.warning("[acc %s] our order on %s wasn't echoed by the stream within %d s: checking now",
+                                st.acc_id, ", ".join(m.split(":")[0] for m in missed), ECHO_WAIT)
                 tok = prio.set("background")
                 try:
                     raw = await st.ex.fetch_positions()
@@ -231,13 +259,20 @@ class StreamManager:
                                     st.pos_events, f"{(now - st.last_pos_event) / 60:.0f} min ago"
                                     if st.last_pos_event else "never")
                         st.version = ("drift", time.time())  # sync() rebuilds the connection
+                    elif missed:
+                        log.info("[acc %s] stream state matches the exchange after all (late echo)", st.acc_id)
                 except asyncio.CancelledError:
                     raise
                 except Exception as e:
                     log.info("[acc %s] stream check skipped: %s", st.acc_id, e)
                 finally:
                     prio.reset(tok)
-            await asyncio.sleep(VERIFY_EVERY if st.verified_at else VERIFY_FIRST or 0.01)
+            until = time.time() + (VERIFY_EVERY if st.verified_at else VERIFY_FIRST or 0.01)
+            while time.time() < until:  # wake early when one of our orders isn't echoed in time
+                await asyncio.sleep(min(1.0, max(0.01, until - time.time())))
+                now = time.time()
+                if any(d < now for d in st.expect.values()):
+                    break
 
     async def start(self, acc: ExchangeAccount, version: tuple) -> None:
         st = AccountStream(acc.id, version)

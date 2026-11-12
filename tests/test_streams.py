@@ -319,3 +319,47 @@ def test_a_silent_stream_is_caught_and_replaced(live):
         assert [o.status for o in out] == ["opened"], out
         await manager.stop(acc_id)
     asyncio.run(go())
+
+
+def test_our_order_not_echoed_is_caught_within_seconds(live, monkeypatch):
+    """After our own order the exchange must push that position change on the stream; if it doesn't within
+    ECHO_WAIT s, the stream is distrusted at once and checked against REST (no waiting for the 2-minute check)."""
+    import app.engine.streams as streams_mod
+    monkeypatch.setattr(streams_mod, "ECHO_WAIT", 0.2)
+    monkeypatch.setattr(streams_mod, "VERIFY_EVERY", 3600)
+    acc_id, bot_id, _ = live
+    pushed = FakeStream(balance={"USDT": {"free": 900.0, "total": 900.0}, "total": {"USDT": 900.0}}, positions=[])
+    manager.factory = lambda acc: pushed
+    fx.FakeExchange.positions = []
+
+    async def go():
+        with SessionLocal() as s:
+            acc = s.get(ExchangeAccount, acc_id)
+            s.expunge(acc)
+        await manager.start(acc, exmod.client_version(acc))
+        st = manager.accounts[acc_id]
+        for _ in range(50):
+            await asyncio.sleep(0.02)
+            if manager.live(acc_id):
+                break
+        assert manager.live(acc_id)
+        # an echoed order: fine
+        manager.expect(acc_id, "ETH/USDT:USDT")
+        st.expect.pop("ETH/USDT:USDT")  # what the stream does when the update arrives
+        # our order is placed, the frozen stream says nothing; REST knows the new position
+        pushed.rest_p = [{"symbol": "BTC/USDT:USDT", "side": "short", "contracts": 0.01, "contractSize": 1,
+                          "entryPrice": 60000.0}]
+        out = await dispatch(Signal(action="short", symbol="BTCUSDT", pair="BTC/USDT:USDT", ft_trade_id=11, leverage=2,
+                                    id="ws-echo"), None, bot_id)
+        assert [o.status for o in out] == ["opened"], out
+        assert "BTC/USDT:USDT" in st.expect
+        await asyncio.sleep(0.3)
+        assert manager.live(acc_id) is None  # overdue: pages fall back to REST at once
+        for _ in range(40):
+            await asyncio.sleep(0.05)
+            if st.drifts:
+                break
+        assert st.echo_misses == 1 and st.drifts == 1 and "BTC/USDT short" in st.last_drift  # caught in ~1 s
+        assert set(st.positions) == {"BTC/USDT:USDT|short"} and st.version[0] == "drift"
+        await manager.stop(acc_id)
+    asyncio.run(go())

@@ -309,7 +309,15 @@ class ExchangeClient:
             self._bal = None  # an exit frees margin: read it again next time
         if self._pos:
             self._pos = (self._pos[0], [p for p in self._pos[1] if p.get("symbol") != symbol])  # ours now
-        order = await self._call("create_order", req, self.ex.create_order(symbol, "market", side, amount, None, params))
+        from .streams import manager as streams
+        if not self.is_spot:  # set before sending: the stream's echo can arrive before the order's own answer
+            streams.expect(self.account_id, symbol)  # the account's stream must report this within seconds
+        try:
+            order = await self._call("create_order", req,
+                                     self.ex.create_order(symbol, "market", side, amount, None, params))
+        except Exception:
+            streams.unexpect(self.account_id, symbol)
+            raise
         oid = str(order.get("id") or "")
         for i in range(6):  # poll until the real fill is visible
             if order.get("status") == "closed" and order.get("filled") and order.get("average"):
