@@ -18,7 +18,7 @@ def _mk(base, spot, quote="USDT"):
 class FakeExchange:
     instances = []
     spot = False
-    has = {"fetchPositions": True}
+    has = {"fetchPositions": True, "fetchOrders": True}
     positions = []  # ccxt-style positions already on the account (shared, set by tests)
     fills = []  # ccxt-style own trades (fetch_my_trades), set by tests
 
@@ -96,6 +96,11 @@ class FakeExchange:
     async def fetch_order(self, oid, symbol):
         o = next(o for o in self.orders if o["id"] == oid)
         return {"id": oid, "status": "closed", "filled": o["amount"], "average": o["price"], "fee": o["fee"]}
+
+    client_ids = {}  # order id -> client order id of orders not placed by the site (e.g. a liquidation)
+
+    async def fetch_orders(self, symbol, since=None, limit=None, params=None):
+        return [{"id": oid, "clientOrderId": cid, "symbol": symbol} for oid, cid in FakeExchange.client_ids.items()]
 
     async def fetch_my_trades(self, symbol, since=None, limit=None, params=None):
         end = (params or {}).get("endTime", 1e18)

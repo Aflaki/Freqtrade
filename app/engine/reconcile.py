@@ -60,13 +60,18 @@ async def compare(acc_id: int, rest: bool = True) -> dict[str, Any]:
     for b in sorted(set(acc.bots or []) | set((acc.pair_bot or {}).values())):
         by_bot[b] = bot_open_trades(b)
         outside_bot += sum(1 for x in by_bot[b] if x["pair"] not in followed)
-    for pair in sorted(followed):
+    for pair in sorted(followed | {pp for pp, _ in ours}):
         b = bot_for_pair(acc, pair)
         bt = next((x for x in by_bot.get(b, []) if x["pair"] == pair), None) if b is not None else None
         p = on_ex.get(pair)
         if bt:
             bot_total += 1
         if bt is None and p is None:
+            mine = next((t for (pp, _sd), t in ours.items() if pp == pair), None)
+            if mine is not None:  # only our record is open: the exchange closed it (liquidation...) or someone did
+                rows.append({"pair": pair, "kind": "record_only", "side": mine.side, "bot_id": b, "bot": None,
+                             "pos": None, "trade_id": mine.id, "ghost": True,
+                             "key": key(pair, mine.side, "record_only")})
             continue
         kind = ("matched" if bt["side"] == p["side"] else "opposite") if bt and p else ("bot_only" if bt else "exch_only")
         side = (p or bt)["side"]
@@ -92,6 +97,29 @@ async def compare(acc_id: int, rest: bool = True) -> dict[str, Any]:
     return out
 
 
+async def _close_record(acc_id: int, trade_id: int) -> str:
+    """Close our open record of a position the exchange no longer has; '' when there was nothing to do."""
+    from . import external
+    from .exchange import pool
+    with SessionLocal() as s:
+        acc = s.get(ExchangeAccount, acc_id)
+        t = s.get(Trade, trade_id)
+        if acc is None or t is None or t.status != "open":
+            return ""
+        s.expunge(acc)
+        s.expunge(t)
+    try:
+        async with pool.lock(acc_id):
+            client = await pool.get(acc)
+            res = await external._close_from_fills(client, acc, t)
+        if res and res.get("price"):
+            return res["message"]
+    except Exception:
+        pass
+    _close_ghost(trade_id)
+    return ""
+
+
 def _close_ghost(trade_id: int) -> None:
     """Our trade record is open but the exchange has no such position (e.g. 'adopted' from a stale view):
     close the record without any order, at no profit or loss."""
@@ -115,8 +143,17 @@ async def act(acc_id: int, user_id: int, decisions: dict[str, str]) -> dict[str,
         r = rows.get(k)
         if r is None:
             continue
-        if r.get("ghost") and what in ("open", "skip"):
-            _close_ghost(r["trade_id"])  # not on the exchange: our open record would block a new entry / exit
+        if r.get("ghost") and what in ("open", "skip", "close"):
+            # not on the exchange: close our record from the exchange's own fills (a liquidation, a close in the
+            # exchange's app...) with the real price and result; without any fill, close it at no result
+            res = await _close_record(acc_id, r["trade_id"])
+            if res:
+                r["message"] = res
+            if r["kind"] == "record_only":
+                (done["closed"] if what == "close" else done["kept"]).append(r)
+                if what != "close":
+                    ack.add(k)
+                continue
         if what in ("keep", "skip"):
             ack.add(k)
             done["kept"].append(r)

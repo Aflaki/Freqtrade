@@ -260,3 +260,74 @@ def test_live_numbers_from_the_exchange_and_reconcile(env):
     assert r.status_code == 409 and r.json()["busy"]
     page = c.get(f"/accounts/{acc_id}/positions").text
     assert 'id="rcbusy"' in page or "rc_all_matched" not in page
+
+
+def test_liquidation_is_recorded_from_the_exchange(env, monkeypatch):
+    """Seen live: an IMX short (5x) was liquidated by Binance; our record stayed open ("not on the exchange").
+    A record missing from the exchange twice is closed from the exchange's own fills: real price, loss, reason."""
+    import datetime as dt
+
+    from app.engine import external
+    c, csrf, acc_id, bot_id = env
+    monkeypatch.setattr(external, "CONFIRM_AFTER", 0)
+    with SessionLocal() as s:
+        acc = s.get(ExchangeAccount, acc_id)
+        acc.enabled = True
+        tr = Trade(user_id=acc.user_id, account_id=acc_id, bot_id=bot_id, ft_trade_id=303, pair="ETH/USDT",
+                   symbol="ETH/USDT:USDT", side="short", status="open", amount=0.5, entry_price=2900.0, stake=290.0,
+                   leverage=5, adopted=True, opened_at=dt.datetime.now(dt.UTC).replace(tzinfo=None) - dt.timedelta(days=2))
+        s.add(tr)
+        s.commit()
+        tid = tr.id
+    fx.FakeExchange.positions = []  # gone from the exchange
+    now = int(__import__("time").time() * 1000)
+    fx.FakeExchange.fills = [{"symbol": "ETH/USDT:USDT", "side": "buy", "amount": 0.5, "price": 3480.0, "order": "liq-1",
+                              "timestamp": now - 3600_000, "fee": {"cost": 0.0, "currency": "USDT"}}]
+    fx.FakeExchange.client_ids = {"liq-1": "autoclose-3179453936518700908"}
+    try:
+        assert run(external.check_account(acc_id)) == []  # first time missing: not yet
+        out = run(external.check_account(acc_id))
+        assert [(r["reason"], r["price"]) for r in out] == [("liquidation", 3480.0)]
+        with SessionLocal() as s:
+            t = s.get(Trade, tid)
+            assert t.status == "closed" and t.exit_reason == "liquidation"
+            assert t.exit_price == 3480.0 and t.realized_pnl == pytest.approx((2900 - 3480) * 0.5)
+            assert s.query(ExecutionLog).filter_by(trade_id=tid, action="exchange_close").count() == 1
+    finally:
+        fx.FakeExchange.fills, fx.FakeExchange.client_ids = [], {}
+
+
+def test_reconcile_shows_a_record_only_we_have(env):
+    """Neither the bot nor the exchange has it, only our record (the IMX case): shown, and closed from the
+    exchange's fills with the real result."""
+    import datetime as dt
+
+    from app.engine import reconcile
+    c, csrf, acc_id, bot_id = env
+    with SessionLocal() as s:
+        acc = s.get(ExchangeAccount, acc_id)
+        acc.enabled = True
+        tr = Trade(user_id=acc.user_id, account_id=acc_id, bot_id=bot_id, ft_trade_id=304, pair="ETH/USDT",
+                   symbol="ETH/USDT:USDT", side="short", status="open", amount=0.5, entry_price=2900.0, stake=290.0,
+                   leverage=5, adopted=True, opened_at=dt.datetime.now(dt.UTC).replace(tzinfo=None) - dt.timedelta(days=2))
+        s.add(tr)
+        s.commit()
+        tid = tr.id
+    monitor.live[bot_id] = {"at": dt.datetime.now(), "error": "", "trades": []}
+    fx.FakeExchange.positions = []
+    now = int(__import__("time").time() * 1000)
+    fx.FakeExchange.fills = [{"symbol": "ETH/USDT:USDT", "side": "buy", "amount": 0.5, "price": 3480.0, "order": "liq-2",
+                              "timestamp": now - 3600_000, "fee": {"cost": 0.0, "currency": "USDT"}}]
+    fx.FakeExchange.client_ids = {"liq-2": "autoclose-1"}
+    try:
+        res = run(reconcile.compare(acc_id))
+        r = next(x for x in res["diffs"] if x["pair"] == "ETH/USDT")
+        assert r["kind"] == "record_only" and r["trade_id"] == tid
+        assert "Open only in the site" in c.get(f"/accounts/{acc_id}/positions").text
+        c.post(f"/accounts/{acc_id}/reconcile", data={"csrf": csrf, f"r__{r['key']}": "close"})
+        with SessionLocal() as s:
+            t = s.get(Trade, tid)
+            assert t.status == "closed" and t.exit_reason == "liquidation" and t.realized_pnl == pytest.approx(-290.0)
+        assert not [x for x in run(reconcile.compare(acc_id))["diffs"] if x["pair"] == "ETH/USDT"]
+    finally:
+        fx.FakeExchange.fills, fx.FakeExchange.client_ids = [], {}

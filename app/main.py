@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from .db import SessionLocal, get_global, init_db
-from .engine import benchmarks, marketdata, markets
+from .engine import benchmarks, external, marketdata, markets
 from .engine.botmonitor import monitor
 from .engine.exchange import pool
 from .security import EmailNotConfirmed, LoginRequired, decrypt
@@ -47,7 +47,7 @@ async def lifespan(app: FastAPI):
         jobs_streams = [asyncio.create_task(streams.manager.loop())]
     else:
         jobs_streams = []
-    jobs = jobs_streams + [asyncio.create_task(bot.daily_jobs()), asyncio.create_task(monitor.loop()), asyncio.create_task(monitor.live_loop()), asyncio.create_task(markets.loop()), asyncio.create_task(marketdata.loop()),
+    jobs = jobs_streams + [asyncio.create_task(bot.daily_jobs()), asyncio.create_task(monitor.loop()), asyncio.create_task(monitor.live_loop()), asyncio.create_task(markets.loop()), asyncio.create_task(external.loop()), asyncio.create_task(marketdata.loop()),
             asyncio.create_task(benchmarks.loop())]
     yield
     for j in jobs:
