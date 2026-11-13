@@ -201,8 +201,16 @@ systemctl restart signal-relay
 # ----------------------------------------------------------------- web server (HTTPS)
 say "Configuring Caddy (web server + HTTPS certificate)"
 [[ -f /etc/caddy/Caddyfile && ! -f /etc/caddy/Caddyfile.orig ]] && cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.orig
+# a new domain: keep answering on the previous address too (the bots' webhooks still point to it)
+SITES="$DOMAIN"
+if [[ -f /etc/caddy/Caddyfile ]]; then
+  for OLD in $(sed -n '1s/[{,]/ /gp' /etc/caddy/Caddyfile); do
+    [[ "$OLD" == *.* && "$OLD" != "$DOMAIN" && " $SITES " != *" $OLD "* ]] && SITES="$SITES, $OLD"
+  done
+fi
+[[ "$SITES" != "$DOMAIN" ]] && ok "also kept: ${SITES#"$DOMAIN, "} (move the bots' webhooks to $DOMAIN, then it can go)"
 cat > /etc/caddy/Caddyfile <<CADDY
-$DOMAIN {
+$SITES {
 	encode gzip
 	reverse_proxy 127.0.0.1:$PORT
 }
