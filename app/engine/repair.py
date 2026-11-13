@@ -97,17 +97,26 @@ async def from_fills(acc_id: int, apply: bool = False, days: int = 30) -> list[d
 
 
 async def _all_fills(client, symbol: str, since_ms: int) -> list[dict]:
-    """Every own fill of `symbol` since `since_ms` (paged)."""
+    """Every own fill of `symbol` since `since_ms`, in windows of under 7 days (Binance answers at most 7 days
+    per request) and pages of 500."""
+    import time
     out: list[dict] = []
-    for _ in range(20):
-        batch = await client.ex.fetch_my_trades(symbol, since_ms, 500)
-        if not batch:
+    now = int(time.time() * 1000)
+    week = 7 * 86400_000 - 60_000
+    start = since_ms
+    while start < now:
+        end = min(start + week, now)
+        cursor = start
+        for _ in range(20):
+            params = {"endTime": end} if getattr(client.ex, "id", "") in ("binanceusdm", "binance") else {}
+            batch = await client.ex.fetch_my_trades(symbol, cursor, 500, params)
+            out += batch or []
+            if not batch or len(batch) < 500:
+                break
+            cursor = max(int(f.get("timestamp") or 0) for f in batch) + 1
+        if not params:  # other exchanges: one paged read covers everything since `since_ms`
             break
-        out += batch
-        last = max(int(f.get("timestamp") or 0) for f in batch)
-        if len(batch) < 500 or last <= since_ms:
-            break
-        since_ms = last + 1
+        start = end + 1
     seen, uniq = set(), []
     for f in out:
         k = (f.get("id"), f.get("order"), f.get("timestamp"), f.get("amount"))

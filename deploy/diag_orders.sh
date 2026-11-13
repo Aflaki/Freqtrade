@@ -48,8 +48,19 @@ async def exchange_side():
         sym = pair + ":USDT"
         p = pos.get(sym) or {}
         print(f"\n  {pair}: position now: {p.get('side')} {p.get('contracts')} entry={p.get('entryPrice')}")
+        trades, orders_all = [], []
+        start = int(since.timestamp() * 1000)
+        now_ms = int(dt.datetime.utcnow().timestamp() * 1000)
+        week = 7 * 86400_000 - 60_000  # Binance answers at most 7 days per request
         try:
-            trades = await ex.fetch_my_trades(sym, int(since.timestamp() * 1000), 100)
+            while start < now_ms:
+                end = min(start + week, now_ms)
+                trades += await ex.fetch_my_trades(sym, start, 500, {"endTime": end})
+                try:
+                    orders_all += await ex.fetch_orders(sym, start, 500, {"endTime": end})
+                except Exception:
+                    pass
+                start = end + 1
         except Exception as e:
             print("    fills:", type(e).__name__, str(e)[:200]); continue
         for t in trades:
@@ -58,8 +69,7 @@ async def exchange_side():
                   f"{'OURS' if str(t.get('order')) in ours else 'NOT FROM THIS SITE'} positionSide={info.get('positionSide')} "
                   f"realizedPnl={info.get('realizedPnl')}")
         try:
-            orders = await ex.fetch_orders(sym, int(since.timestamp() * 1000), 50)
-            for o in orders:
+            for o in orders_all:
                 print(f"    order {o['datetime']} {o['side']} {o['type']} amount={o['amount']} filled={o['filled']} "
                       f"status={o['status']} ({(o.get('info') or {}).get('status')}) reduceOnly={o.get('reduceOnly')} id={o['id']} "
                       f"{'OURS' if str(o['id']) in ours else 'NOT FROM THIS SITE'} clientId={o.get('clientOrderId')}")
