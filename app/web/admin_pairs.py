@@ -176,6 +176,27 @@ async def apply_rows(request: Request):
     return JSONResponse({"ok": True, "n": len(rows)})
 
 
+@router.post("/refresh/{exchange}")
+async def refresh_one(exchange: str, request: Request):
+    """Reload one exchange's market rules (the page calls this exchange by exchange and shows the progress)."""
+    import time
+    require_admin(request)
+    await form_with_csrf(request)
+    if exchange not in EXCHANGES:
+        return JSONResponse({"ok": False, "error": "unknown exchange"}, 400)
+    t0 = time.monotonic()
+    try:
+        cache = await markets.refresh([exchange])
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": f"{type(e).__name__}: {str(e)[:200]}"})
+    c = cache.get(exchange) or {}
+    return JSONResponse({"ok": not c.get("error"), "error": c.get("error", ""), "at": c.get("at", ""),
+                         "futures": len(c.get("pairs") or {}), "perps": len(c.get("fut") or {}),
+                         "spot": len(c.get("spot") or {}), "quotes": markets.quotes_on(exchange, cache),
+                         "fut_quotes": markets.quotes_on(exchange, cache, mode="futures"),
+                         "secs": round(time.monotonic() - t0, 1)})
+
+
 @router.post("/bulk")
 async def bulk(request: Request):
     require_admin(request)

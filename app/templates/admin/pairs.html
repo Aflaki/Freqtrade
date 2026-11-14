@@ -9,8 +9,47 @@
   <div class="kpi"><div class="k">{{ _('pc_bots') }}</div><div class="v"><span class="num">{{ bots|length }}</span></div></div>
   <div class="kpi"><div class="k">{{ _('pc_market_data') }}</div><div class="small">
   {% for e in exchanges %}{% set c = cache.get(e) or {} %}<div>{{ exch(e, 14) }}{{ EXCHANGES.get(e, e) }}: {% if c.at %}<span class="num">{{ c.at[5:16].replace('T', ' ') }}</span>{% else %}—{% endif %}{% if c.error %} <span class="badge err" title="{{ c.error }}">!</span>{% endif %}</div>{% endfor %}
-  <form method="post" action="/admin/pairs/bulk" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost sm" name="action" value="refresh_markets">⟳ {{ _('pc_refresh_markets') }}</button></form></div></div>
-</div></div>
+  <button type="button" class="ghost sm" id="mk-refresh" data-ex='{{ exchanges|tojson }}'>⟳ {{ _('pc_refresh_markets') }}</button></div></div>
+</div>
+<div id="mk-progress" class="mk-progress" hidden>
+  <div class="mk-head"><b id="mk-title"></b> <span class="small muted num" id="mk-count" dir="ltr"></span></div>
+  <div class="mk-bar"><i id="mk-fill"></i></div>
+  <ul class="mk-list" id="mk-list"></ul>
+</div>
+<script>(() => {
+  const btn = document.getElementById('mk-refresh'); if (!btn) return;
+  const names = {{ EXCHANGES|tojson }}, csrf = {{ csrf|tojson }};
+  const T = {title: {{ _('mk_title')|tojson }}, wait: {{ _('mk_wait')|tojson }}, ok: {{ _('mk_ok')|tojson }}, done: {{ _('mk_done')|tojson }},
+             reload: {{ _('mk_reload')|tojson }}};
+  const $ = id => document.getElementById(id);
+  const esc = t => { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; };
+  btn.addEventListener('click', async () => {
+    const list = JSON.parse(btn.dataset.ex || '[]'); if (!list.length) return;
+    btn.disabled = true; $('mk-progress').hidden = false; $('mk-title').textContent = T.title; $('mk-list').innerHTML = '';
+    let failed = 0;
+    for (let i = 0; i < list.length; i++) {  // one exchange at a time: gentle on their limits, and you see where it is
+      const ex = list[i], li = document.createElement('li');
+      li.innerHTML = '<span class="spin sm-spin"></span> <b>' + esc(names[ex] || ex) + '</b> <span class="muted">' + esc(T.wait) + '</span>';
+      $('mk-list').appendChild(li);
+      $('mk-count').textContent = (i + 1) + ' / ' + list.length;
+      $('mk-fill').style.width = (i / list.length * 100) + '%';
+      const fd = new FormData(); fd.append('csrf', csrf);
+      let j;
+      try { j = await (await fetch('/admin/pairs/refresh/' + ex, {method: 'POST', body: fd})).json(); }
+      catch (e) { j = {ok: false, error: String(e)}; }
+      if (!j.ok) failed++;
+      const detail = j.ok || j.spot || j.perps ? T.ok.replace('{p}', j.perps).replace('{s}', j.spot)
+          .replace('{q}', (j.fut_quotes || []).join(', ') || '—').replace('{sq}', (j.quotes || []).join(', ') || '—').replace('{t}', j.secs) : '';
+      li.innerHTML = (j.ok ? '<span class="pos">✔</span> ' : '<span class="neg">✖</span> ') + '<b>' + esc(names[ex] || ex) + '</b> ' +
+        '<span class="small muted">' + esc(detail) + '</span>' + (j.error ? ' <span class="small neg">' + esc(j.error) + '</span>' : '');
+    }
+    $('mk-fill').style.width = '100%';
+    $('mk-title').textContent = T.done.replace('{n}', list.length - failed).replace('{t}', list.length);
+    $('mk-count').textContent = T.reload;
+    setTimeout(() => location.reload(), failed ? 6000 : 2500);
+  });
+})();</script>
+</div>
 
 {# ---------------- filters (sticky) ---------------- #}
 <div class="card pc-filters" id="pc-filters">

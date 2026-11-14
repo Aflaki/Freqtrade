@@ -397,3 +397,14 @@ def test_form_per_pair_amounts_and_closed_pair(env):
             assert s.get(ExchangeAccount, acc_id).pairs == {"BTC/USDT": 25, "ETH/USDT": 7, "SSV/USDT": 10}
     finally:
         MARKETS["SSV/USDT:USDT"]["active"] = True
+
+
+def test_market_rules_refresh_one_exchange_at_a_time(env):
+    a, b = env
+    offer("BTC/USDT", a)
+    c, csrf = login("cat-mk-admin@x.com", admin=True)
+    page = c.get("/admin/pairs").text
+    assert 'id="mk-refresh"' in page and 'id="mk-progress"' in page
+    r = c.post("/admin/pairs/refresh/binance", data={"csrf": csrf}).json()
+    assert r["ok"] and r["futures"] >= 1 and "secs" in r
+    assert c.post("/admin/pairs/refresh/nope", data={"csrf": csrf}).status_code == 400

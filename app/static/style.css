@@ -312,3 +312,9 @@ tr.catrow.cat-off{display:none !important}
 /* menus over the page: solid (the theme's card colour can be translucent) */
 .navmenu .menu,.usermenu .menu,.langmenu .menu{background:linear-gradient(var(--card),var(--card)),var(--bg);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)}
 .dlg{background:linear-gradient(var(--card),var(--card)),var(--bg)}
+
+.mk-progress{margin-top:12px;border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;background:var(--brand-soft)}
+.mk-head{display:flex;justify-content:space-between;gap:10px;margin-bottom:8px}
+.mk-bar{height:8px;border-radius:99px;background:var(--line);overflow:hidden}.mk-bar i{display:block;height:100%;width:0;background:var(--brand);transition:width .3s}
+.mk-list{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:4px}
+.sm-spin{width:13px;height:13px;border-width:2px;display:inline-block;vertical-align:middle}
