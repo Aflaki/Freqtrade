@@ -37,7 +37,8 @@ async def exchange_side():
     ex = c.ex
     print("\n== exchange side")
     try:
-        print("  position mode (dualSidePosition = hedge mode):", await ex.fapiPrivateGetPositionSideDual())
+        if getattr(ex, "id", "") == "binanceusdm":
+            print("  position mode (dualSidePosition = hedge mode):", await ex.fapiPrivateGetPositionSideDual())
     except Exception as e:
         print("  position mode: ", type(e).__name__, str(e)[:200])
     ours = set()
@@ -45,7 +46,10 @@ async def exchange_side():
         ours = {o for o in s.scalars(select(Order.exchange_order_id)) if o}
     pos = {p["symbol"]: p for p in await ex.fetch_positions()}
     for pair in pairs:
-        sym = pair + ":USDT"
+        try:
+            sym = c.resolve(pair)  # this portfolio's own market (e.g. NIGHT/USDC:USDC on Hyperliquid)
+        except Exception:
+            sym = pair + ":USDT"
         p = pos.get(sym) or {}
         print(f"\n  {pair}: position now: {p.get('side')} {p.get('contracts')} entry={p.get('entryPrice')}")
         trades, orders_all = [], []

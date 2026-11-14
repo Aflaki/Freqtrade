@@ -414,3 +414,38 @@ def test_execution_quality_against_the_bot(eur):
             s.query(WebhookEvent).filter(WebhookEvent.id.in_(ids)).delete()
             s.query(BotTrade).filter_by(bot_id=bot_id).delete()
             s.commit()
+
+
+class FakeHLNoFill(FakeHL):
+    """Hyperliquid answers an IOC order that found no counterparty with an error: nothing was traded."""
+    async def create_order(self, symbol, type_, side, amount, price, params):
+        if params.get("reduceOnly"):
+            return {"id": None, "status": "rejected", "filled": None, "average": None,
+                    "info": {"error": "Order could not immediately match against any resting orders."}}
+        return await FakeHL.create_order(self, symbol, type_, side, amount, price, params)
+
+
+def test_hyperliquid_unfilled_exit_keeps_the_trade_open(eur, monkeypatch):
+    """Seen live: the bot exited NIGHT, the site marked it closed, but Hyperliquid had rejected the IOC order and
+    the position stayed open. An order with no fill is an error now; the record stays open."""
+    acc_id, bot_id, _ = eur
+    monkeypatch.setattr(exmod.ccxt, "hyperliquid", FakeHLNoFill)
+    FakeHL.fills_log = []
+    with SessionLocal() as s:
+        gs = get_global(s)
+        gs.allowed_exchanges = ["binance", "hyperliquid"]
+        acc = s.get(ExchangeAccount, acc_id)
+        acc.exchange, acc.trading_mode, acc.quote, acc.capital = "hyperliquid", "futures", "USDC", 900
+        acc.pairs, acc.pair_bot = {"BTC/USDT": 1.0}, {"BTC/USDT": bot_id}
+        s.commit()
+    fx.FakeExchange.positions = []
+
+    def sig(action, n, **kw):
+        return asyncio.run(dispatch(Signal(action=action, symbol="BTCUSDT", pair="BTC/USDT", ft_trade_id=n,
+                                           id=f"hlnf-{action}-{n}", **kw), None, bot_id))
+    assert [o.status for o in sig("short", 41, leverage=3)] == ["opened"]
+    out = sig("close_short", 41)
+    assert [o.status for o in out] == ["error"] and "not filled" in out[0].message, out
+    with SessionLocal() as s:
+        tr = s.query(Trade).filter_by(account_id=acc_id, pair="BTC/USDT").one()
+        assert tr.status == "open" and tr.closed_amount == 0

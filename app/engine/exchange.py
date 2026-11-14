@@ -395,6 +395,12 @@ class ExchangeClient:
         oid = str(order.get("id") or "")
         exid = getattr(self.ex, "id", "")
         sent_at = int(time.time() * 1000) - 60_000
+        if str(order.get("status") or "") in ("rejected", "canceled", "expired") and not float(order.get("filled") or 0):
+            # e.g. Hyperliquid: a market order is "fill now or never" (IOC) and comes back rejected when it can't
+            streams.unexpect(self.account_id, symbol)
+            info = order.get("info") or {}
+            why = info.get("error") if isinstance(info, dict) else None
+            raise ccxt.InvalidOrder(f"{exid} order not filled ({order.get('status')}): {why or info}"[:400])
         best = order  # the answer with the real fill (average price, filled amount) wins over later, poorer ones
         for i in range(6):  # poll until the real fill is visible
             if best.get("filled") and best.get("average") and (best.get("status") in ("closed", None)
@@ -424,6 +430,9 @@ class ExchangeClient:
             mine = await self.fills_of(symbol, oid, sent_at)
             if mine:
                 order = {**order, **mine}
+            elif not float(order.get("filled") or 0):  # no fill at all on the exchange: nothing happened
+                raise ccxt.InvalidOrder(f"{exid} order {oid or '?'} not filled: no fill on the exchange "
+                                        f"(status {order.get('status')})")
         filled = float(order.get("filled") or 0) or amount
         # a market order's "price" is only its slippage cap on some exchanges: never the fill price there
         cap_price = order.get("price") if exid not in PRICED_MARKET else None
