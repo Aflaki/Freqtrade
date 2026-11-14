@@ -287,3 +287,28 @@ form.is-busy table{opacity:.5;pointer-events:none}
 .xq-filters select{width:auto;min-width:200px}.xq-table td{white-space:nowrap}
 span.num[dir=ltr]{unicode-bidi:isolate;display:inline-block}
 tr.catrow.cat-off{display:none !important}
+
+/* header menus (grouped links) */
+.nav .links{overflow:visible}
+.navmenu{position:relative}
+.navmenu summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:6px 9px;border-radius:8px;color:var(--muted)}
+.navmenu summary::-webkit-details-marker{display:none}
+.navmenu summary:hover,.navmenu[open] summary{background:var(--brand-soft);color:var(--text)}
+.navmenu summary.on{background:var(--brand-soft);color:var(--text);font-weight:700}
+.navmenu .menu,.usermenu .menu{position:absolute;inset-inline-start:0;top:calc(100% + 6px);background:var(--card);border:1px solid var(--line);border-radius:12px;
+  box-shadow:0 12px 30px rgba(0,0,0,.25);padding:6px;min-width:200px;display:flex;flex-direction:column;gap:2px;z-index:20}
+.usermenu .menu{inset-inline-start:auto;inset-inline-end:0}
+.navmenu.wide .menu{min-width:240px;max-height:75vh;overflow:auto}
+.navmenu .menu a{padding:7px 10px;border-radius:8px;color:var(--text);gap:8px}
+.navmenu .menu a:hover,.navmenu .menu a.on{background:var(--brand-soft)}
+.navmenu .grp,.usermenu .grp{font-size:11px;color:var(--muted);padding:8px 10px 2px;text-transform:uppercase;letter-spacing:.04em}
+.usermenu .menu a{display:flex;gap:8px}
+@media (max-width:760px){.nav .links{overflow-x:auto;overflow-y:visible}.navmenu .menu{position:fixed;inset-inline:12px;top:110px;min-width:0}
+  .usermenu .lbl{display:none}}
+.adm-groups{display:flex;flex-wrap:wrap;gap:8px 18px;margin:6px 0 16px}
+.adm-group{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.adm-group .g{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.adm-group .pills{margin:0}
+/* menus over the page: solid (the theme's card colour can be translucent) */
+.navmenu .menu,.usermenu .menu,.langmenu .menu{background:linear-gradient(var(--card),var(--card)),var(--bg);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)}
+.dlg{background:linear-gradient(var(--card),var(--card)),var(--bg)}

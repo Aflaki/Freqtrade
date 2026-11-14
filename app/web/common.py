@@ -43,7 +43,20 @@ def _ex_icon(ex, size: int = 18):
     return Markup('<img class="cicon" src="/icon/ex/%s" width="%d" height="%d" alt="" loading="lazy">') % (str(ex or ""), size, size)
 
 
-templates.env.globals.update(coin=_coin_icon, exch=_ex_icon)
+def _static_versions() -> dict[str, str]:
+    """A short hash per static file: its URL changes whenever the file does, so browsers never keep an old copy."""
+    import hashlib
+    from pathlib import Path
+    out = {}
+    root = Path(__file__).resolve().parent.parent / "static"
+    for f in root.glob("*.*"):
+        if f.suffix in (".css", ".js"):
+            out[f.name] = hashlib.sha1(f.read_bytes()).hexdigest()[:10]
+    return out
+
+
+STATIC_V = _static_versions()
+templates.env.globals.update(coin=_coin_icon, exch=_ex_icon, sv=lambda name: STATIC_V.get(name, "1"))
 
 
 def _money(v, digits: int = 2) -> str:

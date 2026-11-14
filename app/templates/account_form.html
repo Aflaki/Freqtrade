@@ -145,7 +145,7 @@
 </table></div>
 <details class="card small" id="catoff" hidden><summary><b>🚫 {{ _('pc_off_title') }}</b> <span class="badge" id="catoff_n">0</span></summary>
 <p class="muted">{{ _('pc_off_help') }}</p>
-<div class="table-wrap"><table class="small no-grid"><thead><tr><th>{{ _('col_pair') }}</th><th>{{ _('pc_off_why') }}</th></tr></thead><tbody id="catoff_body"></tbody></table></div></details>
+<div class="table-wrap"><table class="small catoff grid-always"><thead><tr><th>{{ _('col_pair') }}</th><th>{{ _('pair_from_bot') }}</th><th>{{ _('col_leverage') }}</th><th>{{ _('pc_off_why') }}</th></tr></thead><tbody id="catoff_body"></tbody></table></div></details>
 <p class="small" id="balline"></p>
 {% else %}
 <div class="table-wrap"><table class="pairs">
@@ -275,8 +275,10 @@
       if(!listed) off.push([p, msg]);
     });
     const ob=$('#catoff_body'), oc=$('#catoff');
-    if(ob){ ob.innerHTML=''; off.forEach(([p,m])=>{ const tr=document.createElement('tr'), a=document.createElement('td'), b=document.createElement('td');
-        a.className='mono'; a.textContent=p; b.textContent=m||notListed.replace('{ex}',exName[exn]||exn); tr.append(a,b); ob.appendChild(tr); });
+    if(ob){ ob.innerHTML=''; off.forEach(([p,m])=>{ const tr=document.createElement('tr'), o=optOf(p);
+        const cells=[p, o?o.textContent.trim():'—', spot?'1x':plev(p)+'x', m||notListed.replace('{ex}',exName[exn]||exn)];
+        cells.forEach((v,i)=>{ const td=document.createElement('td'); if(!i) td.className='mono'; td.textContent=v; tr.appendChild(td); });
+        ob.appendChild(tr); });
       oc.hidden=!off.length; $('#catoff_n').textContent=off.length; }
     $$('.st').forEach(td=>{const p=td.dataset.p, cb=$(`.pc[data-p="${p}"]`); let s=0, on=sel.includes(p) && !(cb&&cb.dataset.blocked);
       if(on){ if(mode==='custom_amounts') s=val(p); else if(mode==='pair_weights') s=tw?cap*val(p)/tw:0;

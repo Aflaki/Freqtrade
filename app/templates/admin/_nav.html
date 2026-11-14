@@ -1,4 +1,8 @@
-{% from "_icons.html" import ic %}<div class="pills">
-{% for k, url, icon in [('servers','/admin/servers','pulse'),('bot','/admin/bot','bot'),('pairs','/admin/pairs','list'),('portfolios','/admin/portfolios','wallet'),('users','/admin','users'),('settings','/admin/settings','settings'),('security','/admin/security','shield'),('performance','/admin/performance','database'),('logs','/admin/logs','file'),('trades','/admin/trades','list')] %}
-<a href="{{ url }}" class="{{ 'on' if tab == k }}">{{ ic(icon) }}{{ _('adm_' ~ k) }}</a>{% endfor %}
+{% from "_icons.html" import ic %}<div class="adm-groups">
+{% for g, items in [('ng_ops', [('servers','/admin/servers','pulse'),('bot','/admin/bot','bot'),('pairs','/admin/pairs','list')]),
+                    ('ng_people', [('users','/admin','users'),('portfolios','/admin/portfolios','wallet')]),
+                    ('ng_reports', [('execution','/execution','target'),('performance','/admin/performance','database'),('trades','/admin/trades','list'),('logs','/admin/logs','file')]),
+                    ('ng_settings', [('settings','/admin/settings','settings'),('security','/admin/security','shield')])] %}
+<div class="adm-group"><span class="g">{{ _(g) }}</span><div class="pills">{% for k, url, icon in items %}
+<a href="{{ url }}" class="{{ 'on' if tab == k }}">{{ ic(icon) }}{{ _('nav_execution') if k == 'execution' else _('adm_' ~ k) }}</a>{% endfor %}</div></div>{% endfor %}
 </div>
