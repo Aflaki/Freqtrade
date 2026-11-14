@@ -9,7 +9,7 @@
     {% if market != 'all' %}<input type="hidden" name="market" value="{{ market }}">{% endif %}
     {% if period != 'all' %}<input type="hidden" name="days" value="{{ period }}">{% endif %}
     <label class="fb-scope" title="{{ _('fb_scope') }}">{{ ic('bot') }}
-      <select name="scope" onchange="this.form.submit()">
+      <select name="scope" onchange="this.form.requestSubmit ? this.form.requestSubmit() : this.form.submit()">
         {% if scopes %}
         <option value="all" {{ 'selected' if scope == 'all' }}>{{ all_label }}</option>
         {% for glabel, opts in scopes %}{% if opts %}<optgroup label="{{ glabel }}">{% for v, l in opts %}<option value="{{ v }}" {{ 'selected' if scope == v }}>{{ l }}</option>{% endfor %}</optgroup>{% endif %}{% endfor %}

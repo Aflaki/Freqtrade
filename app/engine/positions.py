@@ -33,14 +33,14 @@ def bot_pair(symbol: str, quote: str | None = None, stake: str = "USDT") -> str:
     base, q = pair.split("/", 1)
     if q != quote.upper():
         return pair  # not this portfolio's coin: shown as it is
-    from .markets import wanted_bases
-    for b in wanted_bases():
-        if b == base:
-            return f"{b}/{stake}"
-    for b in wanted_bases():
-        from .markets import base_candidates
-        if base in base_candidates(b):
-            return f"{b}/{stake}"
+    from .markets import base_candidates, wanted_bases
+    for fresh in (False, True):  # a coin added within the last minute isn't in the cached list yet
+        known = wanted_bases(fresh)
+        if base in known:
+            return f"{base}/{stake}"
+        for b in known:
+            if base in base_candidates(b):
+                return f"{b}/{stake}"
     return f"{base}/{stake}"
 
 

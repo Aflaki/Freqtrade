@@ -17,7 +17,7 @@
       if (b && n !== undefined) b.textContent = n;
     } catch (e) {}
   };
-  setInterval(load, 15000);
+  (window.zoneTimer || setInterval)(load, 15000);
   document.addEventListener('visibilitychange', load);
 })();
 </script>

@@ -360,3 +360,6 @@ tr.catrow.cat-off{display:none !important}
 .dash-scope-h a{margin-inline-start:auto;font-weight:400}
 .dash-scope{margin:4px 0 14px;padding:12px 14px 2px;border:1px solid var(--brand);border-radius:var(--radius);background:var(--brand-soft)}
 .dash-scope .grid{margin-bottom:8px}
+
+#softzone{transition:opacity .15s}#softzone.soft-loading{opacity:.55;pointer-events:none}
+.landing-after{margin-top:28px}.hero-after{margin-top:28px}

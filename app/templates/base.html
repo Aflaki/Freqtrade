@@ -91,51 +91,60 @@ try { const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
 // sticky offsets follow the real header height
 const setNavH = () => { const n = document.querySelector('.nav'); if (n) document.documentElement.style.setProperty('--navh', n.offsetHeight + 'px'); };
 setNavH(); window.addEventListener('resize', setNavH);
-// tabs: remember the tab in the URL hash and keep it when filters change
-(() => {
-  const tabs = [...document.querySelectorAll('.tabs .tab')], panes = [...document.querySelectorAll('.tabpane')];
-  if (!tabs.length) { panes.forEach(p => p.classList.add('on')); return; }
-  const show = (key, scroll) => {
-    if (!tabs.some(t => t.dataset.tab === key)) key = tabs[0].dataset.tab;
-    tabs.forEach(t => t.classList.toggle('on', t.dataset.tab === key));
-    panes.forEach(p => p.classList.toggle('on', p.dataset.pane === key));
-    history.replaceState(null, '', '#' + key);
-    document.querySelectorAll('.filterbar a, .tabpane tr.rowlink a').forEach(a => { if (a.origin === location.origin) a.hash = key; });
-    const f = document.querySelector('.filterbar form'); if (f) f.action = f.action.split('#')[0] + '#' + key;
-    if (scroll) { const fb = document.getElementById('fb'); window.scrollTo({ top: fb.offsetTop - 60, behavior: 'smooth' }); }
-  };
-  tabs.forEach(t => t.addEventListener('click', () => show(t.dataset.tab, true)));
-  show(location.hash.slice(1), false);
-  window.addEventListener('hashchange', () => show(location.hash.slice(1), false));
-})();
-// when scrolled past the filters, keep only the applied-filter chips and tabs visible
-(() => {
-  const fb = document.getElementById('fb'), anchor = document.getElementById('fb-anchor'); if (!fb || !anchor) return;
-  // the page height must not change when the bar shrinks: near the bottom of a page the browser would move the
-  // scroll position, the bar would grow back and flicker in a loop. A spacer below takes the freed height.
-  const spacer = document.createElement('div'); spacer.className = 'fb-spacer'; fb.after(spacer);
-  let busy = false;
-  const upd = () => {
-    if (busy) return;
-    if (!fb.classList.contains('compact')) spacer.style.height = '0px';  // "change filters" expanded it
-    const top = anchor.getBoundingClientRect().top, on = fb.classList.contains('compact');
-    const want = on ? top < -10 : top < -40;  // hysteresis: no toggling back and forth at the edge
-    if (want === on) return;
-    busy = true;
-    const before = fb.offsetHeight + spacer.offsetHeight;
-    fb.classList.toggle('compact', want);
-    spacer.style.height = want ? Math.max(0, before - fb.offsetHeight) + 'px' : '0px';
-    requestAnimationFrame(() => { busy = false; });
-  };
-  window.addEventListener('scroll', upd, { passive: true }); upd();
-})();
-document.querySelectorAll('tr.rowlink').forEach(r => r.addEventListener('click', e => {
-  if (e.target.closest('a')) return; location.href = r.dataset.href + (location.hash || '');
-}));
+// tabs, the compact filter bar and row links; run again when the filters swap the content in place (softnav.js)
+window.initPerfUI = function () {
+  (() => {
+    const tabs = [...document.querySelectorAll('.tabs .tab')], panes = [...document.querySelectorAll('.tabpane')];
+    if (!tabs.length) { panes.forEach(p => p.classList.add('on')); return; }
+    const show = (key, scroll) => {
+      if (!tabs.some(t => t.dataset.tab === key)) key = tabs[0].dataset.tab;
+      tabs.forEach(t => t.classList.toggle('on', t.dataset.tab === key));
+      panes.forEach(p => p.classList.toggle('on', p.dataset.pane === key));
+      history.replaceState(history.state, '', '#' + key);
+      document.querySelectorAll('.filterbar a, .tabpane tr.rowlink a').forEach(a => { if (a.origin === location.origin) a.hash = key; });
+      const f = document.querySelector('.filterbar form'); if (f) f.action = f.action.split('#')[0] + '#' + key;
+      if (scroll) { const fb = document.getElementById('fb'); window.scrollTo({ top: fb.offsetTop - 60, behavior: 'smooth' }); }
+    };
+    tabs.forEach(t => t.addEventListener('click', () => show(t.dataset.tab, true)));
+    show(location.hash.slice(1), false);
+    if (window.__tabHash) window.removeEventListener('hashchange', window.__tabHash);
+    window.__tabHash = () => show(location.hash.slice(1), false);
+    window.addEventListener('hashchange', window.__tabHash);
+  })();
+  // when scrolled past the filters, keep only the applied-filter chips and tabs visible
+  (() => {
+    if (window.__fbScroll) window.removeEventListener('scroll', window.__fbScroll);
+    const fb = document.getElementById('fb'), anchor = document.getElementById('fb-anchor'); if (!fb || !anchor) return;
+    // the page height must not change when the bar shrinks: near the bottom of a page the browser would move the
+    // scroll position, the bar would grow back and flicker in a loop. A spacer below takes the freed height.
+    let spacer = fb.nextElementSibling;
+    if (!spacer || !spacer.classList.contains('fb-spacer')) { spacer = document.createElement('div'); spacer.className = 'fb-spacer'; fb.after(spacer); }
+    let busy = false;
+    const upd = () => {
+      if (busy) return;
+      if (!fb.classList.contains('compact')) spacer.style.height = '0px';  // "change filters" expanded it
+      const top = anchor.getBoundingClientRect().top, on = fb.classList.contains('compact');
+      const want = on ? top < -10 : top < -40;  // hysteresis: no toggling back and forth at the edge
+      if (want === on) return;
+      busy = true;
+      const before = fb.offsetHeight + spacer.offsetHeight;
+      fb.classList.toggle('compact', want);
+      spacer.style.height = want ? Math.max(0, before - fb.offsetHeight) + 'px' : '0px';
+      requestAnimationFrame(() => { busy = false; });
+    };
+    window.__fbScroll = upd;
+    window.addEventListener('scroll', upd, { passive: true }); upd();
+  })();
+  document.querySelectorAll('tr.rowlink').forEach(r => r.addEventListener('click', e => {
+    if (e.target.closest('a')) return; location.href = r.dataset.href + (location.hash || '');
+  }));
+};
+window.initPerfUI();
 </script>
 <script id="grid-i18n" type="application/json">{{ {'filter': _('grid_filter'), 'cfilters': _('grid_col_filters'), 'columns': _('grid_columns'), 'show_all': _('grid_show_all'), 'rows': _('grid_rows'), 'filter_help': _('grid_filter_help')}|tojson }}</script>
 <script src="/static/grid.js?v={{ sv('grid.js') }}" defer></script>
 <script src="/static/dialog.js?v={{ sv('dialog.js') }}" defer></script>
 <script>document.addEventListener('click', e => { document.querySelectorAll('.nav details[open]').forEach(d => { if (!d.contains(e.target)) d.open = false; }); });</script>
 <script src="/static/collapse.js?v={{ sv('collapse.js') }}" defer></script>
+<script src="/static/softnav.js?v={{ sv('softnav.js') }}" defer></script>
 </body></html>

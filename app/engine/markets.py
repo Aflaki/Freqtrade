@@ -38,11 +38,11 @@ def wanted_pairs() -> set[str]:
 _wb: tuple[float, set[str]] = (0.0, set())
 
 
-def wanted_bases() -> set[str]:
-    """The bots' coin names (cached for a minute)."""
+def wanted_bases(fresh: bool = False) -> set[str]:
+    """The bots' coin names (cached for a minute; fresh=True reads them again)."""
     import time
     global _wb
-    if time.monotonic() - _wb[0] > 60:
+    if fresh or time.monotonic() - _wb[0] > 60:
         _wb = (time.monotonic(), {p.split("/")[0].upper() for p in wanted_pairs()})
     return _wb[1]
 

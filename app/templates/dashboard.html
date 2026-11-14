@@ -30,6 +30,7 @@
   <div class="card stat"><div class="k">{{ _('st_subscription') }}</div><div class="v small">{{ user.subscription_until|lt('%Y-%m-%d') if user.subscription_until else _('unlimited') }}</div></div>
 </div>
 
+<div id="softzone">
 {# ------------------------------------------------------------------ the chosen portfolio / bot on its own #}
 {% if sc %}
 <div class="dash-scope" id="scope-box" data-accs='{{ sc.acc_ids|tojson }}' data-trades='{{ sc.trade_ids|tojson }}' data-one="{{ 1 if sc.one else 0 }}">
@@ -118,8 +119,8 @@
       document.getElementById('s-wallet').textContent=fmt(sw,2); document.getElementById('s-equity').textContent=fmt(se,2); }
   }
   window.dashTick = tick;
-  if (document.getElementById('upnl-card') || document.getElementById('s-upnl')) { tick(); setInterval(()=>{ if(!document.hidden) tick(); }, 15000); }
-  if (document.getElementById('wallet-card') || document.getElementById('s-wallet')) { bal(); setInterval(()=>{ if(!document.hidden) bal(); }, 15000); }
+  if (document.getElementById('upnl-card') || document.getElementById('s-upnl')) { tick(); (window.zoneTimer || setInterval)(()=>{ if(!document.hidden) tick(); }, 15000); }
+  if (document.getElementById('wallet-card') || document.getElementById('s-wallet')) { bal(); (window.zoneTimer || setInterval)(()=>{ if(!document.hidden) bal(); }, 15000); }
 })();
 </script>
 
@@ -223,4 +224,5 @@
 </tbody></table></div><p class="small muted">{{ _('my_bot_hint') }}</p></div>{% endif %}
 </section>
 {% endif %}
+</div>
 {% endblock %}

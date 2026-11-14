@@ -1,7 +1,24 @@
 {% extends "base.html" %}{% from "_filterbar.html" import filterbar with context %}{% block content %}
 {% set h = (site.hero or {}).get(lang) or {} %}
+{# 1) the bots' performance (filters swap this part in place: softnav.js) #}
+<div id="softzone">
+<h1 id="performance" style="margin-top:0">{{ _('perf_title') }}</h1>
+<p class="muted small" style="margin-top:-8px">{{ _('perf_intro') }}</p>
+{% if show %}
+{{ filterbar('/', tabs=[('overview', _('tab_overview'), none), ('live', _('tab_live'), live.count if live else 0), ('pairs', _('tab_pairs'), pairs|length),
+                         ('trades', _('nav_trades'), data.trades if data else 0), ('bots', _('tab_bots'), peers|length)],
+             count=(data.trades if data else 0)) }}
+{% include "_perf.html" %}
+{% else %}<div class="card muted">{{ _('perf_hidden') }}</div>{% endif %}
+</div>
+{# 2) the market #}
+<div class="landing-after">
+{% include "_market.html" %}
+{% include "_mcharts.html" %}
+</div>
+{# 3) the site itself, for visitors #}
 {% if not user %}
-<section class="hero">
+<section class="hero hero-after">
   <h1>{{ h.title or _('hero_title') }}</h1>
   <p>{{ h.subtitle or _('hero_subtitle') }}</p>
   <div class="cta"><a class="btn" href="/register">{{ _('cta_start') }}</a><a class="btn ghost" href="#performance">{{ _('cta_see_perf') }}</a></div>
@@ -12,14 +29,4 @@
   <div class="card"><h2>🧺 {{ _('plan_basket_title') }}</h2><p class="muted">{{ _('plan_basket_desc') }}</p></div>
 </div>
 {% endif %}
-{% include "_market.html" %}
-{% include "_mcharts.html" %}
-<h1 id="performance" style="margin-top:{{ '24px' if not user else '0' }}">{{ _('perf_title') }}</h1>
-<p class="muted small" style="margin-top:-8px">{{ _('perf_intro') }}</p>
-{% if show %}
-{{ filterbar('/', tabs=[('overview', _('tab_overview'), none), ('live', _('tab_live'), live.count if live else 0), ('pairs', _('tab_pairs'), pairs|length),
-                         ('trades', _('nav_trades'), data.trades if data else 0), ('bots', _('tab_bots'), peers|length)],
-             count=(data.trades if data else 0)) }}
-{% include "_perf.html" %}
-{% else %}<div class="card muted">{{ _('perf_hidden') }}</div>{% endif %}
 {% endblock %}
