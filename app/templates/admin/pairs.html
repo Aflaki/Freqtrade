@@ -1,20 +1,27 @@
 {% extends "base.html" %}{% block title %}{{ _('adm_pairs') }} · {{ site.site_name }}{% endblock %}{% block content %}
 <h1>{{ _('nav_admin') }}</h1>{% include "admin/_nav.html" %}
 
-<div class="card"><h2>🧩 {{ _('pc_title') }}</h2>
-<p class="muted small">{{ _('pc_intro2') }}</p>
-<div class="kpis" style="margin-top:10px">
-  <div class="kpi"><div class="k">{{ _('pc_pairs') }}</div><div class="v"><span class="num">{{ rows|length }}</span></div></div>
-  <div class="kpi"><div class="k">{{ _('pc_offered') }}</div><div class="v"><span class="num" id="n-offered">{{ n_offered }}</span></div></div>
-  <div class="kpi"><div class="k">{{ _('pc_bots') }}</div><div class="v"><span class="num">{{ bots|length }}</span></div></div>
-  <div class="kpi"><div class="k">{{ _('pc_market_data') }}</div><div class="small">
-  {% for e in exchanges %}{% set c = cache.get(e) or {} %}<div>{{ exch(e, 14) }}{{ EXCHANGES.get(e, e) }}: {% if c.at %}<span class="num">{{ c.at[5:16].replace('T', ' ') }}</span>{% else %}—{% endif %}{% if c.error %} <span class="badge err" title="{{ c.error }}">!</span>{% endif %}</div>{% endfor %}
-  <button type="button" class="ghost sm" id="mk-refresh" data-ex='{{ exchanges|tojson }}'>⟳ {{ _('pc_refresh_markets') }}</button></div></div>
-</div>
-<div id="mk-progress" class="mk-progress" hidden>
-  <div class="mk-head"><b id="mk-title"></b> <span class="small muted num" id="mk-count" dir="ltr"></span></div>
-  <div class="mk-bar"><i id="mk-fill"></i></div>
-  <ul class="mk-list" id="mk-list"></ul>
+{# ---------------- header: what this is, numbers on one line, exchange rules ---------------- #}
+<div class="card pc-head">
+  <div class="pc-head-top">
+    <div><h2 style="margin:0">🧩 {{ _('pc_title') }}</h2>
+      <p class="muted small" style="margin:4px 0 0">{{ _('pc_intro3') }}</p></div>
+    <div class="pc-stats">
+      <span><b class="num">{{ rows|length }}</b> {{ _('pc_pairs') }}</span>
+      <span><b class="num pos" id="n-offered">{{ n_offered }}</b> {{ _('pc_offered') }}</span>
+      <span><b class="num">{{ bots|length }}</b> {{ _('pc_bots') }}</span>
+    </div>
+  </div>
+  <div class="pc-markets small">
+    <span class="muted">{{ _('pc_market_data') }}:</span>
+    {% for e in exchanges %}{% set c = cache.get(e) or {} %}<span class="chip plain">{{ exch(e, 13) }}{{ EXCHANGES.get(e, e) }} <span class="muted num">{{ c.at[5:16].replace('T', ' ') if c.at else '—' }}</span>{% if c.error %} <span class="badge err" title="{{ c.error }}">!</span>{% endif %}</span>{% endfor %}
+    <button type="button" class="ghost sm" id="mk-refresh" data-ex='{{ exchanges|tojson }}'>⟳ {{ _('pc_refresh_markets') }}</button>
+  </div>
+  <div id="mk-progress" class="mk-progress" hidden>
+    <div class="mk-head"><b id="mk-title"></b> <span class="small muted num" id="mk-count" dir="ltr"></span></div>
+    <div class="mk-bar"><i id="mk-fill"></i></div>
+    <ul class="mk-list" id="mk-list"></ul>
+  </div>
 </div>
 <script>(() => {
   const btn = document.getElementById('mk-refresh'); if (!btn) return;
@@ -49,123 +56,209 @@
     setTimeout(() => location.reload(), failed ? 6000 : 2500);
   });
 })();</script>
-</div>
 
-{# ---------------- filters (sticky) ---------------- #}
-<div class="card pc-filters" id="pc-filters">
-  <div class="seg">{% for p in periods %}<a href="?days={{ p }}" class="{{ 'on' if p == period }}">{{ _('period_' ~ p) }}</a>{% endfor %}</div>
-  <input type="search" id="f-q" placeholder="{{ _('pc_search') }}">
+{# ---------------- one toolbar: tabs, search, filters ---------------- #}
+<div class="card pc-toolbar" id="pc-filters">
+  <div class="seg pc-tabs" id="f-tabs">
+    <a data-s="" class="on">{{ _('pc_tab_all') }} <span class="num" id="t-all"></span></a>
+    <a data-s="on">{{ _('pc_tab_on') }} <span class="num" id="t-on"></span></a>
+    <a data-s="off">{{ _('pc_tab_off') }} <span class="num" id="t-off"></span></a>
+    <a data-s="mand">🔒 <span class="num" id="t-mand"></span></a>
+    {% if exchanges %}<a data-s="noex" title="{{ _('pc_show_noex') }}">✗ {{ _('pc_tab_noex') }} <span class="num" id="t-noex"></span></a>{% endif %}
+  </div>
+  <input type="search" id="f-q" placeholder="🔎 {{ _('pc_search') }}">
   <select id="f-group"><option value="">{{ _('pc_all_groups') }}</option>{% for g in groups %}<option>{{ g }}</option>{% endfor %}<option value="-">{{ _('ungrouped') }}</option></select>
   <select id="f-bot"><option value="">{{ _('pc_all_bots') }}</option>{% for b in bots %}<option value="{{ b.id }}">{{ b.name }}</option>{% endfor %}</select>
-  <select id="f-state"><option value="">{{ _('pc_show_all') }}</option><option value="on">{{ _('pc_show_on') }}</option><option value="off">{{ _('pc_show_off') }}</option>
-    <option value="mand">{{ _('pc_show_mand') }}</option><option value="def">{{ _('pc_show_def') }}</option><option value="noex">{{ _('pc_show_noex') }}</option></select>
-  <label class="check inline-check"><input type="checkbox" id="f-profit"> <span>{{ _('pc_only_profit') }}</span></label>
-  <label class="inline-check small">{{ _('pc_min_trades') }} <input type="number" id="f-mint" min="0" value="0" style="width:64px"></label>
-  <span class="small muted"><b id="n-shown">0</b> {{ _('pc_rows_shown') }}</span>
+  <div class="seg">{% for p in periods %}<a href="?days={{ p }}" class="{{ 'on' if p == period }}">{{ _('period_' ~ p) }}</a>{% endfor %}</div>
+  <details class="pc-more"><summary class="btn ghost sm">⚙ {{ _('pc_more_filters') }}</summary><div class="pc-more-in">
+    <label class="check"><input type="checkbox" id="f-profit"> {{ _('pc_only_profit') }}</label>
+    <label class="small">{{ _('pc_min_trades') }} <input type="number" id="f-mint" min="0" value="0" style="width:70px"></label>
+    <button type="button" class="ghost sm" id="x-all">⊞ {{ _('pc_expand_all') }}</button>
+    <button type="button" class="ghost sm" id="x-none">⊟ {{ _('pc_collapse_all') }}</button>
+  </div></details>
+  <span class="small muted pc-shown"><b id="n-shown" class="num">0</b> {{ _('pc_pairs_shown') }}</span>
 </div>
 
-{# ---------------- bulk actions on the selected rows ---------------- #}
-<div class="card pc-bulkbar" id="pc-bulk" data-csrf="{{ csrf }}">
-  <b><span id="n-sel">0</span> {{ _('pc_selected') }}</b>
+{# ---------------- one row per pair; its bots underneath ---------------- #}
+<div class="card pc-card" style="padding:0">
+<table class="small no-grid pc-main" id="pc-table">
+<thead><tr>
+<th class="pc-c-sel"><input type="checkbox" id="sel-all" title="{{ _('pc_select_visible') }}"></th>
+<th>{{ _('col_pair') }}</th><th>{{ _('pc_state') }}</th><th>{{ _('pc_default') }}</th><th>{{ _('pc_best') }}</th>
+<th class="pc-c-n">{{ _('perf_trades') }}</th><th class="pc-c-n">{{ _('pc_lev') }}</th><th class="pc-c-n">{{ _('pc_min_cap') }}</th>
+{% if exchanges %}<th>{{ _('pc_exchanges') }}</th>{% endif %}<th></th>
+</tr></thead>
+{% for r in rows %}
+{% set offered = r.cells|selectattr('o')|selectattr('o.enabled')|list %}
+{% set dflt = offered|selectattr('o.is_default')|first %}
+{% set best = r.cells|selectattr('st')|first %}
+{% set levs = offered|map(attribute='o.leverage')|select|unique|sort|list %}
+{% set mins = offered|map(attribute='o.min_capital')|select|unique|sort|list %}
+{% set trades = r.cells|selectattr('st')|map(attribute='st.trades')|sum %}
+<tbody class="pc-pair-grp" data-pair="{{ r.pair }}" data-on="{{ 1 if offered else 0 }}" data-mand="{{ 1 if r.mandatory else 0 }}"
+ data-noex="{{ 1 if exchanges and not (r.ex.values()|select|list) else 0 }}" data-bots="{{ r.cells|map(attribute='bot.id')|join(',') }}"
+ data-groups="{{ r.cells|map(attribute='group')|join(',') or '-' }}" data-best="{{ best.st.profit_abs if best else 0 }}" data-trades="{{ trades }}">
+<tr class="pc-prow">
+<td class="pc-c-sel"><input type="checkbox" class="psel" title="{{ _('pc_select_pair') }}"></td>
+<td class="mono pc-pname"><button type="button" class="pc-tog" aria-expanded="false">▸</button> {{ coin(r.pair) }}<b>{{ r.pair }}</b>{% if r.legacy %} <span class="badge warn" title="{{ _('pc_legacy_help') }}">{{ _('pc_legacy') }}</span>{% endif %}</td>
+<td class="pc-state">{% if offered %}<span class="badge ok">✔ {{ _('pc_offered_by', n=offered|length, t=r.cells|length) }}</span>{% else %}<span class="badge">{{ _('pc_not_offered') }}</span>{% endif %}
+  {% if r.mandatory %}<span class="badge warn" title="{{ _('pc_mandatory') }}">🔒</span>{% endif %}</td>
+<td class="pc-dflt">{{ dflt.bot.name if dflt else '—' }}</td>
+<td>{% if best %}<b>{{ best.bot.name }}</b> <span class="{{ 'pos' if best.st.profit_abs >= 0 else 'neg' }} num">{{ '%+.2f'|format(best.st.profit_abs) }}</span> <span class="muted">· {{ '%.0f'|format(best.st.win_rate) }}%</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+<td class="pc-c-n tnum">{{ trades }}</td>
+<td class="pc-c-n tnum">{{ (levs|join('/') ~ 'x') if levs else _('pc_from_bot') }}</td>
+<td class="pc-c-n tnum">{{ mins|map('round', 0)|map('int')|join('/') if mins else '—' }}</td>
+{% if exchanges %}<td class="pc-exs">{% for e in exchanges %}{% set x = r.ex[e] %}<span class="pc-x {{ 'u' if x and x.unknown else 'y' if x else 'n' }}" title="{{ EXCHANGES.get(e, e) }}{% if x and not x.unknown and x.min_order %} · min {{ '%g'|format(x.min_order) }}${% elif not x %} · {{ _('pc_not_listed') }}{% endif %}">{{ exch(e, 15) }}</span>{% endfor %}</td>{% endif %}
+<td class="pc-quick">{% if offered %}<button type="button" class="ghost sm" data-quick="withdraw" title="{{ _('pc_withdraw') }}">✗</button>{% elif best %}<button type="button" class="sm" data-quick="offer" data-bot="{{ best.bot.id }}" title="{{ _('pc_offer_best') }}">✔ {{ best.bot.name }}</button>{% endif %}</td>
+</tr>
+<tr class="pc-detail" hidden><td colspan="{{ 10 if exchanges else 9 }}">
+<table class="small no-grid pc-sub"><thead><tr>
+<th></th><th>{{ _('col_bot') }}</th><th>{{ _('pc_offer') }}</th><th title="{{ _('pc_default_help') }}">{{ _('pc_default') }}</th>
+<th>{{ _('perf_trades') }}</th><th>{{ _('perf_win_rate') }}</th><th>{{ _('perf_avg') }}</th><th>{{ _('perf_total_abs') }}</th><th>{{ _('perf_max_dd') }}</th>
+<th title="{{ _('pc_lev_help') }}">{{ _('pc_lev') }}</th><th title="{{ _('pc_min_cap_help') }}">{{ _('pc_min_cap') }}</th></tr></thead><tbody>
+{% for c in r.cells %}{% set o = c.o %}{% set st = c.st %}
+<tr class="pc-brow {{ '' if c.live else 'pc-stale' }}" data-pair="{{ r.pair }}" data-bot="{{ c.bot.id }}" data-group="{{ c.group or '-' }}" data-on="{{ 1 if o and o.enabled else 0 }}">
+<td><input type="checkbox" class="rsel"></td>
+<td><b>{{ c.bot.name }}</b>{% if c.group %} <span class="muted">· {{ c.group }}</span>{% endif %}{% if not c.live %} <span class="muted small">({{ _('pc_not_live') }})</span>{% endif %}</td>
+<td><label class="pc-switch"><input type="checkbox" data-field="enabled" {{ 'checked' if o and o.enabled }}><i></i></label></td>
+<td><input type="radio" name="def-{{ r.pair }}" data-field="is_default" {{ 'checked' if o and o.is_default }}></td>
+{% if st %}<td class="tnum">{{ st.trades }}</td><td class="tnum">{{ '%.0f'|format(st.win_rate) }}%</td>
+<td class="tnum {{ 'pos' if st.avg >= 0 else 'neg' }}">{{ '%+.2f'|format(st.avg) }}%</td>
+<td class="tnum {{ 'pos' if st.profit_abs >= 0 else 'neg' }}">{{ '%+.2f'|format(st.profit_abs) }}</td>
+<td class="tnum neg">{{ '%.1f'|format(st.max_dd_abs) }}</td>
+{% else %}<td class="muted" colspan="5">{{ _('pc_no_trades') }}</td>{% endif %}
+<td><input class="ltr pc-num" type="number" min="1" max="125" step="1" data-field="leverage" value="{{ o.leverage if o and o.leverage else '' }}" placeholder="{{ '%.0f'|format(st.avg_lev) ~ 'x' if st else '—' }}"></td>
+<td><input class="ltr pc-num" type="number" min="0" step="any" data-field="min_capital" value="{{ o.min_capital if o and o.min_capital else '' }}" placeholder="—"></td>
+</tr>{% endfor %}
+</tbody></table>
+<div class="pc-detail-foot small">
+  <label class="check inline"><input type="checkbox" data-pairfield="mandatory" {{ 'checked' if r.mandatory }}> 🔒 {{ _('pc_f_mandatory') }}</label>
+  {% if exchanges %}<span class="muted">· {% for e in exchanges %}{% set x = r.ex[e] %}{{ EXCHANGES.get(e, e) }}: {% if x and x.unknown %}?{% elif x %}{% if x.min_order %}≥{{ '%g'|format(x.min_order) }}${% else %}✓{% endif %}{% else %}✗{% endif %}{{ ' · ' if not loop.last }}{% endfor %}</span>{% endif %}
+</div></td></tr>
+</tbody>
+{% endfor %}
+</table>
+{% if not rows %}<div class="muted" style="padding:16px">{{ _('pc_empty') }}</div>{% endif %}
+</div>
+<p class="small muted">{{ _('pc_footer') }}</p>
+
+{# ---------------- bulk bar: only when something is selected ---------------- #}
+<div class="pc-bulkdock" id="pc-bulk" data-csrf="{{ csrf }}" hidden>
+  <b><span id="n-sel" class="num">0</span> {{ _('pc_selected_rows') }}</b>
   <button type="button" class="sm" data-act="offer">✔ {{ _('pc_offer') }}</button>
   <button type="button" class="ghost sm" data-act="withdraw">✗ {{ _('pc_withdraw') }}</button>
   <button type="button" class="ghost sm" data-act="default">★ {{ _('pc_default') }}</button>
-  <button type="button" class="ghost sm" data-act="mandatory">🔒 {{ _('pc_mandatory') }}</button>
-  <button type="button" class="ghost sm" data-act="optional">🔓 {{ _('pc_optional') }}</button>
-  <span class="inline-row"><input type="number" id="b-lev" min="1" max="125" placeholder="{{ _('pc_lev') }}" style="width:110px"><button type="button" class="ghost sm" data-act="leverage">{{ _('pc_apply') }}</button></span>
-  <span class="inline-row"><input type="number" id="b-min" min="0" step="any" placeholder="{{ _('pc_min_cap') }}" style="width:120px"><button type="button" class="ghost sm" data-act="min_capital">{{ _('pc_apply') }}</button></span>
-  <span class="small muted">{{ _('pc_bulk_help') }}</span>
+  <button type="button" class="ghost sm" data-act="mandatory">🔒</button>
+  <button type="button" class="ghost sm" data-act="optional">🔓</button>
+  <span class="inline-row"><input type="number" id="b-lev" min="1" max="125" placeholder="{{ _('pc_lev') }}"><button type="button" class="ghost sm" data-act="leverage">{{ _('pc_apply') }}</button></span>
+  <span class="inline-row"><input type="number" id="b-min" min="0" step="any" placeholder="{{ _('pc_min_cap') }}"><button type="button" class="ghost sm" data-act="min_capital">{{ _('pc_apply') }}</button></span>
+  <button type="button" class="ghost sm" id="sel-clear">✕</button>
 </div>
-
-<div class="table-wrap pc-tablewrap"><table class="small sortable pc-flat" id="pc-table">
-<thead><tr>
-<th><input type="checkbox" id="sel-all" title="{{ _('pc_select_visible') }}"></th>
-<th data-k="s">{{ _('col_pair') }}</th><th data-k="s">{{ _('col_bot') }}</th>
-<th data-k="n">{{ _('pc_offer') }}</th><th data-k="n" title="{{ _('pc_default_help') }}">{{ _('pc_default') }}</th><th data-k="n">{{ _('pc_mandatory') }}</th>
-<th data-k="n">{{ _('perf_trades') }}</th><th data-k="n">{{ _('perf_win_rate') }}</th><th data-k="n">{{ _('perf_avg') }}</th><th data-k="n">{{ _('perf_total_abs') }}</th><th data-k="n">{{ _('perf_max_dd') }}</th>
-<th data-k="n" title="{{ _('pc_lev_help') }}">{{ _('pc_lev') }}</th><th data-k="n" title="{{ _('pc_min_cap_help') }}">{{ _('pc_min_cap') }}</th>
-<th>{{ _('pc_exchanges') }}</th>
-</tr></thead><tbody>
-{% for r in rows %}{% for c in r.cells %}{% set o = c.o %}{% set st = c.st %}
-<tr data-pair="{{ r.pair }}" data-bot="{{ c.bot.id }}" data-group="{{ c.group or '-' }}" data-on="{{ 1 if o and o.enabled else 0 }}"
- data-def="{{ 1 if o and o.is_default else 0 }}" data-mand="{{ 1 if r.mandatory else 0 }}" data-trades="{{ st.trades if st else 0 }}"
- data-profit="{{ st.profit_abs if st else 0 }}" data-noex="{{ 1 if exchanges and not (r.ex.values()|select|list) else 0 }}" class="{{ '' if c.live else 'pc-stale' }}">
-<td><input type="checkbox" class="rsel"></td>
-<td class="mono" data-v="{{ r.pair }}">{{ coin(r.pair) }}{{ r.pair }}</td>
-<td data-v="{{ c.bot.name }}"><b>{{ c.bot.name }}</b>{% if c.group %} <span class="muted">· {{ c.group }}</span>{% endif %}{% if not c.live %}<div class="muted">{{ _('pc_not_live') }}</div>{% endif %}</td>
-<td data-v="{{ 1 if o and o.enabled else 0 }}"><input type="checkbox" data-field="enabled" {{ 'checked' if o and o.enabled }}></td>
-<td data-v="{{ 1 if o and o.is_default else 0 }}"><input type="radio" name="def-{{ r.pair }}" data-field="is_default" {{ 'checked' if o and o.is_default }}></td>
-<td data-v="{{ 1 if r.mandatory else 0 }}">{{ '🔒' if r.mandatory else '' }}</td>
-{% if st %}<td class="tnum" data-v="{{ st.trades }}">{{ st.trades }}</td><td class="tnum" data-v="{{ st.win_rate }}">{{ '%.0f'|format(st.win_rate) }}%</td>
-<td class="tnum {{ 'pos' if st.avg >= 0 else 'neg' }}" data-v="{{ st.avg }}">{{ '%+.2f'|format(st.avg) }}%</td>
-<td class="tnum {{ 'pos' if st.profit_abs >= 0 else 'neg' }}" data-v="{{ st.profit_abs }}">{{ '%+.2f'|format(st.profit_abs) }}</td>
-<td class="tnum neg" data-v="{{ st.max_dd_abs }}">{{ '%.1f'|format(st.max_dd_abs) }}</td>
-{% else %}<td data-v="0">—</td><td data-v="0"></td><td data-v="0"></td><td data-v="0"></td><td data-v="0"></td>{% endif %}
-<td data-v="{{ o.leverage if o and o.leverage else 0 }}"><input class="ltr pc-num" type="number" min="1" max="125" step="1" data-field="leverage" value="{{ o.leverage if o and o.leverage else '' }}" placeholder="{{ '%.0f'|format(st.avg_lev) ~ 'x' if st else '—' }}"></td>
-<td data-v="{{ o.min_capital if o and o.min_capital else 0 }}"><input class="ltr pc-num" type="number" min="0" step="any" data-field="min_capital" value="{{ o.min_capital if o and o.min_capital else '' }}" placeholder="—"></td>
-<td class="pc-ex">{% for e in exchanges %}{% set x = r.ex[e] %}<span class="chip {{ 'pc-unk' if x and x.unknown else 'plain' if x else 'pc-no' }}" title="{{ EXCHANGES.get(e, e) }}{% if x and not x.unknown and x.min_order %} · min {{ '%g'|format(x.min_order) }}${% endif %}">{{ exch(e, 13) }}{% if x and x.unknown %}?{% elif x %}{% if x.min_order %}≥{{ '%g'|format(x.min_order) }}${% else %}✓{% endif %}{% else %}✗{% endif %}</span>{% endfor %}</td>
-</tr>{% endfor %}{% endfor %}
-</tbody></table></div>
-{% if not rows %}<div class="card muted">{{ _('pc_empty') }}</div>{% endif %}
-<p class="small muted">{{ _('pc_footer') }}</p>
 
 <script>
 (() => {
-  const table = document.getElementById('pc-table'), body = table.tBodies[0], csrf = document.getElementById('pc-bulk').dataset.csrf;
-  const rows = () => [...body.rows];
-  const visible = () => rows().filter(r => !r.hidden);
+  const table = document.getElementById('pc-table'), csrf = document.getElementById('pc-bulk').dataset.csrf;
   const $ = id => document.getElementById(id);
+  const groups = () => [...table.querySelectorAll('tbody.pc-pair-grp')];
+  const brows = g => [...(g || table).querySelectorAll('tr.pc-brow')];
+  let tab = '';
+  const open = (g, on) => { g.querySelector('.pc-detail').hidden = !on; const b = g.querySelector('.pc-tog'); b.textContent = on ? '▾' : '▸'; b.setAttribute('aria-expanded', on); };
   const count = () => {
-    $('n-shown').textContent = visible().length;
-    $('n-sel').textContent = rows().filter(r => r.querySelector('.rsel').checked).length;
-    $('n-offered').textContent = new Set(rows().filter(r => r.dataset.on === '1').map(r => r.dataset.pair)).size;
+    const vis = groups().filter(g => !g.hidden);
+    $('n-shown').textContent = vis.length;
+    const sel = brows().filter(r => r.querySelector('.rsel').checked).length;
+    $('n-sel').textContent = sel; $('pc-bulk').hidden = !sel;
+    const all = groups(), c = s => all.filter(g => s(g.dataset)).length;
+    $('t-all').textContent = all.length; $('t-on').textContent = c(d => d.on === '1'); $('t-off').textContent = c(d => d.on === '0');
+    $('t-mand').textContent = c(d => d.mand === '1'); if ($('t-noex')) $('t-noex').textContent = c(d => d.noex === '1');
+    $('n-offered').textContent = c(d => d.on === '1');
   };
   const filt = () => {
-    const q = $('f-q').value.trim().toUpperCase().replace('/', ''), g = $('f-group').value, b = $('f-bot').value,
-          stt = $('f-state').value, profit = $('f-profit').checked, mint = +$('f-mint').value || 0;
-    rows().forEach(r => {
-      const d = r.dataset;
-      const ok = (!q || d.pair.replace('/', '').includes(q)) && (!g || d.group === g) && (!b || d.bot === b)
-        && (!stt || (stt === 'on' && d.on === '1') || (stt === 'off' && d.on === '0') || (stt === 'mand' && d.mand === '1')
-            || (stt === 'def' && d.def === '1') || (stt === 'noex' && d.noex === '1'))
-        && (!profit || +d.profit > 0) && (+d.trades >= mint);
-      r.hidden = !ok;
-      if (!ok) r.querySelector('.rsel').checked = false;
+    const q = $('f-q').value.trim().toUpperCase().replace('/', ''), gp = $('f-group').value, b = $('f-bot').value,
+          profit = $('f-profit').checked, mint = +$('f-mint').value || 0;
+    groups().forEach(g => {
+      const d = g.dataset;
+      const ok = (!q || d.pair.replace('/', '').includes(q)) && (!gp || d.groups.split(',').includes(gp))
+        && (!b || d.bots.split(',').includes(b))
+        && (!tab || (tab === 'on' && d.on === '1') || (tab === 'off' && d.on === '0') || (tab === 'mand' && d.mand === '1') || (tab === 'noex' && d.noex === '1'))
+        && (!profit || +d.best > 0) && (+d.trades >= mint);
+      g.hidden = !ok;
+      if (!ok) brows(g).forEach(r => r.querySelector('.rsel').checked = false);
+      brows(g).forEach(r => r.hidden = !!(b && r.dataset.bot !== b) || !!(gp && r.dataset.group !== gp));  // only that bot's row
     });
     $('sel-all').checked = false; count();
   };
-  ['f-q', 'f-group', 'f-bot', 'f-state', 'f-profit', 'f-mint'].forEach(id => $(id).addEventListener(id === 'f-q' || id === 'f-mint' ? 'input' : 'change', filt));
-  $('sel-all').addEventListener('change', e => { visible().forEach(r => r.querySelector('.rsel').checked = e.target.checked); count(); });
-  body.addEventListener('change', async e => {
-    const el = e.target, r = el.closest('tr');
-    if (el.classList.contains('rsel')) return count();
-    if (!el.dataset.field) return;
-    const value = el.type === 'checkbox' ? el.checked : el.type === 'radio' ? true : el.value;
-    el.classList.remove('pc-ok', 'pc-err');
-    const res = await fetch('/admin/pairs/set', {method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({csrf, pair: r.dataset.pair, bot_id: r.dataset.bot, field: el.dataset.field, value})});
-    el.classList.add(res.ok ? 'pc-ok' : 'pc-err');
-    if (!res.ok) { alert(await res.text()); return; }
-    if (el.dataset.field === 'enabled') { r.dataset.on = el.checked ? '1' : '0'; if (!el.checked) { const d = r.querySelector('[data-field=is_default]'); d.checked = false; r.dataset.def = '0'; } }
-    if (el.dataset.field === 'is_default') { rows().filter(x => x.dataset.pair === r.dataset.pair).forEach(x => x.dataset.def = '0');
-      r.dataset.def = '1'; r.dataset.on = '1'; r.querySelector('[data-field=enabled]').checked = true; }
+  $('f-tabs').addEventListener('click', e => { const a = e.target.closest('a[data-s]'); if (!a) return;
+    tab = a.dataset.s; $('f-tabs').querySelectorAll('a').forEach(x => x.classList.toggle('on', x === a)); filt(); });
+  ['f-q', 'f-group', 'f-bot', 'f-profit', 'f-mint'].forEach(id => $(id).addEventListener(id === 'f-q' || id === 'f-mint' ? 'input' : 'change', filt));
+  $('x-all').addEventListener('click', () => groups().filter(g => !g.hidden).forEach(g => open(g, true)));
+  $('x-none').addEventListener('click', () => groups().forEach(g => open(g, false)));
+  $('sel-all').addEventListener('change', e => { groups().filter(g => !g.hidden).forEach(g => { g.querySelector('.psel').checked = e.target.checked;
+    brows(g).filter(r => !r.hidden).forEach(r => r.querySelector('.rsel').checked = e.target.checked); }); count(); });
+  $('sel-clear').addEventListener('click', () => { table.querySelectorAll('.rsel,.psel,#sel-all').forEach(c => c.checked = false); count(); });
+
+  async function save(body) {
+    const res = await fetch('/admin/pairs/set', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({csrf, ...body})});
+    if (!res.ok) { await siteConfirm(await res.text(), {alert: true}); return false; }
+    return true;
+  }
+  function summarize(g) {  // the pair row follows its bots
+    const on = brows(g).filter(r => r.querySelector('[data-field=enabled]').checked), d = brows(g).find(r => r.querySelector('[data-field=is_default]').checked);
+    g.dataset.on = on.length ? '1' : '0';
+    g.querySelector('.pc-state .badge').className = 'badge' + (on.length ? ' ok' : '');
+    g.querySelector('.pc-state .badge').textContent = on.length ? {{ _('pc_offered_by')|tojson }}.replace('{n}', on.length).replace('{t}', brows(g).length).replace(/^/, '✔ ') : {{ _('pc_not_offered')|tojson }};
+    g.querySelector('.pc-dflt').textContent = d ? d.querySelector('b').textContent : '—';
     count();
+  }
+  table.addEventListener('click', async e => {
+    const tog = e.target.closest('.pc-tog'), g = e.target.closest('tbody.pc-pair-grp');
+    if (tog) return open(g, g.querySelector('.pc-detail').hidden);
+    if (e.target.closest('.pc-prow') && !e.target.closest('input,button,a')) return open(g, g.querySelector('.pc-detail').hidden);
+    const q = e.target.closest('[data-quick]');
+    if (q) {  // one click: offer from the best bot / withdraw the pair
+      const rows = q.dataset.quick === 'offer' ? [[g.dataset.pair, +q.dataset.bot]] : brows(g).filter(r => r.dataset.on === '1').map(r => [g.dataset.pair, +r.dataset.bot]);
+      const res = await fetch('/admin/pairs/apply', {method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({csrf, action: q.dataset.quick, rows})});
+      if (!res.ok) return siteConfirm(await res.text(), {alert: true});
+      keep(); location.reload();
+    }
+  });
+  table.addEventListener('change', async e => {
+    const el = e.target, g = el.closest('tbody.pc-pair-grp');
+    if (el.classList.contains('psel')) { brows(g).filter(r => !r.hidden).forEach(r => r.querySelector('.rsel').checked = el.checked); return count(); }
+    if (el.classList.contains('rsel')) return count();
+    if (el.dataset.pairfield) { el.classList.remove('pc-ok', 'pc-err');
+      const ok = await save({pair: g.dataset.pair, field: el.dataset.pairfield, value: el.checked}); el.classList.add(ok ? 'pc-ok' : 'pc-err');
+      if (ok) { g.dataset.mand = el.checked ? '1' : '0'; } else el.checked = !el.checked; return count(); }
+    if (!el.dataset.field) return;
+    const r = el.closest('tr'), value = el.type === 'checkbox' ? el.checked : el.type === 'radio' ? true : el.value;
+    el.classList.remove('pc-ok', 'pc-err');
+    const ok = await save({pair: r.dataset.pair, bot_id: r.dataset.bot, field: el.dataset.field, value});
+    el.classList.add(ok ? 'pc-ok' : 'pc-err');
+    if (!ok) return;
+    if (el.dataset.field === 'enabled') { r.dataset.on = el.checked ? '1' : '0'; if (!el.checked) r.querySelector('[data-field=is_default]').checked = false; }
+    if (el.dataset.field === 'is_default') { r.dataset.on = '1'; r.querySelector('[data-field=enabled]').checked = true; }
+    summarize(g);
   });
   document.querySelectorAll('#pc-bulk [data-act]').forEach(btn => btn.addEventListener('click', async () => {
-    const sel = rows().filter(r => r.querySelector('.rsel').checked);
-    if (!sel.length) return alert({{ _('pc_none_selected')|tojson }});
+    const sel = brows().filter(r => r.querySelector('.rsel').checked);
+    if (!sel.length) return;
     const act = btn.dataset.act, value = act === 'leverage' ? $('b-lev').value : act === 'min_capital' ? $('b-min').value : null;
     const res = await fetch('/admin/pairs/apply', {method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({csrf, action: act, value, rows: sel.map(r => [r.dataset.pair, +r.dataset.bot])})});
-    if (!res.ok) return alert(await res.text());
-    try { sessionStorage.setItem('pcf', JSON.stringify({q: $('f-q').value, g: $('f-group').value, b: $('f-bot').value,
-      s: $('f-state').value, p: $('f-profit').checked, m: $('f-mint').value, y: scrollY})); } catch (e) {}
-    location.reload();
+    if (!res.ok) return siteConfirm(await res.text(), {alert: true});
+    keep(); location.reload();
   }));
-  try {  // keep the filters after a bulk action
+  function keep() {  // filters, tab, open pairs and scroll survive the reload after a change
+    try { sessionStorage.setItem('pcf', JSON.stringify({q: $('f-q').value, g: $('f-group').value, b: $('f-bot').value, t: tab,
+      p: $('f-profit').checked, m: $('f-mint').value, y: scrollY, open: groups().filter(x => !x.querySelector('.pc-detail').hidden).map(x => x.dataset.pair)})); } catch (e) {}
+  }
+  try {
     const f = JSON.parse(sessionStorage.getItem('pcf') || 'null');
-    if (f) { $('f-q').value = f.q; $('f-group').value = f.g; $('f-bot').value = f.b; $('f-state').value = f.s;
-      $('f-profit').checked = f.p; $('f-mint').value = f.m; sessionStorage.removeItem('pcf'); setTimeout(() => scrollTo(0, f.y), 50); }
+    if (f) { $('f-q').value = f.q; $('f-group').value = f.g; $('f-bot').value = f.b; $('f-profit').checked = f.p; $('f-mint').value = f.m;
+      tab = f.t || ''; $('f-tabs').querySelectorAll('a').forEach(x => x.classList.toggle('on', x.dataset.s === tab));
+      groups().filter(g => (f.open || []).includes(g.dataset.pair)).forEach(g => open(g, true));
+      sessionStorage.removeItem('pcf'); setTimeout(() => scrollTo(0, f.y), 50); }
   } catch (e) {}
   filt();
 })();
