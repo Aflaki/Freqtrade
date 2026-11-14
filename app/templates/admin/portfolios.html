@@ -1,0 +1,96 @@
+{% extends "base.html" %}{% block title %}{{ _('adm_portfolios') }} · {{ site.site_name }}{% endblock %}{% block content %}
+<h1>{{ _('nav_admin') }}</h1>{% include "admin/_nav.html" %}
+
+<div class="card"><h2>{{ _('apf_title') }} <span class="badge">{{ accs|length }}</span></h2>
+<p class="small muted">{{ _('apf_help') }}</p>
+<p class="ap-bulk">
+  <button type="button" class="sm" data-bulk="test">🔌 {{ _('ap_test_sel') }}</button>
+  <button type="button" class="sm" data-bulk="recon">⚖️ {{ _('ap_recon_sel') }}</button>
+  <span class="small muted" id="ap-progress"></span>
+</p>
+<div class="table-wrap"><table class="small" id="ap-table">
+<thead><tr><th class="no-sort"><input type="checkbox" id="ap-all" title="{{ _('ap_select_all') }}"></th><th>#</th><th>{{ _('col_user') }}</th><th>{{ _('col_portfolio') }}</th><th>{{ _('f_market') }}</th>
+<th>{{ _('col_status') }}</th><th>{{ _('ap_conn') }}</th><th>{{ _('ap_recon') }}</th><th>{{ _('st_open') }}</th><th></th></tr></thead>
+<tbody>
+{% for a in accs %}{% set u = users.get(a.user_id) %}{% set rs = a.recon_summary or {} %}
+<tr data-id="{{ a.id }}">
+<td><input type="checkbox" class="ap-sel" value="{{ a.id }}" {{ 'disabled' if not a.enabled }}></td>
+<td>{{ a.id }}</td>
+<td class="small"><a href="/admin/users/{{ a.user_id }}">{{ u.email if u else a.user_id }}</a>{% if u and u.can_close %} <span class="badge" title="{{ _('f_can_close') }}">✋</span>{% endif %}</td>
+<td>{{ exch(a.exchange, 14) }}{{ a.label or EXCHANGES.get(a.exchange, a.exchange) }}</td>
+<td class="small">{{ _('mkt_spot') if a.is_spot else _('mkt_futures') }} · {{ a.currency(stake) }}</td>
+<td>{% if not a.enabled %}<span class="badge err">{{ _('badge_disabled') }}</span>{% elif a.dry_run %}<span class="badge warn">{{ _('badge_paper') }}</span>{% else %}<span class="badge ok">{{ _('ap_live') }}</span>{% endif %}</td>
+<td class="ap-conn small">{% if a.last_check_ok %}<span class="badge ok">✔</span>{% elif a.last_check_ok == false %}<span class="badge err">✖</span>{% else %}<span class="muted">—</span>{% endif %}
+  <span class="muted">{{ (a.last_check_msg or '')[:60] }}</span></td>
+<td class="ap-recon small">{% if rs %}{% if rs.get('open') %}<span class="badge warn">{{ rs.open }}</span>{% else %}<span class="badge ok">✔</span>{% endif %}
+  <span class="muted">{{ _('ap_recon_line', bot=rs.get('bot', 0), ex=rs.get('exchange', 0)) }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+<td>{{ opened.get(a.id, 0) }}</td>
+<td class="nowrap"><button type="button" class="ghost sm" data-one="test">🔌</button>
+  {% if not a.is_spot and not a.dry_run %}<button type="button" class="ghost sm" data-one="recon">⚖️</button>
+  <a class="btn ghost sm" href="/accounts/{{ a.id }}/positions#recon" title="{{ _('ap_open_page') }}">{{ _('ap_decide') }} →</a>{% endif %}</td>
+</tr>{% endfor %}
+</tbody></table></div></div>
+
+<div class="card" id="avail"><h2>🔎 {{ _('ap_avail_title') }}</h2>
+<p class="small muted">{{ _('ap_avail_help') }}</p>
+<form method="get" action="/admin/portfolios#avail" class="xq-filters">
+  <label>{{ _('f_exchange') }} <select name="ex">{% for k, v in EXCHANGES.items() %}<option value="{{ k }}" {{ 'selected' if avail and avail.ex == k }}>{{ v }}</option>{% endfor %}</select></label>
+  <label>{{ _('f_market') }} <select name="mode"><option value="futures" {{ 'selected' if avail and avail.mode == 'futures' }}>{{ _('mkt_futures') }}</option>
+    <option value="spot" {{ 'selected' if avail and avail.mode == 'spot' }}>{{ _('mkt_spot') }}</option></select></label>
+  <label>{{ _('f_quote') }} <input name="quote" value="{{ avail.quote if avail else '' }}" placeholder="USDC" style="width:90px"></label>
+  <button class="sm">{{ _('ap_avail_check') }}</button>
+</form>
+{% if avail %}
+<p>{{ EXCHANGES.get(avail.ex, avail.ex) }} · {{ _('mkt_spot') if avail.mode == 'spot' else _('mkt_futures') }} · <b>{{ avail.quote }}</b>
+  — <span class="pos">{{ _('ap_avail_ok', n=avail.ok) }}</span> · <span class="neg">{{ _('ap_avail_no', n=avail.no) }}</span>
+  {% if not avail.allowed %} · <span class="badge warn">{{ _('ap_not_allowed') }}</span>{% endif %}
+  <span class="small muted"> · {{ _('ap_coins_here') }}: {{ avail.quotes|join(', ') }}{% if avail.at %} · {{ avail.at }}{% endif %}</span></p>
+{% if not avail.known %}<p class="small warn">⏳ {{ _('q_loading') }}</p>{% endif %}
+<div class="table-wrap"><table class="small">
+<tr><th>{{ _('col_pair') }}</th><th>{{ _('ap_market') }}</th><th>{{ _('col_status') }}</th><th>{{ _('col_leverage') }}</th><th>{{ _('ap_max_lev') }}</th><th>{{ _('ap_min_order') }}</th><th>{{ _('ap_volume') }}</th></tr>
+{% for r in avail.rows %}<tr><td class="mono">{{ coin(r.pair) }}{{ r.pair }}</td><td class="mono small">{{ r.symbol.split(':')[0] if r.symbol else '—' }}</td>
+<td>{% if r.status == 'ok' %}<span class="badge ok">✔ {{ _('ap_st_ok') }}</span>{% elif r.status == 'thin' %}<span class="badge warn">{{ _('ap_st_thin') }}</span>{% elif r.status == 'no' %}<span class="badge err">✖</span> <span class="small">{{ _(r.why[0], **r.why[1]) }}</span>{% else %}<span class="muted">?</span>{% endif %}</td>
+<td>{{ r.levs|join(', ') }}x</td><td>{{ (r.max_lev|int ~ 'x') if r.max_lev else '—' }}</td>
+<td class="tnum">{{ r.min_order|money if r.min_order else '—' }}</td><td class="tnum">{{ r.volume|money(0) if r.volume else '—' }}</td></tr>{% endfor %}
+</table></div>{% endif %}
+</div>
+
+<script>(() => {
+  const csrf = {{ csrf|tojson }}, T = {working: {{ _('ap_working')|tojson }}, done: {{ _('ap_done')|tojson }}, line: {{ _('ap_recon_line')|tojson }},
+    none: {{ _('ap_none_selected')|tojson }}, skip: {{ _('ap_skip')|tojson }}};
+  const $$ = s => [...document.querySelectorAll(s)], prog = document.getElementById('ap-progress');
+  const esc = t => { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; };
+  let running = false;
+  async function run(kind, tr) {
+    const id = tr.dataset.id, cell = tr.querySelector(kind === 'test' ? '.ap-conn' : '.ap-recon');
+    cell.innerHTML = '<span class="spin" style="width:14px;height:14px;border-width:2px;display:inline-block;vertical-align:middle"></span>';
+    const fd = new FormData(); fd.append('csrf', csrf);
+    try {
+      const r = await fetch(kind === 'test' ? `/accounts/${id}/test` : `/admin/portfolios/${id}/recon`,
+                            {method: 'POST', body: fd, headers: {'X-Requested-With': 'fetch'}});
+      const j = await r.json();
+      if (kind === 'test') cell.innerHTML = `<span class="badge ${j.ok ? 'ok' : 'err'}">${j.ok ? '✔' : '✖'}</span> <span class="muted">${esc((j.text || '').slice(0, 80))}</span>`;
+      else if (j.skip) cell.innerHTML = `<span class="muted">${esc(T.skip)}</span>`;
+      else cell.innerHTML = (j.error ? `<span class="badge err">✖</span> <span class="muted">${esc(j.error)}</span>` :
+        `<span class="badge ${j.open ? 'warn' : 'ok'}">${j.open ? j.open : '✔'}</span> <span class="muted">${esc(T.line.replace('{bot}', j.bot).replace('{ex}', j.exchange))}</span>`);
+    } catch (e) { cell.innerHTML = `<span class="badge err">✖</span> <span class="muted">${esc(String(e))}</span>`; }
+  }
+  async function many(kind, rows) {
+    if (running) return; running = true;
+    $$('[data-bulk],[data-one]').forEach(b => b.disabled = true);
+    for (let i = 0; i < rows.length; i++) {  // one after another: gentle on the exchanges' limits
+      prog.textContent = T.working.replace('{i}', i + 1).replace('{n}', rows.length);
+      await run(kind, rows[i]);
+    }
+    prog.textContent = T.done.replace('{n}', rows.length);
+    $$('[data-bulk],[data-one]').forEach(b => b.disabled = false); running = false;
+  }
+  document.getElementById('ap-all').addEventListener('change', e => $$('.ap-sel:not(:disabled)').forEach(c => c.checked = e.target.checked));
+  $$('[data-bulk]').forEach(b => b.addEventListener('click', async () => {
+    const rows = $$('.ap-sel:checked').map(c => c.closest('tr'));
+    if (!rows.length) { await siteConfirm(T.none, {alert: true}); return; }
+    many(b.dataset.bulk, rows);
+  }));
+  $$('[data-one]').forEach(b => b.addEventListener('click', () => many(b.dataset.one, [b.closest('tr')])));
+})();</script>
+{% endblock %}

@@ -331,3 +331,26 @@ def test_reconcile_shows_a_record_only_we_have(env):
         assert not [x for x in run(reconcile.compare(acc_id))["diffs"] if x["pair"] == "ETH/USDT"]
     finally:
         fx.FakeExchange.fills, fx.FakeExchange.client_ids = [], {}
+
+
+def test_admin_portfolios_page(env):
+    """Admins see every portfolio and run the connection test / reconciliation per portfolio or for many; users
+    can't reach these tools."""
+    c, csrf, acc_id, bot_id = env
+    with SessionLocal() as s:
+        s.get(ExchangeAccount, acc_id).enabled = True
+        s.commit()
+    page = c.get("/admin/portfolios").text
+    assert f'data-id="{acc_id}"' in page and 'data-bulk="test"' in page and 'data-bulk="recon"' in page
+    r = c.post(f"/admin/portfolios/{acc_id}/recon", data={"csrf": csrf})
+    assert r.status_code == 200 and "open" in r.json()
+    r = c.post(f"/accounts/{acc_id}/test", data={"csrf": csrf}, headers={"X-Requested-With": "fetch"})
+    assert r.status_code == 200 and "ok" in r.json()
+    # a regular user: none of it
+    from tests.test_catalog import login as login2
+    u, ucsrf = login2("pos-plain@x.com")
+    assert u.get("/admin/portfolios").status_code in (302, 303, 403)
+    assert u.post(f"/accounts/{acc_id}/test", data={"csrf": ucsrf}).status_code in (403, 404)
+    assert u.get(f"/accounts/{acc_id}/positions").status_code in (403, 404)
+    assert u.get("/execution").status_code == 403
+    assert "/execution" not in u.get("/dashboard").text
