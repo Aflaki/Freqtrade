@@ -3,8 +3,29 @@
    back / forward work. Anything unexpected falls back to a normal page load. */
 (function () {
   'use strict';
-  if (!document.getElementById('softzone') || !window.fetch || !window.DOMParser) return;
+  if (!window.fetch || !window.DOMParser) return;
   const timers = [];
+  window.softClear = () => timers.splice(0).forEach(clearInterval);
+  // run the scripts of HTML put into the page (parsed HTML doesn't run them by itself)
+  const runScripts = root => root.querySelectorAll('script').forEach(old => {
+    const s = document.createElement('script');
+    [...old.attributes].forEach(a => s.setAttribute(a.name, a.value));
+    s.textContent = old.textContent; old.replaceWith(s);
+  });
+  // load the #softzone of `url` into `container` (a dashboard card); true when it worked
+  window.softLoad = async (container, url) => {
+    try {
+      const r = await fetch(url, { headers: { 'X-Soft': '1' }, credentials: 'same-origin' });
+      if (!r.ok || r.redirected) return false;
+      const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
+      const fresh = doc.getElementById('softzone'); if (!fresh) return false;
+      timers.splice(0).forEach(clearInterval);
+      container.innerHTML = '';
+      const node = document.importNode(fresh, true);
+      container.appendChild(node); runScripts(node);
+      return true;
+    } catch (e) { return false; }
+  };
   // scripts inside the zone register their repeating jobs here, so a swap can stop the old ones
   window.zoneTimer = (fn, ms) => { const id = setInterval(fn, ms); timers.push(id); return id; };
   let busy = false;
@@ -31,11 +52,7 @@
       timers.splice(0).forEach(clearInterval);
       const next = document.importNode(fresh, true);
       zone.replaceWith(next);
-      next.querySelectorAll('script').forEach(old => {  // scripts in parsed HTML don't run by themselves
-        const s = document.createElement('script');
-        [...old.attributes].forEach(a => s.setAttribute(a.name, a.value));
-        s.textContent = old.textContent; old.replaceWith(s);
-      });
+      runScripts(next);
       if (push) history.pushState({ soft: 1 }, '', target.pathname + target.search + hash);
       if (window.initPerfUI) window.initPerfUI();
       window.scrollTo(0, y);
@@ -62,5 +79,5 @@
     u.search = new URLSearchParams(new FormData(f)).toString();
     go(u.href, true);
   });
-  window.addEventListener('popstate', () => go(location.href, false));
+  window.addEventListener('popstate', () => { if (document.getElementById('softzone') || document.getElementById('dcards')) location.reload(); });
 })();

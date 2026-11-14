@@ -5,7 +5,7 @@ import secrets
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 
 from ..db import (utcnow, 
     ADMIN_NOTIFY,
@@ -150,7 +150,27 @@ async def dashboard(request: Request):
               "live": bool(s_live), "win": sum(1 for x in s_live.values() if (x.get("upnl") or 0) > 0),
               "loss": sum(1 for x in s_live.values() if (x.get("upnl") or 0) < 0),
               "closed": len(closed), "wins": sum(1 for t in closed if (t.realized_pnl or 0) > 0)}
+    # one card per portfolio: its own numbers, in its own coin; the open card (?scope=...) shows its filters and tables
+    raw_scope = qp.get("scope", "")
+    open_key = None
+    if raw_scope:  # a bot (chosen in the "all portfolios" card's filters) is shown in that card
+        open_key = rep["scope"] if str(rep["scope"]).startswith("a") else "all"
+    with SessionLocal() as s:
+        rows = s.execute(select(Trade.account_id, func.count(Trade.id), func.sum(Trade.realized_pnl), func.sum(Trade.fees),
+                                func.sum(case((Trade.realized_pnl > 0, 1), else_=0)))
+                         .where(Trade.user_id == user.id, Trade.status == "closed").group_by(Trade.account_id)).all()
+    card_stats = {a: {"closed": n or 0, "pnl": p or 0.0, "fees": f or 0.0, "wins": w or 0} for a, n, p, f, w in rows}
+    trade_acc = {t.id: t.account_id for t in all_open}
+    for t in all_open:
+        cs = card_stats.setdefault(t.account_id, {"closed": 0, "pnl": 0.0, "fees": 0.0, "wins": 0})
+        x = live.get(t.id) or {}
+        if x.get("upnl") is not None:
+            cs["upnl"] = cs.get("upnl", 0.0) + x["upnl"]
+            cs["live"] = True
+            cs["win"] = cs.get("win", 0) + (x["upnl"] > 0)
+            cs["loss"] = cs.get("loss", 0) + (x["upnl"] < 0)
     return render(request, "dashboard.html", bals=bals, disp_cur=disp, approx=approx, cur_of=cur_of, sc=sc,
+                  open_key=open_key, card_stats=card_stats, trade_acc=trade_acc,
                   wallet_total=sum(d(b["wallet"] or 0, b.get("cur") or cur_of.get(i, disp)) for i, b in bals.items()),
                   equity_total=sum(d(b["equity"] if b["equity"] is not None else b["wallet"] or 0,
                                      b.get("cur") or cur_of.get(i, disp)) for i, b in bals.items()), gs=gs, accounts=accounts, open_trades=open_trades, all_open=len(all_open),

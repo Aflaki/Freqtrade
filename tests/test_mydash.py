@@ -61,9 +61,13 @@ def test_numbers_and_scopes(mine):
 
 def test_page(mine):
     c, (uid, a1, a2, b1, b2) = mine
-    html = c.get("/dashboard").text
+    html = c.get("/dashboard").text  # closed cards: the summaries, no tables yet
+    assert 'data-key="all"' in html and f'data-key="a{a1}"' in html and f'data-key="a{a2}"' in html
+    assert 'data-tab="live"' not in html and 'id="softzone"' not in html
+    html = c.get("/dashboard?scope=all").text  # the "all portfolios" card open: its filters and tabs inside it
     for tab in ('data-tab="live"', 'data-tab="overview"', 'data-tab="pairs"', 'data-tab="trades"', 'data-tab="portfolios"'):
         assert tab in html
+    assert 'class="dcard open" data-key="all"' in html
     assert "dash-main" in html and "DashA" in html and "+25.00" in html and "My result" in html
     assert f'value="a{a1}"' in html and f'value="b{b2}"' in html  # pick a portfolio or a bot
     html = c.get(f"/dashboard?scope=b{b2}").text
@@ -72,15 +76,17 @@ def test_page(mine):
     assert 'id="openpos"' in html and "L.get(" not in html  # live table, and its refresh script is plain JS
 
 
-def test_whole_account_and_the_chosen_portfolio(mine):
-    """The top row is always the whole account; a chosen portfolio gets its own row of the same numbers."""
+def test_whole_account_and_a_card_per_portfolio(mine):
+    """The top row is always the whole account; below, one card per portfolio with its own numbers, that opens
+    its filters and tables inside it."""
     c, (uid, a1, a2, b1, b2) = mine
     html = c.get("/dashboard").text
-    assert "Whole account" in html and 'id="scope-box"' not in html
-    html = c.get(f"/dashboard?scope=a{a1}").text
-    box = html.split('id="scope-box"', 1)[1][:4000]
-    assert "dash-main" in box and "+15.00" in box and "1,000" in box  # its realized result and capital
-    assert "+25.00" in html.split('id="scope-box"')[0]  # the whole account above it is unchanged
-    html = c.get(f"/dashboard?scope=a{a2}").text
-    box = html.split('id="scope-box"', 1)[1][:4000]
-    assert "+10.00" in box and "500" in box
+    assert "Whole account" in html and "+25.00" in html.split('id="dcards"')[0]
+    card1 = html.split(f'data-key="a{a1}"', 1)[1].split('<section', 1)[0]
+    assert "dash-main" in card1 and "+15.00" in card1 and "1,000" in card1 and f'data-cu="{a1}"' in card1
+    card2 = html.split(f'data-key="a{a2}"', 1)[1].split('<section', 1)[0]
+    assert "+10.00" in card2 and "500" in card2
+    html = c.get(f"/dashboard?scope=a{a1}").text  # this card open, the others closed
+    assert f'class="dcard open" data-key="a{a1}"' in html and html.count('id="softzone"') == 1
+    zone = html.split('id="softzone"', 1)[1]
+    assert 'data-tab="trades"' in zone and "+15.00" in zone

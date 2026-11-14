@@ -178,13 +178,13 @@ def test_full_flow(sent):
         assert [r["status"] for r in res["results"]] == ["opened"]  # sara did not pick BTC
         with SessionLocal() as s:
             tid = s.query(Trade).filter_by(user_id=ali_id, status="open").one().id
-        assert "/trades/close-all" not in ali.get("/dashboard").text  # no close buttons without the permission
+        assert "/trades/close-all" not in ali.get("/dashboard?scope=all").text  # no close buttons without the permission
         r = ali.post(f"/trades/{tid}/close", data={"csrf": csrf(ali, "/dashboard")}, follow_redirects=False)
         assert r.status_code == 403
         with SessionLocal() as s:
             s.get(User, ali_id).can_close = True  # the admin allows it
             s.commit()
-        assert "/trades/close-all" in ali.get("/dashboard").text
+        assert "/trades/close-all" in ali.get("/dashboard?scope=all").text
         r = ali.post(f"/trades/{tid}/close", data={"csrf": csrf(ali, "/dashboard")}, follow_redirects=False)
         assert r.status_code == 303
         with SessionLocal() as s:
