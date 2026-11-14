@@ -1,51 +1,79 @@
 {% extends "base.html" %}{% block content %}
 <h1>{{ _('nav_portfolios') }}</h1>
-<p><a class="btn" href="/accounts/new">+ {{ _('btn_add_exchange') }}</a>
-{% if gs.signal_only_enabled %}<a class="btn ghost" href="/accounts/new?kind=signal">+ {{ _('btn_add_signal') }}</a>{% endif %}</p>
-{% for r in rows %}{% set a = r.acc %}
-<div class="card">
-  <h2>{{ a.label or (EXCHANGES.get(a.exchange, a.exchange) if not a.is_signal else _('plan_signal_title')) }}
-    {% if a.is_signal %}<span class="badge brand">{{ _('badge_signal') }}</span>{% else %}<span class="badge">{{ exch(a.exchange, 14) }}{{ EXCHANGES.get(a.exchange, a.exchange) }}</span>{% endif %}
-    {% set levs = r.alloc|map(attribute='leverage')|unique|sort|list %}
-    <span class="badge">{% if a.is_spot %}{{ _('mkt_spot') }} · {{ a.currency(gs.stake_currency) }}{% else %}{{ _('mkt_futures') }} {{ (levs[0] ~ 'x') if levs|length == 1 else (levs[0] ~ '–' ~ levs[-1] ~ 'x') if levs else (a.leverage ~ 'x') }}{% endif %}</span>
-    <span class="badge">{{ _('mode_' ~ r.mode) }}{% if r.mode == 'wallet_pct' and a.wallet_pct %} · {{ '%g'|format(a.wallet_pct) }}%{% endif %}</span>
-    {% if a.dry_run and not a.is_signal %}<span class="badge warn">{{ _('badge_paper') }}</span>{% endif %}
-    {% if not a.enabled %}<span class="badge err">{{ _('badge_disabled') }}</span>{% endif %}
-    {% if r.stream %}{% set w = r.stream %}<span class="badge {{ 'ok' if w.mode == 'live' else 'warn' }}" title="{{ _('ws_mode_help_' ~ w.mode) }}{% if w.error %} — {{ w.error }}{% endif %}">{{ _('ws_mode_' ~ w.mode) }}</span>{% endif %}
-    {% if a.last_check_ok %}<span class="badge ok">{{ _('badge_conn_ok') }}</span>{% elif a.last_check_ok == false %}<span class="badge err">{{ _('badge_conn_fail') }}</span>{% endif %}
-  </h2>
+<p class="acc-top"><a class="btn" href="/accounts/new">+ {{ _('btn_add_exchange') }}</a>
+{% if gs.signal_only_enabled %}<a class="btn ghost" href="/accounts/new?kind=signal">+ {{ _('btn_add_signal') }}</a>{% endif %}
+{% if rows %}<span class="small muted">{{ _('acc_cards_help') }}</span>{% endif %}</p>
+
+<div class="dcards" id="acards">
+{% for r in rows %}{% set a = r.acc %}{% set cur = a.currency(gs.stake_currency) %}
+<section class="dcard" data-key="acc{{ a.id }}">
+  {# ---------- always visible: what it is, its numbers, what you can do ---------- #}
+  <header class="dcard-h">
+    <span class="dcard-t">{% if not a.is_signal %}{{ exch(a.exchange, 16) }}{% endif %}{{ a.label or (EXCHANGES.get(a.exchange, a.exchange) if not a.is_signal else _('plan_signal_title')) }}
+      {% if a.is_signal %}<span class="badge brand">{{ _('badge_signal') }}</span>{% endif %}
+      {% set levs = r.alloc|map(attribute='leverage')|unique|sort|list %}
+      <span class="badge">{% if a.is_spot %}{{ _('mkt_spot') }}{% else %}{{ _('mkt_futures') }} {{ (levs[0] ~ 'x') if levs|length == 1 else (levs[0] ~ '–' ~ levs[-1] ~ 'x') if levs else (a.leverage ~ 'x') }}{% endif %} · {{ cur }}</span>
+      <span class="badge">{{ _('mode_' ~ r.mode) }}{% if r.mode == 'wallet_pct' and a.wallet_pct %} · {{ '%g'|format(a.wallet_pct) }}%{% endif %}</span>
+      {% if a.dry_run and not a.is_signal %}<span class="badge warn">{{ _('badge_paper') }}</span>{% endif %}
+      {% if not a.enabled %}<span class="badge err">{{ _('badge_disabled') }}</span>{% endif %}
+      {% if r.stream %}{% set w = r.stream %}<span class="badge {{ 'ok' if w.mode == 'live' else 'warn' }}" title="{{ _('ws_mode_help_' ~ w.mode) }}{% if w.error %} — {{ w.error }}{% endif %}">{{ _('ws_mode_' ~ w.mode) }}</span>{% endif %}
+      {% if a.last_check_ok %}<span class="badge ok">{{ _('badge_conn_ok') }}</span>{% elif a.last_check_ok == false %}<span class="badge err">{{ _('badge_conn_fail') }}</span>{% endif %}
+    </span>
+    <span class="dcard-arrow">▾</span>
+    <div class="dcard-kpis">
+      <div><span class="k">{{ _('st_capital') }}</span><span class="v">{{ r.capital|money }} <span class="small muted">{{ cur }}</span></span></div>
+      <div><span class="k">{{ _('st_tradable') }}</span><span class="v">{{ r.tradable|money }}</span></div>
+      <div><span class="k">{{ _('f_max_open') }}</span><span class="v">{{ r.mot }}</span></div>
+      <div><span class="k">{{ _('st_open') }}</span><span class="v">{{ r.open }}</span></div>
+      <div><span class="k">{{ _('col_pairs') }}</span><span class="v">{{ r.alloc|length }}</span></div>
+      {% if a.stoploss_pct %}<div><span class="k">{{ _('col_sl') }}</span><span class="v">{{ a.stoploss_pct }}%</span></div>{% endif %}
+    </div>
+    <div class="acc-actions">
+      <a class="btn ghost sm" href="/accounts/{{ a.id }}/edit">✎ {{ _('btn_edit') }}</a>
+      {% if user.is_admin and not a.is_signal %}<form method="post" action="/accounts/{{ a.id }}/test"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost sm">🔌 {{ _('btn_test') }}</button></form>{% endif %}
+      {% if user.is_admin and not a.is_signal and not a.is_spot and not a.dry_run %}<a class="btn ghost sm" href="/accounts/{{ a.id }}/positions#recon">⚖️ {{ _('rc_btn') }}{% if (a.recon_summary or {}).get('open') %} <span class="badge warn">{{ a.recon_summary.open }}</span>{% endif %}</a>{% endif %}
+      <form method="post" action="/accounts/{{ a.id }}/toggle"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost sm">{{ '⏸ ' ~ _('btn_disable') if a.enabled else '▶ ' ~ _('btn_enable') }}</button></form>
+      {% if r.open %}<details class="acc-del"><summary class="btn danger sm">🗑 {{ _('btn_delete') }}</summary>
+        <div class="acc-del-pop small"><p>{{ _('del_open_q', n=r.open) }}</p>
+        <form method="post" action="/accounts/{{ a.id }}/delete" onsubmit='return confirm({{ _('confirm_delete')|tojson }})'><input type="hidden" name="csrf" value="{{ csrf }}">
+        <p><button class="danger sm" name="open" value="leave">{{ _('del_leave') }}</button> <span class="muted">{{ _('del_leave_help') }}</span></p>
+        {% if user.may_close %}<p><button class="danger sm ghost" name="open" value="close">{{ _('del_close') }}</button> <span class="muted">{{ _('del_close_help') }}</span></p>{% endif %}</form></div></details>
+      {% else %}<form method="post" action="/accounts/{{ a.id }}/delete" onsubmit='return confirm({{ _('confirm_delete')|tojson }})'><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger sm">🗑 {{ _('btn_delete') }}</button></form>{% endif %}
+    </div>
+  </header>
+  {# ---------- things that need attention: always visible ---------- #}
+  {% set rs = a.recon_summary or {} %}{% set und = a.undecided_positions %}
+  {% if r.same_key or (user.is_admin and rs.get('open') and a.enabled and not a.dry_run) or (und and a.enabled and not a.dry_run) %}<div class="acc-alerts">
   {% if r.same_key %}<div class="flash error">{{ _('warn_same_key', names=r.same_key) }}</div>{% endif %}
-  {% set rs = a.recon_summary or {} %}
   {% if user.is_admin and rs.get('open') and a.enabled and not a.dry_run %}<div class="flash warn">{{ _('rc_banner', n=rs.open, bot=rs.bot, ex=rs.exchange) }} <a href="/accounts/{{ a.id }}/positions#recon">{{ _('pos_decide') }} →</a></div>{% endif %}
-  {% set und = a.undecided_positions %}
   {% if und and a.enabled and not a.dry_run %}<div class="flash warn">{{ _('pos_banner', n=und|length) }}{% if user.is_admin %} <a href="/accounts/{{ a.id }}/positions">{{ _('pos_decide') }} →</a>{% else %} {{ _('pos_admin_will') }}{% endif %}</div>{% endif %}
-  <p class="small">🤖 {{ _('sec_bots') }}: <b>{{ r.bots|join(', ') or '—' }}</b></p>
-  {% if not a.is_signal %}<p class="small muted">API: <span class="mono">{{ r.key }}</span>{% if a.last_check_msg %} — {{ a.last_check_msg }}{% endif %}</p>{% endif %}
-  <div class="grid">
-    <div class="stat"><div class="k">{{ _('st_capital') }}</div><div class="v">{{ r.capital|money }}</div></div>
-    <div class="stat"><div class="k">{{ _('st_tradable') }}</div><div class="v">{{ r.tradable|money }}</div></div>
-    <div class="stat"><div class="k">{{ _('f_max_open') }}</div><div class="v">{{ r.mot }}</div></div>
-    <div class="stat"><div class="k">{{ _('st_open') }}</div><div class="v">{{ r.open }}</div></div>
-    {% if a.stoploss_pct %}<div class="stat"><div class="k">{{ _('col_sl') }}</div><div class="v">{{ a.stoploss_pct }}%</div></div>{% endif %}
+  </div>{% endif %}
+  {# ---------- details: open with a click ---------- #}
+  <div class="dcard-b acc-body">
+    <p class="small">🤖 {{ _('sec_bots') }}: <b>{{ r.bots|join(', ') or '—' }}</b></p>
+    {% if not a.is_signal %}<p class="small muted">API: <span class="mono">{{ r.key }}</span>{% if a.last_check_msg %} — {{ a.last_check_msg }}{% endif %}</p>{% endif %}
+    <div class="table-wrap"><table class="small">
+      <tr><th>{{ _('col_pair') }}</th>{% if r.mode == 'pair_weights' %}<th>{{ _('col_weight') }}</th>{% endif %}<th>{{ _('col_margin_trade') }}</th><th>{{ _('col_position_value') }}</th></tr>
+      {% for p in r.alloc %}<tr><td class="mono">{{ coin(p.pair) }}{{ p.pair }}</td>{% if r.mode == 'pair_weights' %}<td>{{ p.value }}</td>{% endif %}
+      <td>{{ p.stake|money }} {{ cur }}</td><td>{{ p.notional|money }} {{ cur }}</td></tr>{% endfor %}
+    </table></div>
+    {% if user.is_admin and not a.is_signal and not a.is_spot and not a.dry_run %}<p><a class="btn ghost sm" href="/accounts/{{ a.id }}/positions">{{ _('pos_btn') }}{% if r.adopted %} ({{ r.adopted }}){% endif %}</a></p>{% endif %}
   </div>
-  <div class="table-wrap"><table class="small">
-    <tr><th>{{ _('col_pair') }}</th>{% if r.mode == 'pair_weights' %}<th>{{ _('col_weight') }}</th>{% endif %}<th>{{ _('col_margin_trade') }}</th><th>{{ _('col_position_value') }}</th></tr>
-    {% for p in r.alloc %}<tr><td class="mono">{{ coin(p.pair) }}{{ p.pair }}</td>{% if r.mode == 'pair_weights' %}<td>{{ p.value }}</td>{% endif %}
-    <td>{{ p.stake|money }} {{ a.currency(gs.stake_currency) }}</td><td>{{ p.notional|money }} {{ a.currency(gs.stake_currency) }}</td></tr>{% endfor %}
-  </table></div>
-  <p>
-    {% if user.is_admin and not a.is_signal %}<form class="inline" method="post" action="/accounts/{{ a.id }}/test"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="sm">{{ _('btn_test') }}</button></form>{% endif %}
-    <a class="btn ghost sm" href="/accounts/{{ a.id }}/edit">{{ _('btn_edit') }}</a>
-    {% if user.is_admin and not a.is_signal and not a.is_spot and not a.dry_run %}<a class="btn sm" href="/accounts/{{ a.id }}/positions#recon">⚖️ {{ _('rc_btn') }}{% if (a.recon_summary or {}).get('open') %} <span class="badge warn">{{ a.recon_summary.open }}</span>{% endif %}</a>
-    <a class="btn ghost sm" href="/accounts/{{ a.id }}/positions">{{ _('pos_btn') }}{% if r.adopted %} ({{ r.adopted }}){% endif %}</a>{% endif %}
-    <form class="inline" method="post" action="/accounts/{{ a.id }}/toggle"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost sm">{{ _('btn_disable') if a.enabled else _('btn_enable') }}</button></form>
-    {% if r.open %}<details class="inline-details"><summary class="btn danger sm">{{ _('btn_delete') }}</summary>
-    <div class="card small" style="margin-top:8px"><p>{{ _('del_open_q', n=r.open) }}</p>
-    <form method="post" action="/accounts/{{ a.id }}/delete" onsubmit='return confirm({{ _('confirm_delete')|tojson }})'><input type="hidden" name="csrf" value="{{ csrf }}">
-    <p><button class="danger sm" name="open" value="leave">{{ _('del_leave') }}</button> <span class="muted">{{ _('del_leave_help') }}</span></p>
-    {% if user.may_close %}<p><button class="danger sm ghost" name="open" value="close">{{ _('del_close') }}</button> <span class="muted">{{ _('del_close_help') }}</span></p>{% endif %}</form></div></details>
-    {% else %}<form class="inline" method="post" action="/accounts/{{ a.id }}/delete" onsubmit='return confirm({{ _('confirm_delete')|tojson }})'><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger sm">{{ _('btn_delete') }}</button></form>{% endif %}
-  </p>
-</div>
+</section>
 {% else %}<div class="card muted">{{ _('no_portfolios') }}</div>{% endfor %}
+</div>
+<script>
+(() => {  // a card opens its details; the open ones are remembered in this browser
+  const box = document.getElementById('acards'); if (!box) return;
+  const KEY = 'acc-open';
+  let open = []; try { open = JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (e) {}
+  box.querySelectorAll('.dcard').forEach(c => { if (open.includes(c.dataset.key)) c.classList.add('open'); });
+  box.addEventListener('click', e => {
+    const h = e.target.closest('.dcard-h'); if (!h || e.target.closest('a,button,form,details,input,select')) return;
+    const c = h.closest('.dcard'); c.classList.toggle('open');
+    try { localStorage.setItem(KEY, JSON.stringify([...box.querySelectorAll('.dcard.open')].map(x => x.dataset.key))); } catch (e) {}
+  });
+  document.addEventListener('click', e => { box.querySelectorAll('details.acc-del[open]').forEach(d => { if (!d.contains(e.target)) d.open = false; }); });
+})();
+</script>
 {% endblock %}

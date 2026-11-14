@@ -379,3 +379,12 @@ tr.catrow.cat-off{display:none !important}
 .dcard-kpis .v{font-size:17px;font-weight:700}.dcard-kpis .s{font-size:12px}
 .dcard-b:empty{display:none}.dcard-b{padding:0 12px 12px}
 .dcard[data-key^=a] .fb-scope,.dcard[data-key^=a] .fb-chips .chip:first-of-type a,.dcard[data-key^=a] .fb-reset{display:none}
+/* portfolios page: cards like the dashboard; actions on one line */
+.acc-top{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.acc-top .small{margin-inline-start:auto}
+.acc-actions{flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px}
+.acc-actions form{display:inline-flex;margin:0}
+.acc-del{position:relative}.acc-del summary{list-style:none}.acc-del summary::-webkit-details-marker{display:none}
+.acc-del-pop{position:absolute;top:calc(100% + 6px);inset-inline-end:0;z-index:20;width:min(340px,calc(100vw - 48px));padding:12px;border:1px solid var(--line);border-radius:12px;
+  background:linear-gradient(var(--card),var(--card)),var(--bg);box-shadow:0 12px 30px rgba(0,0,0,.25)}
+.acc-alerts{padding:0 14px}.acc-alerts .flash{margin:6px 0}
+.dcard:not(.open)>.acc-body{display:none}.acc-body{padding:4px 14px 12px}

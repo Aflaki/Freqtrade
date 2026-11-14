@@ -350,6 +350,7 @@ C: dict[str, tuple[str, str, str, str]] = {
     "dash_whole": ("کل حساب (همه سبدها)", "Whole account (all portfolios)", "Gesamtes Konto (alle Portfolios)", "Toda la cuenta (todas las carteras)"),
     "dash_whole_help": ("همیشه همه سبدها با هم؛ برای یک سبد، آن را از فیلتر پایین انتخاب کنید", "always all portfolios together; pick one in the filter below to see it on its own", "immer alle zusammen; unten eines wählen", "siempre todas juntas; elige una abajo para verla sola"),
     "dash_back_whole": ("نمایش همه سبدها", "show all portfolios", "alle Portfolios", "todas las carteras"),
+    "acc_cards_help": ("روی هر کارت بزنید تا ربات‌ها، کلید API و جدول تخصیص ارزها باز شود", "click a card to see its bots, API key and pair allocation", "Karte anklicken: Bots, API-Schlüssel und Aufteilung", "haz clic en una tarjeta para ver bots, clave API y reparto"),
     "dash_cards": ("سبدهای من", "My portfolios", "Meine Portfolios", "Mis carteras"),
     "dash_cards_help": ("روی هر کارت بزنید تا فیلترها و جدول‌های همان سبد همان‌جا باز شود", "click a card to open that portfolio's filters and tables right there", "Karte anklicken: Filter und Tabellen öffnen sich dort", "haz clic en una tarjeta para abrir sus filtros y tablas"),
     "dash_all_details": ("جزئیات همه سبدها با هم", "All portfolios together, in detail", "Alle Portfolios zusammen, im Detail", "Todas las carteras juntas, en detalle"),
