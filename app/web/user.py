@@ -120,7 +120,37 @@ async def dashboard(request: Request):
     by_id = {a.id: a for a in accounts}
     cur_of = {a.id: a.currency(gs.stake_currency) for a in accounts}
     trade_cur = {t.id: t.currency for t in all_open}
-    return render(request, "dashboard.html", bals=bals, disp_cur=disp, approx=approx, cur_of=cur_of,
+    # the chosen portfolio (or bot) on its own, next to the whole account
+    sc = None
+    if rep["acc_sel"] or rep["bot_sel"]:
+        ids = set(rep["acc_ids"])
+        bot = rep["bot_sel"]
+        one = by_id.get(next(iter(ids))) if len(ids) == 1 and not bot else None
+        scur = one.currency(gs.stake_currency) if one else disp
+
+        def sd(v, src):  # in the portfolio's own coin when it is one portfolio
+            return v if one else d(v, src)
+        with SessionLocal() as s:
+            q = select(Trade).where(Trade.account_id.in_(ids or {-1}))
+            if bot:
+                q = q.where(Trade.bot_id == bot)
+            closed = [t for t in s.scalars(q.where(Trade.status == "closed"))]
+        s_open = [t for t in all_open if t.account_id in ids and (not bot or t.bot_id == bot)]
+        s_live = {k: x for k, x in live.items() if k in {t.id for t in s_open}}
+        sc = {"label": rep["scope_label"], "cur": scur, "approx": approx and not one, "bot": bool(bot),
+              "acc_ids": sorted(ids), "trade_ids": [t.id for t in s_open], "one": bool(one),
+              "wallet": None if bot else sum(sd(b["wallet"] or 0, b.get("cur") or cur_of.get(i, disp)) for i, b in bals.items() if i in ids),
+              "equity": None if bot else sum(sd(b["equity"] if b["equity"] is not None else b["wallet"] or 0, b.get("cur") or cur_of.get(i, disp))
+                                             for i, b in bals.items() if i in ids),
+              "has_bal": any(i in ids for i in bals) and not bot,
+              "capital": None if bot else sum(sd(v, cur_of[i]) for i, v in acc_capital.items() if i in ids),
+              "pnl": sum(sd(t.realized_pnl or 0, t.currency) for t in closed),
+              "fees": sum(sd(t.fees or 0, t.currency) for t in closed),
+              "open": len(s_open), "upnl": sum(sd(x.get("upnl") or 0, trade_cur.get(k, disp)) for k, x in s_live.items()),
+              "live": bool(s_live), "win": sum(1 for x in s_live.values() if (x.get("upnl") or 0) > 0),
+              "loss": sum(1 for x in s_live.values() if (x.get("upnl") or 0) < 0),
+              "closed": len(closed), "wins": sum(1 for t in closed if (t.realized_pnl or 0) > 0)}
+    return render(request, "dashboard.html", bals=bals, disp_cur=disp, approx=approx, cur_of=cur_of, sc=sc,
                   wallet_total=sum(d(b["wallet"] or 0, b.get("cur") or cur_of.get(i, disp)) for i, b in bals.items()),
                   equity_total=sum(d(b["equity"] if b["equity"] is not None else b["wallet"] or 0,
                                      b.get("cur") or cur_of.get(i, disp)) for i, b in bals.items()), gs=gs, accounts=accounts, open_trades=open_trades, all_open=len(all_open),

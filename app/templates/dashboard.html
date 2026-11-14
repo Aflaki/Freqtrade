@@ -15,6 +15,7 @@
 {% endif %}
 
 {# ------------------------------------------------------------------ the whole account, always #}
+{% if accounts %}<div class="dash-scope-h"><span>🏦 {{ _('dash_whole') }}</span><span class="small muted">{{ _('dash_whole_help') }}</span></div>{% endif %}
 <div class="grid">
   {% if bals or accounts|selectattr('kind', 'equalto', 'exchange')|rejectattr('dry_run')|list %}<div class="card stat" id="wallet-card"><div class="k">{{ _('st_wallet') }}</div>
     <div class="v"><span id="wallet-total">{{ wallet_total|money if bals else '…' }}</span> <span class="small muted">{{ '≈ ' if approx }}{{ disp_cur }}</span></div>
@@ -28,6 +29,26 @@
   <div class="card stat"><div class="k">{{ _('st_closed_wr') }}</div><div class="v">{{ n_closed }} <span class="small muted">/ {{ (wins / n_closed * 100)|round|int if n_closed else 0 }}%</span></div></div>
   <div class="card stat"><div class="k">{{ _('st_subscription') }}</div><div class="v small">{{ user.subscription_until|lt('%Y-%m-%d') if user.subscription_until else _('unlimited') }}</div></div>
 </div>
+
+{# ------------------------------------------------------------------ the chosen portfolio / bot on its own #}
+{% if sc %}
+<div class="dash-scope" id="scope-box" data-accs='{{ sc.acc_ids|tojson }}' data-trades='{{ sc.trade_ids|tojson }}' data-one="{{ 1 if sc.one else 0 }}">
+<div class="dash-scope-h"><span>{{ '🤖' if sc.bot else '🧺' }} {{ sc.label }}</span>
+  <a class="small" href="/dashboard{{ '#' ~ request.url.fragment if request.url.fragment }}">✕ {{ _('dash_back_whole') }}</a></div>
+<div class="grid">
+  {% if sc.has_bal %}<div class="card stat"><div class="k">{{ _('st_wallet') }}</div>
+    <div class="v"><span id="s-wallet">{{ sc.wallet|money }}</span> <span class="small muted">{{ '≈ ' if sc.approx }}{{ sc.cur }}</span></div>
+    <div class="small muted">{{ _('st_equity') }}: <span id="s-equity">{{ sc.equity|money }}</span></div></div>{% endif %}
+  {% if sc.capital is not none %}<div class="card stat"><div class="k">{{ _('st_capital') }}</div><div class="v">{{ sc.capital|money }} <span class="small muted">{{ '≈ ' if sc.approx }}{{ sc.cur }}</span></div></div>{% endif %}
+  <div class="card stat"><div class="k">{{ _('st_realized') }}</div><div class="v {{ 'pos' if sc.pnl >= 0 else 'neg' }}">{{ sc.pnl|signed }} <span class="small muted">{{ '≈ ' if sc.approx }}{{ sc.cur }}</span></div>
+    <div class="small muted">{{ _('col_fees') }}: {{ sc.fees|money }}</div></div>
+  <div class="card stat"><div class="k">{{ _('st_open') }}</div><div class="v">{{ sc.open }}</div></div>
+  {% if sc.open %}<div class="card stat"><div class="k">{{ _('col_upnl') }}</div>
+    <div class="v {{ 'pos' if sc.upnl >= 0 else 'neg' }}" id="s-upnl">{{ sc.upnl|signed if sc.live else '…' }}</div>
+    <div class="small muted" id="s-upnl-split">{% if sc.live %}{{ _('st_upnl_split', w=sc.win, l=sc.loss) }}{% endif %}</div></div>{% endif %}
+  <div class="card stat"><div class="k">{{ _('st_closed_wr') }}</div><div class="v">{{ sc.closed }} <span class="small muted">/ {{ (sc.wins / sc.closed * 100)|round|int if sc.closed else 0 }}%</span></div></div>
+</div></div>
+{% endif %}
 
 {% if accounts %}
 {# ------------------------------------------------------------------ like the bots' performance page, for my own trades #}
@@ -74,6 +95,11 @@
         u.innerHTML=(L.upnl>=0?'+':'')+fmt(L.upnl,2)+(L.pct!=null?' <span class="small">('+(L.pct>=0?'+':'')+L.pct.toFixed(2)+'%)</span>':''); }
       else if(L.missing){ u.innerHTML='<span class="badge err">'+notOn+'</span>'; } });
     const t=document.getElementById('upnl-total'); if(t){ t.className='v '+(tot>=0?'pos':'neg'); t.textContent=(tot>=0?'+':'')+fmt(tot,2); }
+    const box=document.getElementById('scope-box');
+    if(box){ const ids=new Set(JSON.parse(box.dataset.trades||'[]').map(String)), one=box.dataset.one==='1'; let st=0, sw=0, sl=0;
+      Object.entries(d).forEach(([k,L])=>{ if(!ids.has(k)||L.upnl==null) return; st+=one?L.upnl:(L.upnl_d!=null?L.upnl_d:L.upnl); if(L.upnl>0) sw++; else if(L.upnl<0) sl++; });
+      const su=document.getElementById('s-upnl'); if(su){ su.className='v '+(st>=0?'pos':'neg'); su.textContent=(st>=0?'+':'')+fmt(st,2); }
+      const ss=document.getElementById('s-upnl-split'); if(ss) ss.textContent=splitText.replace('{w}',sw).replace('{l}',sl); }
     const sp=document.getElementById('upnl-split'); if(sp) sp.textContent=splitText.replace('{w}',w).replace('{l}',l);
     const at=document.getElementById('live-at'); if(at) at.textContent='· '+new Date().toLocaleTimeString();
   }
@@ -85,10 +111,15 @@
       ['wallet','equity','free'].forEach(k=>{ const c=document.querySelector(`[data-bal="${id}"][data-k="${k}"]`); if(c) c.textContent=B[k]!=null?fmt(B[k],2):'—'; }); });
     const wt=document.getElementById('wallet-total'), et=document.getElementById('equity-total');
     if(wt) wt.textContent=fmt(w,2); if(et) et.textContent=fmt(eq,2);
+    const box=document.getElementById('scope-box');
+    if(box && document.getElementById('s-wallet')){ const ids=new Set(JSON.parse(box.dataset.accs||'[]').map(String)), one=box.dataset.one==='1'; let sw=0, se=0;
+      Object.entries(d).forEach(([id,B])=>{ if(!ids.has(id)) return; sw+=(one?B.wallet:(B.wallet_d!=null?B.wallet_d:B.wallet))||0;
+        se+=one?(B.equity!=null?B.equity:(B.wallet||0)):(B.equity_d!=null?B.equity_d:(B.equity!=null?B.equity:(B.wallet||0))); });
+      document.getElementById('s-wallet').textContent=fmt(sw,2); document.getElementById('s-equity').textContent=fmt(se,2); }
   }
   window.dashTick = tick;
-  if (document.getElementById('upnl-card')) { tick(); setInterval(()=>{ if(!document.hidden) tick(); }, 15000); }
-  if (document.getElementById('wallet-card')) { bal(); setInterval(()=>{ if(!document.hidden) bal(); }, 15000); }
+  if (document.getElementById('upnl-card') || document.getElementById('s-upnl')) { tick(); setInterval(()=>{ if(!document.hidden) tick(); }, 15000); }
+  if (document.getElementById('wallet-card') || document.getElementById('s-wallet')) { bal(); setInterval(()=>{ if(!document.hidden) bal(); }, 15000); }
 })();
 </script>
 

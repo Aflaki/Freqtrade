@@ -70,3 +70,17 @@ def test_page(mine):
     assert "-5.00" in html and 'id="openpos"' not in html  # the open BTC trade belongs to bot A
     html = c.get(f"/dashboard?scope=b{b1}").text
     assert 'id="openpos"' in html and "L.get(" not in html  # live table, and its refresh script is plain JS
+
+
+def test_whole_account_and_the_chosen_portfolio(mine):
+    """The top row is always the whole account; a chosen portfolio gets its own row of the same numbers."""
+    c, (uid, a1, a2, b1, b2) = mine
+    html = c.get("/dashboard").text
+    assert "Whole account" in html and 'id="scope-box"' not in html
+    html = c.get(f"/dashboard?scope=a{a1}").text
+    box = html.split('id="scope-box"', 1)[1][:4000]
+    assert "dash-main" in box and "+15.00" in box and "1,000" in box  # its realized result and capital
+    assert "+25.00" in html.split('id="scope-box"')[0]  # the whole account above it is unchanged
+    html = c.get(f"/dashboard?scope=a{a2}").text
+    box = html.split('id="scope-box"', 1)[1][:4000]
+    assert "+10.00" in box and "500" in box
