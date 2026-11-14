@@ -173,8 +173,12 @@ async def act(acc_id: int, user_id: int, decisions: dict[str, str]) -> dict[str,
         elif what == "close" and r["kind"] in ("exch_only", "opposite") and r["pos"]:
             p = r["pos"]
             if r["trade_id"]:
-                out = await force_exit(r["trade_id"], user_id)
+                # reconciliation is an admin tool: the admin acts on any user's portfolio (no owner check here)
+                out = await force_exit(r["trade_id"])
                 ok = out is not None and out.status in ("closed", "partial")
+                if not ok:
+                    r["error"] = (f"{out.status}: {out.message}" if out is not None
+                                  else "the record is no longer open")
             else:  # not tracked by us: plain reduce-only close
                 from .exchange import pool
                 async with pool.lock(acc_id):

@@ -176,6 +176,56 @@ async def _exit_retries() -> None:
             log.exception("exit retries failed")
 
 
+MISSED_EXIT_AFTER = 180   # seconds after the bot's exit before we treat ours as missed (normal exits take seconds)
+RECON_EVERY = 1800        # seconds between automatic reconciliation summaries (the admin's badges)
+_last_recon: dict[int, float] = {}
+
+
+async def missed_exits(acc_id: int) -> list[dict]:
+    """The bot closed its trade (same bot, same trade number) but our record is still open: our exit was missed
+    (a timeout, the server restarting at that moment...). Close it now, like the bot did."""
+    import datetime as dt
+
+    from ..db import BotTrade
+    from ..signal import Signal
+    from .trader import _pending_exits, run_for_account
+    now = utcnow()
+    with SessionLocal() as s:
+        acc = s.get(ExchangeAccount, acc_id)
+        if acc is None or not acc.enabled or acc.dry_run:
+            return []
+        rows = []
+        for t in s.scalars(select(Trade).where(Trade.account_id == acc_id, Trade.status == "open",
+                                               Trade.bot_id.is_not(None), Trade.ft_trade_id.is_not(None))):
+            b = s.scalar(select(BotTrade).where(BotTrade.bot_id == t.bot_id, BotTrade.ft_trade_id == t.ft_trade_id))
+            if b is None or b.is_open or b.close_date is None:
+                continue
+            if (now - b.close_date).total_seconds() < MISSED_EXIT_AFTER or (acc_id, t.pair) in _pending_exits:
+                continue
+            if b.close_date < t.opened_at - dt.timedelta(minutes=1):  # an older bot trade with a reused number
+                continue
+            rows.append((t.id, t.pair, t.side, t.bot_id, b.exit_reason or "exit_signal", b.close_date))
+    out = []
+    for tid, pair, side, bot_id, reason, closed in rows:
+        log.warning("[acc %s] missed exit: the bot closed %s %s at %s, ours is still open; closing now",
+                    acc_id, pair, side, closed)
+        sig = Signal(action=f"close_{side}", symbol=pair.replace("/", ""), pair=pair, close_fraction=1.0,
+                     exit_reason=f"{reason} (missed, closed later)"[:80], id=f"missed-{tid}-{time.time()}")
+        res = await run_for_account(acc_id, sig, pair, None, bot_id)
+        out.append({"trade_id": tid, "pair": pair, "status": res.status, "message": res.message})
+    return out
+
+
+async def _auto_reconcile(acc_id: int) -> None:
+    """Every RECON_EVERY s: refresh the reconciliation summary (the admin's badges), without deciding anything."""
+    now = time.monotonic()
+    if now - _last_recon.get(acc_id, -1e9) < RECON_EVERY:
+        return
+    _last_recon[acc_id] = now
+    from . import reconcile
+    await reconcile.compare(acc_id)
+
+
 async def loop() -> None:
     from .positions import can_scan
     from .ratelimit import prio
@@ -188,12 +238,13 @@ async def loop() -> None:
                 ids = [a.id for a in s.scalars(select(ExchangeAccount).where(ExchangeAccount.enabled.is_(True)))
                        if can_scan(a)]
             for acc_id in ids:
-                try:
-                    await check_account(acc_id)
-                except asyncio.CancelledError:
-                    raise
-                except Exception as e:
-                    log.info("[acc %s] external-close check skipped: %s", acc_id, e)
+                for job in (check_account, missed_exits, _auto_reconcile):  # closed outside / missed exits / summary
+                    try:
+                        await job(acc_id)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as e:
+                        log.info("[acc %s] %s skipped: %s", acc_id, job.__name__, e)
                 await asyncio.sleep(1)
         except asyncio.CancelledError:
             raise

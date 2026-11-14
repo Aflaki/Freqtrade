@@ -395,3 +395,78 @@ def test_reconcile_never_decides_on_an_unreadable_exchange(env, monkeypatch):
     assert "closed" in msg
     last = fx.FakeExchange.instances[-1].orders[-1]
     assert last["symbol"] == "ETH/USDT:USDT" and last["params"].get("reduceOnly")
+
+
+def test_admin_closes_another_users_position_from_reconciliation(env):
+    """Seen live: after reconciliation became an admin tool, "close now" on another user's portfolio silently did
+    nothing (the close still required the clicker to own the trade)."""
+    import datetime as dt
+
+    from app.engine import livepos, reconcile
+    c, csrf, acc_id, bot_id = env
+    with SessionLocal() as s:
+        owner = User(email="pos-owner@x.com", name="O", password_hash="x", status="active", lang="en")
+        s.add(owner)
+        s.commit()
+        acc = s.get(ExchangeAccount, acc_id)
+        acc.enabled, acc.user_id = True, owner.id
+        tr = Trade(user_id=owner.id, account_id=acc_id, bot_id=bot_id, ft_trade_id=306, pair="ETH/USDT",
+                   symbol="ETH/USDT:USDT", side="short", status="open", amount=0.5, entry_price=2900.0, stake=290.0,
+                   leverage=5, opened_at=dt.datetime.now(dt.UTC).replace(tzinfo=None) - dt.timedelta(hours=5))
+        s.add(tr)
+        s.commit()
+        tid, oid = tr.id, owner.id
+    monitor.live[bot_id] = {"at": dt.datetime.now(), "error": "", "trades": []}
+    fx.FakeExchange.positions = [pos("ETH/USDT:USDT", "short", 0.5, 2900.0)]
+    livepos._cache.clear()
+    try:
+        res = run(reconcile.compare(acc_id))
+        r = next(x for x in res["diffs"] if x["pair"] == "ETH/USDT")
+        assert r["kind"] == "exch_only" and r["trade_id"] == tid
+        out = c.post(f"/accounts/{acc_id}/reconcile", data={"csrf": csrf, f"r__{r['key']}": "close"},
+                     headers={"X-Requested-With": "fetch"}).json()
+        assert out["failed"] == 0 and any("closed" in ln["text"] for ln in out["lines"]), out
+        with SessionLocal() as s:
+            assert s.get(Trade, tid).status == "closed"
+    finally:
+        with SessionLocal() as s:
+            s.get(ExchangeAccount, acc_id).user_id = s.query(User).filter_by(email="pos-u@x.com").one().id
+            s.query(Trade).filter_by(user_id=oid).delete()
+            s.query(User).filter_by(id=oid).delete()
+            s.commit()
+
+
+def test_missed_exit_is_closed_automatically(env, monkeypatch):
+    """Seen live: the bot exited NEAR, our exit hit a timeout, the position stayed open on the exchange. The
+    periodic check sees the bot's trade closed while ours is open and closes it."""
+    import datetime as dt
+
+    from app.db import BotTrade
+    from app.engine import external
+    c, csrf, acc_id, bot_id = env
+    now = dt.datetime.now(dt.UTC).replace(tzinfo=None)
+    with SessionLocal() as s:
+        acc = s.get(ExchangeAccount, acc_id)
+        acc.enabled = True
+        tr = Trade(user_id=acc.user_id, account_id=acc_id, bot_id=bot_id, ft_trade_id=307, pair="ETH/USDT",
+                   symbol="ETH/USDT:USDT", side="short", status="open", amount=0.5, entry_price=2900.0, stake=290.0,
+                   leverage=5, opened_at=now - dt.timedelta(hours=8))
+        s.add_all([tr, BotTrade(bot_id=bot_id, ft_trade_id=307, pair="ETH/USDT", side="short", leverage=5,
+                                is_open=False, open_date=now - dt.timedelta(hours=8),
+                                close_date=now - dt.timedelta(minutes=10), exit_reason="trailing_stop_loss")])
+        s.commit()
+        tid = tr.id
+    fx.FakeExchange.positions = [pos("ETH/USDT:USDT", "short", 0.5, 2900.0)]
+    try:
+        out = run(external.missed_exits(acc_id))
+        assert [o["status"] for o in out] == ["closed"], out
+        with SessionLocal() as s:
+            t = s.get(Trade, tid)
+            assert t.status == "closed" and "missed" in t.exit_reason
+        last = fx.FakeExchange.instances[-1].orders[-1]
+        assert last["side"] == "buy" and last["params"].get("reduceOnly")
+        assert run(external.missed_exits(acc_id)) == []  # nothing left
+    finally:
+        with SessionLocal() as s:
+            s.query(BotTrade).filter_by(bot_id=bot_id, ft_trade_id=307).delete()
+            s.commit()
