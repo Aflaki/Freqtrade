@@ -1,17 +1,32 @@
-{% extends "base.html" %}{% from "_logs.html" import exec_table, note_table with context %}{% block content %}
+{% extends "base.html" %}{% from "_logs.html" import exec_table, note_table with context %}{% block title %}{{ _('adm_logs') }} · {{ site.site_name }}{% endblock %}{% block content %}
 <h1>{{ _('nav_admin') }}</h1>{% include "admin/_nav.html" %}
 <div class="pills">
-<a href="?kind=webhooks" class="{{ 'on' if kind=='webhooks' }}">{{ _('log_webhooks') }}</a>
-<a href="?kind=executions" class="{{ 'on' if kind=='executions' }}">{{ _('log_executions') }}</a>
-<a href="?kind=notifications" class="{{ 'on' if kind=='notifications' }}">{{ _('log_notifications') }}</a>
+{% for k, lbl in (('executions', 'log_executions'), ('notifications', 'log_notifications'), ('webhooks', 'log_webhooks')) %}
+<a href="?{{ qs(**dict(keep, kind=k, page=none)) }}" class="{{ 'on' if kind == k }}">{{ _(lbl) }}</a>{% endfor %}
 </div>
-<form method="get" class="sum"><input type="hidden" name="kind" value="{{ kind }}">
-{% if kind != 'webhooks' %}<select name="user" style="width:auto"><option value="">{{ _('all_users') }}</option>{% for id, em in emails.items() %}<option value="{{ id }}" {{ 'selected' if uid == id }}>{{ em }}</option>{% endfor %}</select>{% endif %}
-<select name="status" style="width:auto"><option value="">{{ _('all_statuses') }}</option>
-{% for st in ({'webhooks': ['accepted','ignored','duplicate','rejected'], 'executions': ['opened','added','partial','closed','skipped','error','none'], 'notifications': ['ok','failed']})[kind] %}<option {{ 'selected' if status == st }}>{{ st }}</option>{% endfor %}</select>
-<button class="sm">{{ _('filter') }}</button></form>
+<div class="filterbar lg-filters">
+<form method="get" class="fb-row" id="lgf"><input type="hidden" name="kind" value="{{ kind }}">
+  {% if kind != 'webhooks' %}
+  <label>{{ _('col_user') }} <select name="user" id="lg-user"><option value="">{{ _('all_users') }}</option>
+    {% for id, em in emails.items() %}<option value="{{ id }}" {{ 'selected' if uid == id }}>{{ em }}</option>{% endfor %}</select></label>
+  {% endif %}
+  {% if kind == 'executions' %}
+  <label>{{ _('col_portfolio') }} <select name="account" id="lg-acc"><option value="">{{ _('lg_all_portfolios') }}</option>
+    {% for id, u, ex, name, em in acc_opts %}<option value="{{ id }}" data-u="{{ u }}" {{ 'selected' if acc == id }}>{{ name }} · {{ em }}</option>{% endfor %}</select></label>
+  {% endif %}
+  {% if kind != 'notifications' %}
+  <label>{{ _('col_bot') }} <select name="bot"><option value="">{{ _('all_bots') }}</option>
+    {% for id, n in bot_names.items() %}<option value="{{ id }}" {{ 'selected' if bid == id }}>{{ n }}</option>{% endfor %}</select></label>
+  <label>{{ _('col_pair') }} <input type="text" name="pair" value="{{ pair }}" placeholder="BTC"></label>
+  {% endif %}
+  <label>{{ _('col_status') }} <select name="status"><option value="">{{ _('all_statuses') }}</option>
+    {% for st in ({'webhooks': ['accepted','ignored','duplicate','rejected'], 'executions': ['opened','added','partial','closed','skipped','error','none'], 'notifications': ['ok','failed']})[kind] %}<option {{ 'selected' if status == st }}>{{ st }}</option>{% endfor %}</select></label>
+  <button class="sm">{{ _('filter') }}</button>
+  {% if keep|length > 1 %}<a class="btn ghost sm" href="?kind={{ kind }}">✕ {{ _('fb_clear') }}</a>{% endif %}
+</form>
+</div>
 <div class="card">
-{% if kind == 'executions' %}{{ exec_table(rows, emails) }}
+{% if kind == 'executions' %}{{ exec_table(rows, emails, acc_names) }}
 {% elif kind == 'notifications' %}{{ note_table(rows, emails) }}
 {% else %}<div class="table-wrap"><table class="small">
 <tr><th>#</th><th>{{ _('col_time') }}</th><th>{{ _('col_bot') }}</th><th>IP</th><th>{{ _('col_type') }}</th><th>{{ _('col_status') }}</th><th>{{ _('col_action') }}</th><th>{{ _('col_pair') }}</th><th>{{ _('col_portfolios') }}</th><th>{{ _('col_result') }}</th><th>{{ _('col_details') }}</th></tr>
@@ -21,6 +36,15 @@
 <td><details><summary>JSON</summary><pre>{{ e.payload|tojson(indent=2) }}</pre></details></td></tr>
 {% else %}<tr><td colspan="11" class="muted">—</td></tr>{% endfor %}</table></div>{% endif %}
 </div>
-<p>{% if page > 1 %}<a class="btn ghost sm" href="?kind={{ kind }}&status={{ status }}&user={{ uid or '' }}&page={{ page - 1 }}">←</a>{% endif %}
-{% if more %}<a class="btn ghost sm" href="?kind={{ kind }}&status={{ status }}&user={{ uid or '' }}&page={{ page + 1 }}">→</a>{% endif %}</p>
+<p>{% if page > 1 %}<a class="btn ghost sm" href="?{{ qs(**dict(keep, page=page - 1)) }}">←</a>{% endif %}
+{% if more %}<a class="btn ghost sm" href="?{{ qs(**dict(keep, page=page + 1)) }}">→</a>{% endif %}</p>
+<script>
+(() => {  // a user narrows the portfolio list to theirs; any change applies at once
+  const f = document.getElementById('lgf'), u = document.getElementById('lg-user'), a = document.getElementById('lg-acc');
+  const narrow = () => { if (!u || !a) return; [...a.options].forEach(o => { if (o.value) o.hidden = !!u.value && o.dataset.u !== u.value; });
+    if (a.selectedOptions[0] && a.selectedOptions[0].hidden) a.value = ''; };
+  narrow();
+  f.querySelectorAll('select').forEach(s => s.addEventListener('change', () => { if (s === u) narrow(); f.submit(); }));
+})();
+</script>
 {% endblock %}

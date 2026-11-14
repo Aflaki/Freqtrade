@@ -90,3 +90,31 @@ def test_whole_account_and_a_card_per_portfolio(mine):
     assert f'class="dcard open" data-key="a{a1}"' in html and html.count('id="softzone"') == 1
     zone = html.split('id="softzone"', 1)[1]
     assert 'data-tab="trades"' in zone and "+15.00" in zone
+
+
+def test_logs_are_for_admins_only(mine):
+    """The users don't see logs; the admin sees them all, narrowed by user, portfolio, bot, pair and status."""
+    from app.db import ExecutionLog
+    c, (uid, a1, a2, b1, b2) = mine
+    assert 'href="/activity"' not in c.get("/dashboard").text
+    r = c.get("/activity", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/dashboard"
+    assert c.get("/admin/logs").status_code == 403
+    with SessionLocal() as s:
+        s.add_all([ExecutionLog(user_id=uid, account_id=a1, action="entry", pair="BTC/USDT", status="opened", message="log-in-main"),
+                   ExecutionLog(user_id=uid, account_id=a2, action="entry", pair="ETH/USDT", status="error", message="log-in-sig")])
+        s.commit()
+    adm, _ = login("logs-admin@x.com", admin=True)
+    assert adm.get("/activity", follow_redirects=False).headers["location"].startswith("/admin/logs")
+    html = adm.get("/admin/logs").text  # executions first, with the portfolio
+    assert "log-in-main" in html and "log-in-sig" in html and "dash-main" in html
+    html = adm.get(f"/admin/logs?kind=executions&account={a1}").text
+    assert "log-in-main" in html and "log-in-sig" not in html
+    assert f'value="{uid}" selected' in html  # the portfolio's owner is picked too
+    html = adm.get(f"/admin/logs?kind=executions&user={uid}&pair=eth").text
+    assert "log-in-sig" in html and "log-in-main" not in html
+    html = adm.get(f"/admin/logs?kind=executions&status=error").text
+    assert "log-in-sig" in html and "log-in-main" not in html
+    with SessionLocal() as s:
+        s.query(ExecutionLog).filter(ExecutionLog.user_id == uid).delete()
+        s.commit()

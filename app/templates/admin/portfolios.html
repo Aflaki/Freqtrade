@@ -26,6 +26,7 @@
   <span class="muted">{{ _('ap_recon_line', bot=rs.get('bot', 0), ex=rs.get('exchange', 0)) }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
 <td>{{ opened.get(a.id, 0) }}</td>
 <td class="nowrap"><button type="button" class="ghost sm" data-one="test">🔌</button>
+  <a class="btn ghost sm" href="/admin/logs?kind=executions&account={{ a.id }}" title="{{ _('lg_of_portfolio') }}">📜</a>
   {% if not a.is_spot and not a.dry_run %}<button type="button" class="ghost sm" data-one="recon">⚖️</button>
   <a class="btn ghost sm" href="/accounts/{{ a.id }}/positions#recon" title="{{ _('ap_open_page') }}">{{ _('ap_decide') }} →</a>{% endif %}</td>
 </tr>{% endfor %}
@@ -37,7 +38,7 @@
   <label>{{ _('f_exchange') }} <select name="ex">{% for k, v in EXCHANGES.items() %}<option value="{{ k }}" {{ 'selected' if avail and avail.ex == k }}>{{ v }}</option>{% endfor %}</select></label>
   <label>{{ _('f_market') }} <select name="mode"><option value="futures" {{ 'selected' if avail and avail.mode == 'futures' }}>{{ _('mkt_futures') }}</option>
     <option value="spot" {{ 'selected' if avail and avail.mode == 'spot' }}>{{ _('mkt_spot') }}</option></select></label>
-  <label>{{ _('f_quote') }} <input name="quote" value="{{ avail.quote if avail else '' }}" placeholder="USDC" style="width:90px"></label>
+  <label>{{ _('f_quote') }} <input type="text" name="quote" value="{{ avail.quote if avail else '' }}" placeholder="USDC" style="width:90px"></label>
   <button class="sm">{{ _('ap_avail_check') }}</button>
 </form>
 {% if avail %}

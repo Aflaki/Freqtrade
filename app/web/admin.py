@@ -289,37 +289,58 @@ async def admin_performance_action(request: Request):
 # ------------------------------------------------------------------ logs
 @router.get("/logs")
 async def admin_logs(request: Request):
+    """Every log in one place, narrowed by user, portfolio, bot, pair and status. Only admins see logs."""
     require_admin(request)
     qp = request.query_params
-    kind = qp.get("kind", "webhooks")
+    kind = qp.get("kind", "executions")
     page = max(1, int(qp.get("page", "1") or 1))
-    uid = int(qp["user"]) if qp.get("user", "").isdigit() else None
-    status = qp.get("status", "")
+    num = lambda k: int(qp[k]) if qp.get(k, "").isdigit() else None
+    uid, acc, bid = num("user"), num("account"), num("bot")
+    status, pair = qp.get("status", ""), qp.get("pair", "").strip().upper()
     with SessionLocal() as s:
-        if kind == "executions":
-            q = select(ExecutionLog).order_by(ExecutionLog.id.desc())
-            if uid:
-                q = q.where(ExecutionLog.user_id == uid)
-            if status:
-                q = q.where(ExecutionLog.status == status)
-            if qp.get("event", "").isdigit():
-                q = q.where(ExecutionLog.webhook_event_id == int(qp["event"]))
-        elif kind == "notifications":
+        accs = s.scalars(select(ExchangeAccount).order_by(ExchangeAccount.user_id, ExchangeAccount.id)).all()
+        if acc:
+            a = next((x for x in accs if x.id == acc), None)
+            uid = a.user_id if a else uid  # a portfolio belongs to one user
+        if kind == "notifications":
             q = select(NotificationLog).order_by(NotificationLog.id.desc())
             if uid:
                 q = q.where(NotificationLog.user_id == uid)
             if status in ("ok", "failed"):
                 q = q.where(NotificationLog.ok.is_(status == "ok"))
-        else:
-            kind = "webhooks"
+        elif kind == "webhooks":
             q = select(WebhookEvent).order_by(WebhookEvent.id.desc())
             if status:
                 q = q.where(WebhookEvent.status == status)
+            if bid:
+                q = q.where(WebhookEvent.bot_id == bid)
+            if pair:
+                q = q.where(WebhookEvent.pair.contains(pair))
+        else:
+            kind = "executions"
+            q = select(ExecutionLog).order_by(ExecutionLog.id.desc())
+            if uid:
+                q = q.where(ExecutionLog.user_id == uid)
+            if acc:
+                q = q.where(ExecutionLog.account_id == acc)
+            if status:
+                q = q.where(ExecutionLog.status == status)
+            if pair:
+                q = q.where(ExecutionLog.pair.contains(pair))
+            if qp.get("event", "").isdigit():
+                q = q.where(ExecutionLog.webhook_event_id == int(qp["event"]))
+            if bid:
+                ev = select(WebhookEvent.id).where(WebhookEvent.bot_id == bid)
+                q = q.where(ExecutionLog.webhook_event_id.in_(ev))
         rows = s.scalars(q.offset((page - 1) * PAGE).limit(PAGE + 1)).all()
-        emails = {u.id: u.email for u in s.scalars(select(User))}
-        bot_names = {b.id: b.name for b in s.scalars(select(Bot))}
+        emails = {u.id: u.email for u in s.scalars(select(User).order_by(User.email))}
+        bot_names = {b.id: b.name for b in s.scalars(select(Bot).order_by(Bot.name))}
+        acc_names = {a.id: a.label or EXCHANGES.get(a.exchange, a.exchange) for a in accs}
+        acc_opts = [(a.id, a.user_id, a.exchange, acc_names[a.id], emails.get(a.user_id, "?")) for a in accs]
+    keep = {k: v for k, v in (("kind", kind), ("user", uid), ("account", acc), ("bot", bid), ("status", status), ("pair", pair)) if v}
     return render(request, "admin/logs.html", bot_names=bot_names, kind=kind, rows=rows[:PAGE], more=len(rows) > PAGE, page=page,
-                  uid=uid, status=status, emails=emails, tab="logs")
+                  uid=uid, acc=acc, bid=bid, pair=pair, status=status, emails=emails, acc_names=acc_names, acc_opts=acc_opts,
+                  keep=keep, tab="logs")
 
 
 @router.get("/trades")

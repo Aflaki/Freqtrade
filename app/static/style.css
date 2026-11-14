@@ -388,3 +388,8 @@ tr.catrow.cat-off{display:none !important}
   background:linear-gradient(var(--card),var(--card)),var(--bg);box-shadow:0 12px 30px rgba(0,0,0,.25)}
 .acc-alerts{padding:0 14px}.acc-alerts .flash{margin:6px 0}
 .dcard:not(.open)>.acc-body{display:none}.acc-body{padding:4px 14px 12px}
+/* admin logs: filters side by side, each with its label above */
+.lg-filters .fb-row{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}
+.lg-filters label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);margin:0}
+.lg-filters select,.lg-filters input{width:auto;min-width:130px;margin:0}
+.lg-filters input[name=pair]{width:110px!important;min-width:0}

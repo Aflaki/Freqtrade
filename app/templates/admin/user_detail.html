@@ -39,6 +39,6 @@ Telegram: {{ ('@' ~ u.telegram_username) if u.telegram_username else (u.telegram
 {% for t in trades %}<tr><td>{{ t.id }}</td><td class="mono">{{ t.pair }}</td><td>{{ t.side|upper }}</td><td>{{ _('status_' ~ t.status) }}</td><td>{{ t.entry_price|price }}</td><td>{{ t.exit_price|price }}</td>
 <td>{{ t.stake|money }}</td><td class="{{ 'pos' if t.realized_pnl >= 0 else 'neg' }}">{{ t.realized_pnl|signed }}</td><td class="muted">{{ t.opened_at|lt('%m-%d %H:%M') }}</td></tr>{% endfor %}
 </table></div></div>
-<div class="card"><h2>{{ _('log_executions') }}</h2>{{ exec_table(execs) }}</div>
+<div class="card"><h2>{{ _('log_executions') }} <a class="btn ghost sm" href="/admin/logs?kind=executions&user={{ u.id }}">{{ _('lg_all') }} →</a></h2>{{ exec_table(execs) }}</div>
 <div class="card"><h2>{{ _('log_notifications') }}</h2>{{ note_table(notes) }}</div>
 {% endblock %}

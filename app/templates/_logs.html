@@ -1,12 +1,13 @@
-{% macro exec_table(rows, emails=None) %}<div class="table-wrap"><table class="small">
-<tr><th>#</th><th>{{ _('col_time') }}</th>{% if emails %}<th>{{ _('col_user') }}</th>{% endif %}<th>{{ _('col_action') }}</th><th>{{ _('col_pair') }}</th><th>{{ _('col_status') }}</th><th>{{ _('col_message') }}</th><th>ms</th><th>{{ _('col_details') }}</th></tr>
+{% macro exec_table(rows, emails=None, accs=None) %}<div class="table-wrap"><table class="small">
+<tr><th>#</th><th>{{ _('col_time') }}</th>{% if emails %}<th>{{ _('col_user') }}</th>{% endif %}{% if accs %}<th>{{ _('col_portfolio') }}</th>{% endif %}<th>{{ _('col_action') }}</th><th>{{ _('col_pair') }}</th><th>{{ _('col_status') }}</th><th>{{ _('col_message') }}</th><th>ms</th><th>{{ _('col_details') }}</th></tr>
 {% for e in rows %}<tr><td>{{ e.id }}</td><td class="muted">{{ e.created_at|lt('%m-%d %H:%M:%S') }}</td>
-{% if emails %}<td class="mono"><a href="/admin/users/{{ e.user_id }}">{{ emails.get(e.user_id, '-') }}</a></td>{% endif %}
+{% if emails %}<td class="mono"><a href="?{{ qs(kind='executions', user=e.user_id) }}">{{ emails.get(e.user_id, '-') }}</a></td>{% endif %}
+{% if accs %}<td>{% if e.account_id %}<a href="?{{ qs(kind='executions', account=e.account_id) }}">{{ accs.get(e.account_id, '#' ~ e.account_id) }}</a>{% endif %}</td>{% endif %}
 <td>{{ e.action }}</td><td class="mono">{{ e.pair }}</td>
 <td><span class="badge {{ 'ok' if e.status in ('opened','added','closed','partial') else 'err' if e.status == 'error' else 'warn' if e.status == 'skipped' else '' }}">{{ e.status }}</span></td>
 <td style="white-space:normal;min-width:220px">{{ e.message }}</td><td>{{ e.duration_ms }}</td>
 <td>{% if e.calls %}<details><summary>{{ e.calls|length }} {{ _('calls') }}</summary><pre>{{ e.calls|tojson(indent=2) }}</pre></details>{% endif %}</td></tr>
-{% else %}<tr><td colspan="9" class="muted">—</td></tr>{% endfor %}</table></div>{% endmacro %}
+{% else %}<tr><td colspan="10" class="muted">—</td></tr>{% endfor %}</table></div>{% endmacro %}
 
 {% macro note_table(rows, emails=None) %}<div class="table-wrap"><table class="small">
 <tr><th>#</th><th>{{ _('col_time') }}</th>{% if emails %}<th>{{ _('col_user') }}</th>{% endif %}<th>{{ _('col_kind') }}</th><th>{{ _('col_status') }}</th><th>{{ _('col_message') }}</th></tr>

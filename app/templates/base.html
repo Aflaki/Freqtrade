@@ -25,10 +25,7 @@
   {% if user %}
   {{ item('/dashboard', 'grid', _('nav_dashboard'), p == '/dashboard') }}
   {{ item('/accounts', 'wallet', _('nav_portfolios'), p.startswith('/accounts')) }}
-  {% set rp_on = p == '/trades' or p == '/activity' %}
-  <details class="navmenu"><summary class="{{ 'on' if rp_on }}">{{ ic('list') }}<span class="lbl">{{ _('nav_reports') }}</span> ▾</summary><div class="menu">
-    {{ item('/trades', 'list', _('nav_trades'), p == '/trades') }}
-    {{ item('/activity', 'pulse', _('nav_activity'), p == '/activity') }}</div></details>
+  {{ item('/trades', 'list', _('nav_trades'), p == '/trades') }}
   <details class="navmenu"><summary class="{{ 'on' if mk_on }}">{{ ic('chart') }}<span class="lbl">{{ _('nav_market') }}</span> ▾</summary><div class="menu">
     {{ item('/', 'chart', _('nav_performance'), p == '/') }}
     {{ item('/compare', 'scale', _('nav_compare'), p == '/compare') }}

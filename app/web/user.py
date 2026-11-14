@@ -946,16 +946,11 @@ async def trades_close_all(request: Request):
     return RedirectResponse("/dashboard", 303)
 
 
-# ------------------------------------------------------------------ activity log (own)
+# ------------------------------------------------------------------ activity log: admins only, in the admin logs
 @router.get("/activity")
 async def activity(request: Request):
     user = require_user(request)
-    with SessionLocal() as s:
-        execs = s.scalars(select(ExecutionLog).where(ExecutionLog.user_id == user.id)
-                          .order_by(ExecutionLog.id.desc()).limit(100)).all()
-        notes = s.scalars(select(NotificationLog).where(NotificationLog.user_id == user.id)
-                          .order_by(NotificationLog.id.desc()).limit(100)).all()
-    return render(request, "activity.html", execs=execs, notes=notes)
+    return RedirectResponse("/admin/logs?kind=executions" if user.is_admin else "/dashboard", 303)
 
 
 # ------------------------------------------------------------------ settings / telegram
