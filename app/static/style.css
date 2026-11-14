@@ -91,8 +91,9 @@ table.sortable th{cursor:pointer;user-select:none}table.sortable th[data-dir=asc
 .legend i{display:inline-block;width:14px;height:3px;border-radius:2px}
 
 /* ---------- sticky filter bar (filters + applied chips + tabs) ---------- */
-.filterbar{position:sticky;top:var(--navh,52px);z-index:4;margin:6px -16px 14px;padding:10px 16px 0;
-  background:var(--nav);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
+.filterbar{position:sticky;top:calc(var(--navh,52px) + 6px);z-index:4;margin:6px 0 14px;padding:10px 14px 0;
+  background:linear-gradient(var(--card),var(--card)),var(--bg);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
 .fb-row{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center}
 .fb-scope{display:inline-flex;align-items:center;gap:6px;margin:0;font-weight:400;padding:0 0 0 10px;border:1px solid var(--line);
   border-radius:10px;background:var(--input)}
