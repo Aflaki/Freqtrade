@@ -83,7 +83,8 @@ def test_failed_connection_test_explains_and_links(monkeypatch):
     from app.web import user as uweb
     captcha.MIN_SECONDS = 0
     with SessionLocal() as s:
-        u = User(email="guide@x.com", name="G", password_hash=hash_password("Xy-12345678-zz"), status="active", lang="en")
+        u = User(email="guide@x.com", name="G", password_hash=hash_password("Xy-12345678-zz"), status="active", lang="en",
+                 is_admin=True)
         s.add(u)
         s.commit()
         acc = ExchangeAccount(user_id=u.id, exchange="binance", label="b", capital=100)

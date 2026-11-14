@@ -402,6 +402,7 @@ def test_execution_quality_against_the_bot(eur):
         from app.security import hash_password
         with SessionLocal() as s:
             s.get(User, uid).password_hash = hash_password("Xy-12345678-zz")
+            s.get(User, uid).is_admin = True  # execution quality is an admin page
             s.commit()
         c, _ = login("eur@x.com")
         page = c.get("/execution?days=30").text

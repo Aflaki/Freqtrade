@@ -16,9 +16,9 @@
   </h2>
   {% if r.same_key %}<div class="flash error">{{ _('warn_same_key', names=r.same_key) }}</div>{% endif %}
   {% set rs = a.recon_summary or {} %}
-  {% if rs.get('open') and a.enabled and not a.dry_run %}<div class="flash warn">{{ _('rc_banner', n=rs.open, bot=rs.bot, ex=rs.exchange) }} <a href="/accounts/{{ a.id }}/positions#recon">{{ _('pos_decide') }} →</a></div>{% endif %}
+  {% if user.is_admin and rs.get('open') and a.enabled and not a.dry_run %}<div class="flash warn">{{ _('rc_banner', n=rs.open, bot=rs.bot, ex=rs.exchange) }} <a href="/accounts/{{ a.id }}/positions#recon">{{ _('pos_decide') }} →</a></div>{% endif %}
   {% set und = a.undecided_positions %}
-  {% if und and a.enabled and not a.dry_run %}<div class="flash warn">{{ _('pos_banner', n=und|length) }} <a href="/accounts/{{ a.id }}/positions">{{ _('pos_decide') }} →</a></div>{% endif %}
+  {% if und and a.enabled and not a.dry_run %}<div class="flash warn">{{ _('pos_banner', n=und|length) }}{% if user.is_admin %} <a href="/accounts/{{ a.id }}/positions">{{ _('pos_decide') }} →</a>{% else %} {{ _('pos_admin_will') }}{% endif %}</div>{% endif %}
   <p class="small">🤖 {{ _('sec_bots') }}: <b>{{ r.bots|join(', ') or '—' }}</b></p>
   {% if not a.is_signal %}<p class="small muted">API: <span class="mono">{{ r.key }}</span>{% if a.last_check_msg %} — {{ a.last_check_msg }}{% endif %}</p>{% endif %}
   <div class="grid">
@@ -34,16 +34,16 @@
     <td>{{ p.stake|money }} {{ a.currency(gs.stake_currency) }}</td><td>{{ p.notional|money }} {{ a.currency(gs.stake_currency) }}</td></tr>{% endfor %}
   </table></div>
   <p>
-    {% if not a.is_signal %}<form class="inline" method="post" action="/accounts/{{ a.id }}/test"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="sm">{{ _('btn_test') }}</button></form>{% endif %}
+    {% if user.is_admin and not a.is_signal %}<form class="inline" method="post" action="/accounts/{{ a.id }}/test"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="sm">{{ _('btn_test') }}</button></form>{% endif %}
     <a class="btn ghost sm" href="/accounts/{{ a.id }}/edit">{{ _('btn_edit') }}</a>
-    {% if not a.is_signal and not a.is_spot and not a.dry_run %}<a class="btn sm" href="/accounts/{{ a.id }}/positions#recon">⚖️ {{ _('rc_btn') }}{% if (a.recon_summary or {}).get('open') %} <span class="badge warn">{{ a.recon_summary.open }}</span>{% endif %}</a>
+    {% if user.is_admin and not a.is_signal and not a.is_spot and not a.dry_run %}<a class="btn sm" href="/accounts/{{ a.id }}/positions#recon">⚖️ {{ _('rc_btn') }}{% if (a.recon_summary or {}).get('open') %} <span class="badge warn">{{ a.recon_summary.open }}</span>{% endif %}</a>
     <a class="btn ghost sm" href="/accounts/{{ a.id }}/positions">{{ _('pos_btn') }}{% if r.adopted %} ({{ r.adopted }}){% endif %}</a>{% endif %}
     <form class="inline" method="post" action="/accounts/{{ a.id }}/toggle"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost sm">{{ _('btn_disable') if a.enabled else _('btn_enable') }}</button></form>
     {% if r.open %}<details class="inline-details"><summary class="btn danger sm">{{ _('btn_delete') }}</summary>
     <div class="card small" style="margin-top:8px"><p>{{ _('del_open_q', n=r.open) }}</p>
     <form method="post" action="/accounts/{{ a.id }}/delete" onsubmit='return confirm({{ _('confirm_delete')|tojson }})'><input type="hidden" name="csrf" value="{{ csrf }}">
     <p><button class="danger sm" name="open" value="leave">{{ _('del_leave') }}</button> <span class="muted">{{ _('del_leave_help') }}</span></p>
-    <p><button class="danger sm ghost" name="open" value="close">{{ _('del_close') }}</button> <span class="muted">{{ _('del_close_help') }}</span></p></form></div></details>
+    {% if user.may_close %}<p><button class="danger sm ghost" name="open" value="close">{{ _('del_close') }}</button> <span class="muted">{{ _('del_close_help') }}</span></p>{% endif %}</form></div></details>
     {% else %}<form class="inline" method="post" action="/accounts/{{ a.id }}/delete" onsubmit='return confirm({{ _('confirm_delete')|tojson }})'><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger sm">{{ _('btn_delete') }}</button></form>{% endif %}
   </p>
 </div>

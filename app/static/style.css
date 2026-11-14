@@ -286,3 +286,4 @@ form.is-busy table{opacity:.5;pointer-events:none}
 .xq-filters{display:flex;flex-wrap:wrap;gap:12px;align-items:center}.xq-filters .seg{display:inline-flex;gap:4px;flex-wrap:wrap}
 .xq-filters select{width:auto;min-width:200px}.xq-table td{white-space:nowrap}
 span.num[dir=ltr]{unicode-bidi:isolate;display:inline-block}
+tr.catrow.cat-off{display:none !important}

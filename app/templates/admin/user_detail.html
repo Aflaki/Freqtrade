@@ -16,6 +16,9 @@ Telegram: {{ ('@' ~ u.telegram_username) if u.telegram_username else (u.telegram
 <div><label>{{ _('f_user_wallet_cap') }}</label><input type="number" step="any" min="1" max="100" name="max_wallet_pct" value="{{ '%g'|format(u.max_wallet_pct) if u.max_wallet_pct else '' }}" placeholder="{{ '%g'|format(gs.tradable_balance_ratio * 100) }} ({{ _('pc_default') }})">
 <div class="small muted">{{ _('f_user_wallet_cap_help') }}</div></div>
 <div style="align-self:end"><button>{{ _('btn_save') }}</button></div></form>
+<form method="post" action="/admin/users/{{ u.id }}" class="row"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="close_perm">
+<div><label class="check"><input type="checkbox" name="can_close" value="1" {{ 'checked' if u.can_close }} onchange="this.form.submit()"> {{ _('f_can_close') }}</label>
+<div class="small muted">{{ _('f_can_close_help') }}</div></div></form>
 <form method="post" action="/admin/users/{{ u.id }}" style="margin-top:10px"><input type="hidden" name="csrf" value="{{ csrf }}">
 {% if u.status != 'active' %}<button class="sm" name="action" value="approve">{{ _('btn_approve') }}</button>{% endif %}
 {% if u.status != 'suspended' %}<button class="sm danger" name="action" value="suspend">{{ _('btn_suspend') }}</button>{% endif %}

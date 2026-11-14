@@ -5,7 +5,7 @@
 <h1>🎯 {{ _('xq_title') }}</h1>
 <p class="muted">{{ _('xq_intro') }}</p>
 
-{% set base = '?acc=' ~ chosen ~ ('&all=1' if everyone else '') %}
+{% set base = '?acc=' ~ chosen ~ ('' if everyone else '&mine=1') %}
 <form method="get" class="card xq-filters"><input type="hidden" name="days" value="{{ days }}"><input type="hidden" name="side" value="{{ side }}">
   <label>{{ _('col_portfolio') }} <select name="acc" onchange="this.form.submit()"><option value="">{{ _('xq_all_portfolios') }}</option>
     {% for id, name in choices %}<option value="{{ id }}" {{ 'selected' if chosen == id|string }}>{{ name }}</option>{% endfor %}</select></label>
@@ -13,7 +13,7 @@
     <a class="btn sm {{ '' if days == d else 'ghost' }}" href="{{ base }}&days={{ d }}&side={{ side }}">{{ l }}</a>{% endfor %}</span>
   <span class="seg">{% for v, l in (('all', _('xq_both')), ('long', 'Long'), ('short', 'Short')) %}
     <a class="btn sm {{ '' if side == v else 'ghost' }}" href="{{ base }}&days={{ days }}&side={{ v }}">{{ l }}</a>{% endfor %}</span>
-  {% if user.is_admin %}<label class="check inline"><input type="checkbox" name="all" value="1" {{ 'checked' if everyone }} onchange="this.form.submit()"> {{ _('xq_everyone') }}</label>{% endif %}
+  <label class="check inline"><input type="checkbox" name="mine" value="1" {{ 'checked' if not everyone }} onchange="this.form.submit()"> {{ _('xq_only_mine') }}</label>
 </form>
 
 {% set T = rep.total %}
@@ -33,7 +33,7 @@
 
 {% if rep.accounts|length > 1 %}<div class="card"><h2>{{ _('xq_by_portfolio') }}</h2><div class="table-wrap"><table class="small">
 <tr><th>{{ _('col_portfolio') }}</th>{% if everyone %}<th>{{ _('col_user') }}</th>{% endif %}<th>{{ _('xq_trades') }}</th><th>{{ _('xq_slip_entry') }}</th><th>{{ _('xq_slip_exit') }}</th><th>{{ _('xq_delay') }}</th><th>{{ _('xq_ours') }}</th><th>{{ _('xq_bot') }}</th><th>{{ _('xq_result_diff') }}</th><th>{{ _('xq_better_worse_h') }}</th></tr>
-{% for a in rep.accounts %}<tr><td><a href="?acc={{ a.id }}&days={{ days }}&side={{ side }}{{ '&all=1' if everyone }}">{{ a.account }}</a>{% if a.exchange != a.account %} <span class="muted">{{ a.exchange }}</span>{% endif %}</td>{% if everyone %}<td class="small">{{ a.owner }}</td>{% endif %}
+{% for a in rep.accounts %}<tr><td><a href="?acc={{ a.id }}&days={{ days }}&side={{ side }}{{ '' if everyone else '&mine=1' }}">{{ a.account }}</a>{% if a.exchange != a.account %} <span class="muted">{{ a.exchange }}</span>{% endif %}</td>{% if everyone %}<td class="small">{{ a.owner }}</td>{% endif %}
 <td>{{ a.trades }}</td><td>{{ bps(a.slip_entry) }}</td><td>{{ bps(a.slip_exit) }}</td><td>{{ secs(a.delay_entry) }}</td><td>{{ pct(a.ours_pct) }}</td><td>{{ pct(a.bot_pct) }}</td><td>{{ pct(a.diff_pct) }}</td><td>{{ a.better }} / {{ a.worse }}</td></tr>{% endfor %}
 </table></div></div>{% endif %}
 

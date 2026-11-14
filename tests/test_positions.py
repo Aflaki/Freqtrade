@@ -36,7 +36,7 @@ def env(monkeypatch):
         s.add(b)
         s.commit()
         bot_id = b.id
-    c, csrf = login("pos-u@x.com")
+    c, csrf = login("pos-u@x.com", admin=True)  # reconciliation and the positions page are the admins' tools
     with SessionLocal() as s:
         u = s.query(User).filter_by(email="pos-u@x.com").one()
         acc = ExchangeAccount(user_id=u.id, kind="exchange", label="pos-1", exchange="binance", trading_mode="futures",

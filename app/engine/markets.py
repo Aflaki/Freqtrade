@@ -302,7 +302,13 @@ def missing(cache: dict | None = None) -> list[str]:
         gs = get_global(s)
         names = list(gs.allowed_exchanges or [])
         cache = cache if cache is not None else dict(gs.market_cache or {})
-    return [n for n in names if not ((cache.get(n) or {}).get("spot") or (cache.get(n) or {}).get("pairs"))]
+    out = []
+    for n in names:
+        c = cache.get(n) or {}
+        # spot for every exchange; perpetuals (per settle coin) too unless the exchange is spot only
+        if not c.get("spot") or (n not in exmod.SPOT_ONLY and not c.get("fut")):
+            out.append(n)
+    return out
 
 
 MISSING_RETRY_S = 600  # a newly allowed exchange is loaded within a minute; a failing one is retried every 10 min
@@ -312,7 +318,7 @@ _tried: dict[str, float] = {}
 async def loop() -> None:
     import time
     await asyncio.sleep(30)  # let the app start first
-    last_full = 0.0
+    last_full = -1e18  # the first round is a full refresh, whatever the machine's uptime
     while True:
         try:
             now = time.monotonic()

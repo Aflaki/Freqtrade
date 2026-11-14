@@ -74,6 +74,12 @@ class User(Base):
     notify: Mapped[dict[str, Any]] = mapped_column(JSON, default=lambda: dict(DEFAULT_NOTIFY))
     # the most of their wallet this user may put to work (%); None = the site default (GlobalSettings)
     max_wallet_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # may close (and, in reconciliation, open) positions by hand; admins always may
+    can_close: Mapped[bool] = mapped_column(default=False)
+
+    @property
+    def may_close(self) -> bool:
+        return bool(self.is_admin or self.can_close)
     last_notice_date: Mapped[str] = mapped_column(String(10), default="")
     accepted_terms_at: Mapped[dt.datetime | None] = mapped_column(nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(default=utcnow)

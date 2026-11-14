@@ -49,11 +49,13 @@ async def execution(request: Request):
     """Execution quality: each trade next to the bot's own (prices, delays, results). Users see their own
     portfolios; admins can see every portfolio."""
     user = require_user(request)
+    if not user.is_admin:
+        raise HTTPException(403)
     from ..engine import execquality
     qp = request.query_params
     days = {"7": 7, "30": 30, "90": 90, "all": None}.get(qp.get("days", "30"), 30)
     side = qp.get("side") if qp.get("side") in ("long", "short") else "all"
-    everyone = bool(user.is_admin and qp.get("all"))
+    everyone = qp.get("mine") != "1"  # admins see every portfolio unless they ask for their own
     with SessionLocal() as s:
         q = select(ExchangeAccount).where(ExchangeAccount.kind == "exchange")
         if not everyone:
@@ -195,6 +197,16 @@ def _disp(user_id: int, trades=None):
 def _own(s, user: User, acc_id: int) -> ExchangeAccount:
     acc = s.get(ExchangeAccount, acc_id)
     if acc is None or acc.user_id != user.id:
+        raise HTTPException(404)
+    return acc
+
+
+def _admin_acc(s, user: User, acc_id: int) -> ExchangeAccount:
+    """Reconciliation, connection tests and the positions page are the admins' tools, for any portfolio."""
+    if not user.is_admin:
+        raise HTTPException(403)
+    acc = s.get(ExchangeAccount, acc_id)
+    if acc is None:
         raise HTTPException(404)
     return acc
 
@@ -644,8 +656,11 @@ async def _after_activation(request: Request, acc_id: int) -> RedirectResponse:
         flash(request, tr(request, "pos_adopted_n", n=len(res["adopted"]),
                           pairs=", ".join(f"{p['pair']} {p['side'].upper()}" for p in res["adopted"])))
     if res["undecided"]:
-        flash(request, tr(request, "pos_ask_n", n=len(res["undecided"])), "warn")
-        return RedirectResponse(f"/accounts/{acc_id}/positions", 303)
+        user = current_user(request)
+        if user is not None and user.is_admin:
+            flash(request, tr(request, "pos_ask_n", n=len(res["undecided"])), "warn")
+            return RedirectResponse(f"/accounts/{acc_id}/positions", 303)
+        flash(request, tr(request, "pos_ask_admin", n=len(res["undecided"])), "warn")
     return RedirectResponse("/accounts", 303)
 
 
@@ -665,11 +680,13 @@ async def account_test(acc_id: int, request: Request):
     await form_with_csrf(request)
     with SessionLocal() as s:
         gs = get_global(s)
-        acc = _own(s, user, acc_id)
-        ok, msg = await test_connection(acc, gs.stake_currency)
+        acc = _admin_acc(s, user, acc_id)
+        ok, msg = await test_connection(acc, acc.currency(gs.stake_currency))
         acc.last_check_ok, acc.last_check_msg = ok, msg[:500]
         exchange = acc.exchange
         s.commit()
+    if request.headers.get("x-requested-with") == "fetch":
+        return JSONResponse({"ok": ok, "text": msg})
     flash(request, msg, "ok" if ok else "error")
     if not ok:  # say what the exchange's error means and how to fix it
         from .guides import explain, server_ip
@@ -702,14 +719,15 @@ async def account_positions(acc_id: int, request: Request):
     from ..engine import livepos
     from ..engine.positions import bot_trade, can_scan
     with SessionLocal() as s:
-        mine = list(s.scalars(select(Trade).where(Trade.account_id == acc_id, Trade.user_id == user.id,
+        _admin_acc(s, user, acc_id)
+        mine = list(s.scalars(select(Trade).where(Trade.account_id == acc_id,
                                                   Trade.status == "open", Trade.adopted.is_(True))))
     live = await livepos.for_trades(mine)  # also brings entry, size and open time in line with the exchange
     from ..engine import reconcile
     recon = await reconcile.compare(acc_id)
     with SessionLocal() as s:
         gs = get_global(s)
-        acc = _own(s, user, acc_id)
+        acc = _admin_acc(s, user, acc_id)
         if not can_scan(acc):
             raise HTTPException(404)
         bot_names = {b.id: b.name for b in s.scalars(select(Bot))}
@@ -735,7 +753,7 @@ async def account_reconcile(acc_id: int, request: Request):
     f = await form_with_csrf(request)
     from ..engine import reconcile
     with SessionLocal() as s:
-        _own(s, user, acc_id)
+        _admin_acc(s, user, acc_id)
     decisions = {k[3:]: str(v) for k, v in f.items() if k.startswith("r__") and str(v) in ("close", "keep", "open", "skip")}
     wants_json = request.headers.get("x-requested-with") == "fetch"
     lock = _recon_locks.setdefault(acc_id, asyncio.Lock())
@@ -771,7 +789,7 @@ async def account_positions_scan(acc_id: int, request: Request):
     await form_with_csrf(request)
     from ..engine.positions import sync_account
     with SessionLocal() as s:
-        _own(s, user, acc_id)
+        _admin_acc(s, user, acc_id)
     res = await sync_account(acc_id)
     if res["error"]:
         flash(request, tr(request, "pos_scan_failed", err=res["error"]), "error")
@@ -786,7 +804,7 @@ async def account_positions_decide(acc_id: int, request: Request):
     f = await form_with_csrf(request)
     from ..engine.positions import decide
     with SessionLocal() as s:
-        _own(s, user, acc_id)
+        _admin_acc(s, user, acc_id)
     decisions = {k[3:]: str(v) for k, v in f.items() if k.startswith("d__") and str(v) in ("close", "keep")}
     out = await decide(acc_id, decisions)
     for p in out["closed"]:
@@ -807,6 +825,9 @@ async def account_delete(acc_id: int, request: Request):
     with SessionLocal() as s:
         acc = _own(s, user, acc_id)
         open_ids = list(s.scalars(select(Trade.id).where(Trade.account_id == acc.id, Trade.status == "open")))
+    if open_ids and how == "close" and not user.may_close:
+        flash(request, tr(request, "err_no_close_perm"), "error")
+        return RedirectResponse("/accounts", 303)
     if open_ids and how == "close":
         for tid in open_ids:
             await force_exit(tid, user.id)
@@ -844,7 +865,14 @@ async def trades(request: Request):
 async def trade_close(trade_id: int, request: Request):
     user = require_user(request)
     await form_with_csrf(request)
-    out = await force_exit(trade_id, user.id)
+    if not user.may_close:
+        raise HTTPException(403)
+    owner = user.id
+    if user.is_admin:  # admins can close any user's position
+        with SessionLocal() as s:
+            t = s.get(Trade, trade_id)
+            owner = t.user_id if t else user.id
+    out = await force_exit(trade_id, owner)
     if out is None:
         flash(request, tr(request, "err_not_found"), "error")
     else:
@@ -856,6 +884,8 @@ async def trade_close(trade_id: int, request: Request):
 async def trades_close_all(request: Request):
     user = require_user(request)
     await form_with_csrf(request)
+    if not user.may_close:
+        raise HTTPException(403)
     with SessionLocal() as s:
         ids = list(s.scalars(select(Trade.id).where(Trade.user_id == user.id, Trade.status == "open")))
     done = 0

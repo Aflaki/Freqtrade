@@ -51,9 +51,9 @@
 <td class="tnum">{{ (t.amount * t.contract_size)|price }}</td><td class="tnum">{{ t.stake|money }} <span class="small muted">{{ t.currency }}</span></td><td>{{ t.leverage|int }}x</td>
 <td class="tnum" data-k="liq">{{ L.get('liq')|price if L.get('liq') else '—' }}</td><td class="tnum">{{ t.sl_price|price }}</td>
 <td class="small muted">{{ t.opened_at|lt('%Y-%m-%d %H:%M') }}</td>
-<td><form class="inline" method="post" action="/trades/{{ t.id }}/close" onsubmit='return confirm({{ _('confirm_close')|tojson }})'><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger sm">{{ _('btn_close') }}</button></form></td></tr>{% endfor %}
+<td>{% if user.may_close %}<form class="inline" method="post" action="/trades/{{ t.id }}/close" onsubmit='return confirm({{ _('confirm_close')|tojson }})'><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger sm">{{ _('btn_close') }}</button></form>{% endif %}</td></tr>{% endfor %}
 </table></div>
-<form method="post" action="/trades/close-all" onsubmit='return confirm({{ _('confirm_close_all')|tojson }})' style="margin-top:10px"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger sm">{{ _('btn_close_all') }}</button></form>
+{% if user.may_close %}<form method="post" action="/trades/close-all" onsubmit='return confirm({{ _('confirm_close_all')|tojson }})' style="margin-top:10px"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger sm">{{ _('btn_close_all') }}</button></form>{% endif %}
 {% else %}<p class="muted">{{ _('no_open') }}</p>{% endif %}</div>
 </section>
 <script>

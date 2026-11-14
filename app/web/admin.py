@@ -73,6 +73,8 @@ async def admin_user_action(uid: int, request: Request):
             u.session_version = (u.session_version or 1) + 1
         elif action == "verify_email":
             u.email_verified = True
+        elif action == "close_perm":
+            u.can_close = bool(f.get("can_close"))
         elif action == "wallet_cap":
             raw = str(f.get("max_wallet_pct", "")).strip()
             try:

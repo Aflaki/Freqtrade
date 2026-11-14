@@ -143,6 +143,9 @@
 <td class="st" data-p="{{ p }}">-</td><td class="need" data-p="{{ p }}">-</td><td class="nt" data-p="{{ p }}">-</td></tr>{% endfor %}
 <tr><td></td><td><b>{{ _('total') }}</b></td><td colspan="6"></td><td class="pvcol"></td><td id="tot_st"><b>-</b></td><td></td><td id="tot_nt"><b>-</b></td></tr>
 </table></div>
+<details class="card small" id="catoff" hidden><summary><b>🚫 {{ _('pc_off_title') }}</b> <span class="badge" id="catoff_n">0</span></summary>
+<p class="muted">{{ _('pc_off_help') }}</p>
+<div class="table-wrap"><table class="small no-grid"><thead><tr><th>{{ _('col_pair') }}</th><th>{{ _('pc_off_why') }}</th></tr></thead><tbody id="catoff_body"></tbody></table></div></details>
 <p class="small" id="balline"></p>
 {% else %}
 <div class="table-wrap"><table class="pairs">
@@ -251,6 +254,7 @@
     const optOf=p=>{const sb=$(`.pb[data-p="${p}"]`); return sb&&sb.selectedOptions[0];};
     const plev=p=>{ if(spot) return 1; const o=optOf(p), fixed=o?parseInt(o.dataset.lev):0, blev=o?parseInt(o.dataset.blev):0;
       return Math.max(1,Math.min(fixed||blev||lev,maxLev)); };
+    const off=[];
     $$('.catrow').forEach(r=>{  // pairs the chosen exchange doesn't list
       const p=r.dataset.p, ex=JSON.parse(r.dataset.ex||'{}'), sp=JSON.parse(r.dataset.spot||'{}'), cb=r.querySelector('.pc');
       let listed, msg='';
@@ -267,8 +271,13 @@
         else { const known=exn in ex; listed=!known||ex[exn]!==null; if(!listed) msg=notListed.replace('{ex}',exName[exn]||exn); } }
       const note=r.querySelector('.exnote'); note.textContent=msg; note.className='small exnote '+(listed?'muted':'neg');
       if(!cb.disabled){ if(!listed){ cb.checked=false; } cb.dataset.blocked=listed?'':'1'; }
-      r.style.opacity=listed?'':'.55';
+      r.classList.toggle('cat-off', !listed);  // not tradable here: listed in the table below instead
+      if(!listed) off.push([p, msg]);
     });
+    const ob=$('#catoff_body'), oc=$('#catoff');
+    if(ob){ ob.innerHTML=''; off.forEach(([p,m])=>{ const tr=document.createElement('tr'), a=document.createElement('td'), b=document.createElement('td');
+        a.className='mono'; a.textContent=p; b.textContent=m||notListed.replace('{ex}',exName[exn]||exn); tr.append(a,b); ob.appendChild(tr); });
+      oc.hidden=!off.length; $('#catoff_n').textContent=off.length; }
     $$('.st').forEach(td=>{const p=td.dataset.p, cb=$(`.pc[data-p="${p}"]`); let s=0, on=sel.includes(p) && !(cb&&cb.dataset.blocked);
       if(on){ if(mode==='custom_amounts') s=val(p); else if(mode==='pair_weights') s=tw?cap*val(p)/tw:0;
         else if(mode==='wallet_pct') s=Math.max(wbal*wpct/100/mot, floor); else s=cap/mot; }
