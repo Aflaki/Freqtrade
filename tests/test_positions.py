@@ -354,3 +354,44 @@ def test_admin_portfolios_page(env):
     assert u.get(f"/accounts/{acc_id}/positions").status_code in (403, 404)
     assert u.get("/execution").status_code == 403
     assert "/execution" not in u.get("/dashboard").text
+
+
+def test_reconcile_never_decides_on_an_unreadable_exchange(env, monkeypatch):
+    """Seen live: the exchange's positions couldn't be read, an open NEAR short looked "only in our records",
+    and closing it closed only our record. Now nothing is shown or decided on an unreadable exchange, and a
+    record-only close checks the exchange first: if the position is there, it is closed for real."""
+    import datetime as dt
+
+    from app.engine import livepos, reconcile
+    c, csrf, acc_id, bot_id = env
+    with SessionLocal() as s:
+        acc = s.get(ExchangeAccount, acc_id)
+        acc.enabled = True
+        tr = Trade(user_id=acc.user_id, account_id=acc_id, bot_id=bot_id, ft_trade_id=305, pair="ETH/USDT",
+                   symbol="ETH/USDT:USDT", side="short", status="open", amount=0.5, entry_price=2900.0, stake=290.0,
+                   leverage=5, opened_at=dt.datetime.now(dt.UTC).replace(tzinfo=None) - dt.timedelta(hours=5))
+        s.add(tr)
+        s.commit()
+        tid = tr.id
+    monitor.live[bot_id] = {"at": dt.datetime.now(), "error": "", "trades": []}
+    fx.FakeExchange.positions = [pos("ETH/USDT:USDT", "short", 0.5, 2900.0)]
+    orig = fx.FakeExchange.fetch_positions
+
+    async def down(self, *a, **k):
+        raise exmod.ccxt.RequestTimeout("hyperliquid POST https://api.hyperliquid.xyz/info")
+    monkeypatch.setattr(fx.FakeExchange, "fetch_positions", down)
+    livepos._cache.clear()
+    res = run(reconcile.compare(acc_id))
+    assert res["unknown"] and res["diffs"] == []
+    page = c.get(f"/accounts/{acc_id}/positions").text
+    assert "be read (" in page and "all match" not in page.lower()
+    done = run(reconcile.act(acc_id, None, {f"ETH/USDT|short|record_only": "close"}))
+    assert done["failed"] and not done["closed"]
+    with SessionLocal() as s:
+        assert s.get(Trade, tid).status == "open"
+    # the exchange answers again; a record-only close of a position that IS there closes it on the exchange
+    monkeypatch.setattr(fx.FakeExchange, "fetch_positions", orig)
+    msg = run(reconcile._close_record(acc_id, tid))
+    assert "closed" in msg
+    last = fx.FakeExchange.instances[-1].orders[-1]
+    assert last["symbol"] == "ETH/USDT:USDT" and last["params"].get("reduceOnly")

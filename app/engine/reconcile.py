@@ -49,6 +49,9 @@ async def compare(acc_id: int, rest: bool = True) -> dict[str, Any]:
         for t in ours.values():
             s.expunge(t)
     st = await livepos.refresh(acc_id, max_age=10 if rest else livepos.MAX_AGE, rest=rest)  # the exchange itself
+    if st.get("error"):  # the exchange couldn't be read: no position would look like "not on the exchange"
+        return {"rows": [], "diffs": [], "bot_total": 0, "outside_bot": 0, "exchange_total": 0, "matched": 0,
+                "outside_exchange": 0, "error": st["error"], "unknown": True, "bots_stale": [], "open": 0}
     on_ex: dict[str, dict] = {}
     for p in st["rows"].values():
         on_ex.setdefault(p["pair"], p)
@@ -111,6 +114,13 @@ async def _close_record(acc_id: int, trade_id: int) -> str:
     try:
         async with pool.lock(acc_id):
             client = await pool.get(acc)
+            from .positions import normalize
+            held = [p for p in normalize(await client.positions(fresh=True)) if p["symbol"] == t.symbol and p["side"] == t.side]
+        if held:  # it IS on the exchange: close the position itself, not just our record
+            from .trader import force_exit
+            out = await force_exit(trade_id)
+            return f"{t.symbol}: {out.status if out else '?'} {out.message if out else ''}"
+        async with pool.lock(acc_id):
             res = await external._close_from_fills(client, acc, t)
         if res and res.get("price"):
             return res["message"]
@@ -138,6 +148,9 @@ async def act(acc_id: int, user_id: int, decisions: dict[str, str]) -> dict[str,
     res = await compare(acc_id)
     rows = {r["key"]: r for r in res.get("diffs", [])}
     done: dict[str, list] = {"closed": [], "opened": [], "kept": [], "failed": []}
+    if res.get("unknown"):  # nothing is decided on a view of the exchange we couldn't read
+        done["failed"].append({"pair": "—", "side": "", "error": f"exchange not readable: {res.get('error', '')}"})
+        return done
     ack: set[str] = set()
     for k, what in decisions.items():
         r = rows.get(k)

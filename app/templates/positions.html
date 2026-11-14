@@ -12,7 +12,8 @@
 <div class="stat"><div class="k">{{ _('rc_matched') }}</div><div class="v pos">{{ recon.matched }}</div></div>
 <div class="stat"><div class="k">{{ _('rc_diffs') }}</div><div class="v {{ 'neg' if recon.open else '' }}">{{ recon.diffs|length }}</div></div>
 </div>
-{% if recon.error %}<p class="small neg">{{ _('pos_scan_failed', err=recon.error) }}</p>{% endif %}
+{% if recon.unknown %}<div class="flash error">{{ _('rc_unreadable', err=recon.error) }}</div>
+{% elif recon.error %}<p class="small neg">{{ _('pos_scan_failed', err=recon.error) }}</p>{% endif %}
 {% if recon.bots_stale %}<p class="small warn">{{ _('rc_bot_stale') }}</p>{% endif %}
 <p class="small muted">{{ _('rcn_help') }}</p>
 {% if recon.diffs %}<form method="post" action="/accounts/{{ acc.id }}/reconcile" id="rcform"><input type="hidden" name="csrf" value="{{ csrf }}">
@@ -61,7 +62,7 @@
     }
   });
 })();</script>
-{% else %}<p class="pos">✔ {{ _('rc_all_matched') }}</p>{% endif %}</div>{% endif %}
+{% elif not recon.unknown %}<p class="pos">✔ {{ _('rc_all_matched') }}</p>{% endif %}</div>{% endif %}
 
 <div class="card" id="adopted"><h2>🤝 {{ _('pos_adopted_title') }} <span class="badge">{{ adopted|length }}</span></h2>
 <p class="small muted">{{ _('pos_adopted_help') }}</p>
