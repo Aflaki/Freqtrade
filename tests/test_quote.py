@@ -449,3 +449,46 @@ def test_hyperliquid_unfilled_exit_keeps_the_trade_open(eur, monkeypatch):
     with SessionLocal() as s:
         tr = s.query(Trade).filter_by(account_id=acc_id, pair="BTC/USDT").one()
         assert tr.status == "open" and tr.closed_amount == 0
+
+
+class FakeHLSlow(FakeHL):
+    """Hyperliquid's info endpoint timing out for a while (seen live on a NEAR exit)."""
+    timeouts = 0
+
+    async def create_order(self, symbol, type_, side, amount, price, params):
+        if params.get("reduceOnly") and FakeHLSlow.timeouts > 0:
+            FakeHLSlow.timeouts -= 1
+            raise exmod.ccxt.RequestTimeout("hyperliquid POST https://api.hyperliquid.xyz/info")
+        return await FakeHL.create_order(self, symbol, type_, side, amount, price, params)
+
+
+def test_exit_retried_after_network_errors(eur, monkeypatch):
+    import app.engine.trader as trader
+    acc_id, bot_id, _ = eur
+    monkeypatch.setattr(exmod.ccxt, "hyperliquid", FakeHLSlow)
+    monkeypatch.setattr(trader, "EXIT_RETRY_WAITS", (0, 0))
+    monkeypatch.setattr(trader, "EXIT_RETRY_EVERY", 0)
+    FakeHL.fills_log, FakeHLSlow.timeouts = [], 0
+    with SessionLocal() as s:
+        gs = get_global(s)
+        gs.allowed_exchanges = ["binance", "hyperliquid"]
+        acc = s.get(ExchangeAccount, acc_id)
+        acc.exchange, acc.trading_mode, acc.quote, acc.capital = "hyperliquid", "futures", "USDC", 900
+        acc.pairs, acc.pair_bot = {"BTC/USDT": 1.0}, {"BTC/USDT": bot_id}
+        s.commit()
+    fx.FakeExchange.positions = []
+
+    def sig(action, n, **kw):
+        return asyncio.run(dispatch(Signal(action=action, symbol="BTCUSDT", pair="BTC/USDT", ft_trade_id=n,
+                                           id=f"slow-{action}-{n}-{FakeHLSlow.timeouts}", **kw), None, bot_id))
+    assert [o.status for o in sig("short", 51, leverage=3)] == ["opened"]
+    FakeHLSlow.timeouts = 2  # two timeouts, then it answers: closed by the quick retries
+    assert [o.status for o in sig("close_short", 51)] == ["closed"]
+    assert [o.status for o in sig("short", 52, leverage=3)] == ["opened"]
+    FakeHLSlow.timeouts = 5  # still failing after the quick retries: kept and placed again in the background
+    assert [o.status for o in sig("close_short", 52)] == ["error"]
+    assert (acc_id, "BTC/USDT") in trader._pending_exits
+    asyncio.run(trader.retry_pending_exits())
+    with SessionLocal() as s:
+        assert s.query(Trade).filter_by(account_id=acc_id, ft_trade_id=52).one().status == "closed"
+    assert (acc_id, "BTC/USDT") not in trader._pending_exits

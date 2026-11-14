@@ -164,9 +164,22 @@ async def _close_from_fills(client, acc: ExchangeAccount, tr: Trade) -> dict | N
     return {"trade_id": tr.id, "pair": tr.pair, "reason": reason, "price": price, "pnl": pnl, "message": msg}
 
 
+async def _exit_retries() -> None:
+    from .trader import retry_pending_exits
+    while True:
+        await asyncio.sleep(60)
+        try:
+            await retry_pending_exits()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("exit retries failed")
+
+
 async def loop() -> None:
     from .positions import can_scan
     from .ratelimit import prio
+    asyncio.get_running_loop().create_task(_exit_retries())
     await asyncio.sleep(90)
     prio.set("background")
     while True:

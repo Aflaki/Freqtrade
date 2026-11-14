@@ -165,7 +165,7 @@ class ExchangeClient:
         if klass is None:
             raise ValueError(f"exchange '{acc.exchange}' is not supported")
         # no fetchCurrencies: a private wallet call on every market load, not needed for futures orders
-        params = {"enableRateLimit": True, "timeout": 15000,
+        params = {"enableRateLimit": True, "timeout": 30000 if klass_id == "hyperliquid" else 15000,
                   "options": options_for(klass_id, defaultType=default_type, fetchCurrencies=False)}
         params.update(credentials(acc.exchange, decrypt(acc.api_key_enc), decrypt(acc.secret_enc),
                                   decrypt(acc.password_enc)))

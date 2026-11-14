@@ -27,6 +27,7 @@ class Outcome:
     account_id: int
     status: str  # opened | added | adopted | closed | partial | skipped | error | none
     message: str = ""
+    network: bool = False  # failed on the network (timeout, exchange not answering): an exit is retried
 
 
 def _acc_name(acc: ExchangeAccount) -> str:
@@ -39,8 +40,70 @@ def _side(side: str) -> str:
     return "🟢 LONG" if side == "long" else "🔴 SHORT"
 
 
+EXIT_RETRY_WAITS = (2, 5, 10)        # seconds between quick retries of an exit after a network error
+EXIT_RETRY_EVERY = 60                # then in the background, this often...
+EXIT_RETRY_FOR = 3600                # ...for up to this long
+_pending_exits: dict[tuple[int, str], dict] = {}  # (account, pair) -> the exit signal still to be placed
+
+
 async def run_for_account(account_id: int, sig: Signal, pair: str, event_id: int | None = None,
                           bot_id: int | None = None) -> Outcome:
+    """Entries run once. An exit that fails on the network (a timeout, the exchange not answering) is retried: its
+    order is reduce-only, so a retry can never open or double a position."""
+    import asyncio
+    exit_ = sig.action not in ("long", "short")
+    waits = EXIT_RETRY_WAITS if exit_ else ()
+    for attempt in range(len(waits) + 1):
+        out = await _run_once(account_id, sig, pair, event_id, bot_id)
+        if not (exit_ and out.status == "error" and out.network):
+            break
+        if attempt < len(waits):
+            log.info("[acc %s] exit %s: %s, again in %ss", account_id, pair, out.message[:120], waits[attempt])
+            await asyncio.sleep(waits[attempt])
+    if exit_ and out.status == "error" and out.network:  # still failing: keep trying in the background
+        key = (account_id, pair)
+        if key not in _pending_exits:
+            _tell(account_id, pair, "tg_exit_retry", out.message)
+        first = _pending_exits.get(key, {}).get("since", time.time())
+        _pending_exits[key] = {"sig": sig, "bot_id": bot_id, "since": first, "next": time.time() + EXIT_RETRY_EVERY}
+    elif exit_:
+        _pending_exits.pop((account_id, pair), None)
+    return out
+
+
+def _tell(account_id: int, pair: str, key: str, err: str) -> None:
+    with SessionLocal() as s:
+        acc = s.get(ExchangeAccount, account_id)
+        user = s.get(User, acc.user_id) if acc else None
+        if user is None:
+            return
+        bot.notify(user, "errors", t(user.lang, "tg_error", acc=esc(_acc_name(acc)), pair=esc(pair),
+                                     msg=esc(t(user.lang, key) + (f"\n{err[:200]}" if err else ""))))
+
+
+async def retry_pending_exits() -> None:
+    """Called every minute: exits that failed on the network are placed again until they succeed (or an hour)."""
+    now = time.time()
+    for key, p in list(_pending_exits.items()):
+        if p["next"] > now:
+            continue
+        if now - p["since"] > EXIT_RETRY_FOR:
+            _pending_exits.pop(key, None)
+            log.warning("[acc %s] gave up retrying the exit of %s after %ss", key[0], key[1], EXIT_RETRY_FOR)
+            _tell(key[0], key[1], "tg_exit_gave_up", "")
+            continue
+        with SessionLocal() as s:
+            still = s.scalar(select(func.count(Trade.id)).where(Trade.account_id == key[0], Trade.pair == key[1],
+                                                                Trade.status == "open"))
+        if not still:
+            _pending_exits.pop(key, None)
+            continue
+        p["next"] = now + EXIT_RETRY_EVERY
+        await run_for_account(key[0], p["sig"], key[1], None, p["bot_id"])
+
+
+async def _run_once(account_id: int, sig: Signal, pair: str, event_id: int | None = None,
+                    bot_id: int | None = None) -> Outcome:
     t0 = time.monotonic()
     client = None
     from .ratelimit import prio
@@ -67,6 +130,14 @@ async def run_for_account(account_id: int, sig: Signal, pair: str, event_id: int
                 out = _skip(acc, user, pair, t(user.lang, "why_funds", err=str(e)[:120]))
             except ValueError as e:
                 out = _skip(acc, user, pair, str(e))
+            except ccxt.NetworkError as e:  # timeout / exchange not answering: an exit is retried (see above)
+                log.warning("[acc %s] %s %s: network error %s", account_id, sig.action, pair, e)
+                msg = f"{type(e).__name__}: {str(e)[:200]}"
+                if sig.action in ("long", "short"):
+                    out = _error(s, acc, user, pair, msg)
+                else:  # the exit is retried; the user hears about it once, from run_for_account
+                    out = Outcome(acc.id, "error", msg)
+                out.network = True
             except Exception as e:
                 log.exception("[acc %s] %s %s failed", account_id, sig.action, pair)
                 out = _error(s, acc, user, pair, f"{type(e).__name__}: {str(e)[:200]}")
